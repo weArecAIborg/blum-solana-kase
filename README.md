@@ -17,6 +17,11 @@ It works for any fixed-rate bond: record day and time, payment time, time zone, 
 basis are bond parameters. The sample bond is the KASE listing's example (face 1,000, 10%, semi-annual, 2 years),
 serviced by the Kazakh depository's rules (record list at 09:00 Almaty on the payment day).
 
+**Deck and demo video:** [blum.caiborg.ai/deck.html](https://blum.caiborg.ai/deck.html) (17 slides in plain English,
+one per requirement of the listing, each claim linked to its devnet transaction, line of code and site page) and
+[blum.caiborg.ai/video.html](https://blum.caiborg.ai/video.html) (the demo video: the deck in 2:32, silent, each diagram
+built in reading order).
+
 **Live demonstration:** [blum.caiborg.ai](https://blum.caiborg.ai) (what each party expects, what was kept and what
 was refused, measured on devnet), [blum.caiborg.ai/stages.html](https://blum.caiborg.ai/stages.html) (nine stages of a
 bond's life: the textbook rule beside the devnet measurement) and

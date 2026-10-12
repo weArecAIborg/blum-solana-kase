@@ -36,7 +36,7 @@ each box linked to its line of source) and
   buyer and seller is not part of them.)
 - **The program is the register and the paying agent.** It computes each payment from the terms and pays it from that
   event's own vault, in the same transaction that marks the holder paid. The issuer only deposits the cash.
-- **Nothing depends on the operator.** Opening an event, confirming its funding, paying, redeeming and settling an
+- **Servicing does not depend on our operator.** Opening an event, confirming its funding, paying, redeeming and settling an
   offer can be sent by any wallet, at any later time, and the amounts cannot change.
 - **Anyone can check it.** A ledger-only audit reads only the public ledger (no program accounts, no operator
   report) and checks every balance and payment against the bond's terms and the run's scenario.

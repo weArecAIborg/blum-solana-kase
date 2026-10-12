@@ -3,7 +3,7 @@
 Corporate actions for tokenized bonds on Solana: coupon payment, redemption at maturity, and an issuer buyback and
 tender offer. Program `bond_servicing`, id `2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf`, deployed on devnet.
 
-The system services **any bond**: every market-specific value (record day and time, payment time, time zone, weekend,
+The system services **fixed-rate bonds from any market**: every market-specific value (record day and time, payment time, time zone, weekend,
 holiday calendar, coupon basis) is a bond parameter. The sample bond is the KASE listing's example (B1: face 1,000,
 10%, semi-annual, 2 years) with the Kazakh depository's rules: record list at 09:00 Almaty on the payment day,
 Saturday/Sunday weekend, Kazakh holiday calendar.
@@ -97,7 +97,7 @@ the Bond PDA. Cash in one vault can pay only that event.
 | 12 | `change_tender` | holder | Tender or withdraw during the window; tendered bonds stay in the holder's account, locked by the hook, so coupons at record moments inside the window still go to the holder |
 | 13 | `resolve_tender`, `settle_tender` | anyone, after the window | Fix the accepted part and release the rest (no cash needed); then burn and pay the accepted part |
 
-**Nothing depends on the operator.** Steps 5, 7, 8, 9, 13 can be sent by any wallet at any later time; the amounts
+**Servicing does not depend on our operator.** Steps 5, 7, 8, 9, 13 can be sent by any wallet at any later time; the amounts
 follow from the positions, so the sender cannot change them. Devnet run `devnet-keeper`: our operator stopped after
 coupon 0; a wallet with no role in the bond paid coupons 1-3 and redeemed everyone after the final record moment.
 

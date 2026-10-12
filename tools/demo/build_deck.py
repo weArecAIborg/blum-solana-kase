@@ -20,6 +20,14 @@ from build_app import PARTY_ATTEMPTS  # noqa: E402
 
 PARTIES = [("holder", "Holder"), ("issuer", "Issuer"), ("depository", "Depository"), ("bank", "Bank"), ("exchange", "Exchange")]
 STEPS = {"PayCoupon": "paid", "RedeemHolder": "paid"}
+# Guards that are Solana's token programs or the runtime refusing, not the bond's own program (its rules and account
+# checks): the deck draws these tiles outlined, the others filled.
+TOKEN_GUARDS = {"MissingRequiredSignature", "owner does not match", "Invalid instruction", "InvalidAccountData", "cannot freeze",
+                "custom program error: 0x1f", "Incorrect authority", "Account is frozen"}
+OWN_GUARDS = {"ConstraintHasOne", "UnsupportedCashToken", "ConstraintTokenOwner", "NothingToPay", "AccountOwnedByWrongProgram",
+              "NotAssociatedTokenAccount", "NotTransferring", "ExceedsIssueSize", "PlacementClosed", "ConstraintRaw", "ExceedsOffer",
+              "InsufficientFunding", "NotFunded", "Constraint", "AlreadyPaid", "BondsLocked", "TransfersClosedAtMaturity",
+              "WrongEventKind"}
 
 
 def attacks(H):
@@ -32,10 +40,14 @@ def attacks(H):
     groups = []
     for party, label in PARTIES:
         ids = PARTY_ATTEMPTS[party]
-        tiles = "".join(f'<a href="{html.escape(by_id[i]["explorer"])}" title="{html.escape(by_id[i]["tries"])}">'
+        tiles = "".join(f'<a class="{"tok" if by_id[i]["guard"] in TOKEN_GUARDS else "own"}" '
+                        f'href="{html.escape(by_id[i]["explorer"])}" title="{html.escape(by_id[i]["tries"])}">'
                         f'{html.escape(i)}</a>' for i in ids)
         groups.append(f'<div class="grp"><b>{label}<small>{len(ids)} refused</small></b><div class="tiles">{tiles}</div></div>')
     title = f"{len(by_id)} attacks on devnet, {sum(a['refused'] for a in H['attempts'])} refused"
+    unknown = {a["guard"] for a in H["attempts"]} - TOKEN_GUARDS - OWN_GUARDS
+    if unknown:
+        raise SystemExit(f"not building: guards neither the bond's program nor a token program: {sorted(unknown)}")
     return title, "".join(groups), by_id
 
 

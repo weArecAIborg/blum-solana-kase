@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Video</title>
+<meta name="description" content="Blum in 2.5 minutes: a silent tour of the deck, each slide's claim with its diagram built in reading order. How one Solana program services a tokenized bond from issue to redemption, measured on devnet.">
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+.vd-frame { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: var(--bg); border: 1px solid var(--border); }
+.vd-frame video { display: block; width: 100%; height: 100%; }
+.vd-links { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.vd-links a { display: inline-flex; align-items: baseline; gap: 0.45rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 0.86rem; text-decoration: none; }
+.vd-links a span { font-size: 0.7rem; color: var(--muted); }
+.vd-links a:hover, .vd-links a:focus-visible { border-color: var(--accent); }
+.vd-note { font-size: 0.9rem; color: var(--muted); max-width: 72ch; }
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Video</b><a href="deck.html">Deck</a><a href="video.html" aria-current="true">Video</a><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header">
+    <p class="bs-eyebrow">Superteam Kazakhstan x KASE · Corporate Actions on Blockchain</p>
+    <h1 class="bs-h1">Bonds keep trading through the record date, and Blum still pays every coupon to the right holder</h1>
+    <p class="bs-lede">A silent tour of the deck in 2½ minutes: each slide's claim, with its diagram built in the order it is read.</p>
+  </header>
+  <div class="vd-frame">
+    <video controls preload="metadata" playsinline poster="video/blum-deck-tour.jpg" src="video/blum-deck-tour.mp4">The video: <a href="video/blum-deck-tour.mp4">blum-deck-tour.mp4</a>.</video>
+  </div>
+  <p class="vd-note">No sound, by design: every slide is meant to be read. Each claim in the video links to its proof in the deck: the transaction on Solana devnet, the line of code, the page of this site.</p>
+  <div class="vd-links">
+    <a href="deck.html"><span>Site</span>The deck, every claim linked to its proof</a>
+    <a href="video/blum-deck-tour.mp4"><span>File</span>The video as MP4</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase"><span>Code</span>GitHub repository</a>
+  </div>
+</main>
+</body></html>

@@ -45,8 +45,13 @@ const AI = [
   },
 ];
 
+// The bar is part of the sticky menu, so it stays on top; in-page jumps land below the whole menu.
+const nav = document.querySelector("nav.bs-index");
 const bar = document.createElement("div");
 bar.className = "bs-ask";
-bar.innerHTML = `<div class="in"><span>Have your own AI explain how it works:</span>${AI.map((a) =>
+bar.innerHTML = `<div class="in"><span class="long">Have your own AI explain how it works:</span><span class="short">Ask your AI:</span>${AI.map((a) =>
   `<a class="${a.cls}" href="${a.href}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${a.icon}"/></svg>${a.name}</a>`).join("")}</div>`;
-document.querySelector("nav.bs-index").after(bar);
+nav.append(bar);
+const clearMenu = () => { document.documentElement.style.scrollPaddingTop = `${nav.offsetHeight}px`; };
+clearMenu();
+addEventListener("resize", clearMenu);

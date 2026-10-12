@@ -277,10 +277,12 @@ p { margin: 0; }
 @media (max-width: 900px) { #tl-now { height: 10rem; font-size: 1rem; } }
 
 /* Under the menu: links that open the viewer's own Claude or ChatGPT with a prepared prompt (ask-ai.js) */
-.bs-ask { background: var(--surface); border-bottom: 1px solid var(--grid); }
+.bs-ask { background: var(--surface); border-top: 1px solid var(--grid); }
+.bs-ask .short { display: none; }
+@media (max-width: 560px) { .bs-ask .long { display: none; } .bs-ask .short { display: inline; } }
 .bs-ask .in { max-width: var(--page-max-wide); margin: 0 auto; padding: 0.4rem var(--gutter); display: flex; gap: 0.4rem 0.6rem; align-items: center; flex-wrap: wrap; }
-.bs-ask span { font-size: 0.82rem; color: var(--ink-2); }
-.bs-ask a { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.65rem; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+.bs-ask .long, .bs-ask .short { font-size: 0.82rem; color: var(--ink-2); }
+.bs-ask a { opacity: 1; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.65rem; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
 .bs-ask a:hover, .bs-ask a:focus-visible { border-color: var(--accent); }
 .bs-ask svg { width: 1rem; height: 1rem; flex: none; fill: currentColor; }
 .bs-ask .claude svg { fill: #d97757; }

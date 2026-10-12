@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Deck</title>
+<meta name="description" content="Blum in 17 slides: how one Solana program services a tokenized bond from issue to redemption, answering each requirement of the Superteam Kazakhstan x KASE track, each slide with a diagram and links to the live pages, the code and the devnet transactions.">
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Slides: one statement each, a diagram that shows it, and links to the proof. */
+html { scroll-snap-type: y proximity; }
+.dk-slide { scroll-snap-align: start; min-height: calc(100svh - 6.5rem); display: grid; align-content: center; gap: 1.6rem; padding-block: 3.5rem; border-top: 1px solid var(--grid); min-width: 0; }
+.dk-slide:first-of-type { border-top: 0; scroll-snap-align: none; }
+.dk-slide > * { min-width: 0; margin: 0; }
+.dk-no { font: var(--label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); }
+.dk-slide h1, .dk-slide h2 { font: var(--h1); font-stretch: var(--display-stretch); letter-spacing: -0.01em; text-wrap: balance; max-width: 26ch; }
+.dk-slide h1 { font-size: clamp(2rem, 1.3rem + 3vw, 3.6rem); line-height: 1.04; }
+.dk-slide h2 { font-size: clamp(1.6rem, 1.15rem + 1.9vw, 2.7rem); line-height: 1.08; }
+.dk-lead { font-size: clamp(1rem, 0.95rem + 0.3vw, 1.18rem); color: var(--ink-2); max-width: 70ch; text-wrap: pretty; }
+.dk-lead b { color: var(--ink); font-weight: 600; }
+.dk-links { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.dk-links a { display: inline-flex; align-items: baseline; gap: 0.45rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 0.84rem; text-decoration: none; }
+.dk-links a span { font-size: 0.7rem; color: var(--muted); }
+.dk-links a:hover, .dk-links a:focus-visible { border-color: var(--accent); }
+.dk-hint { font-size: 0.86rem; color: var(--muted); }
+.dk-nav { position: fixed; right: max(16px, 2vw); bottom: max(16px, 2vh); z-index: 3; display: flex; align-items: center; gap: 0.4rem; background: var(--bar); border: 1px solid var(--border); padding: 0.3rem; }
+.dk-nav button { font: 600 0.9rem/1 var(--font-mono); color: var(--bar-ink); background: transparent; border: 1px solid var(--border); padding: 0.35rem 0.6rem; cursor: pointer; }
+.dk-nav button:hover, .dk-nav button:focus-visible { border-color: var(--accent); }
+.dk-nav output { font: 500 0.8rem/1 var(--font-mono); color: var(--bar-ink); min-width: 4.5ch; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Diagram parts. A node is a thing or a step; its edge says what kind: the program (blue), simulated (dashed amber),
+   kept (green), refused (red). An arrow is something that happens, in the order read. */
+.fx { min-width: 0; }
+.fx-n { display: grid; gap: 0.25rem; align-content: start; padding: 0.75rem 0.9rem; border: 1px solid var(--border); background: var(--surface); min-width: 0; font-size: 0.92rem; color: var(--ink-2); }
+.fx-n > b { color: var(--ink); font-size: 1rem; font-weight: 600; }
+.fx-n > em { font-style: normal; font: 600 1.35rem/1.1 var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.fx-n small { font-size: 0.8rem; color: var(--muted); }
+.fx-n a { color: var(--accent); }
+.fx-n.prog { border-left: 4px solid var(--accent); }
+.fx-n.sim { border: 1px dashed var(--amber); }
+.fx-n.ok { border-color: var(--kept); background: var(--kept-bg); }
+.fx-n.no { border-color: var(--refused); background: var(--refused-bg); }
+.fx-n.end { border-color: var(--ink-2); }
+a.fx-n { text-decoration: none; }
+a.fx-n:hover, a.fx-n:focus-visible { outline: 1px solid var(--accent); }
+.fx-flow { display: flex; align-items: stretch; gap: 0; }
+.fx-flow > .fx-n { flex: 1 1 0; }
+.fx-a { flex: none; width: 2.4rem; align-self: center; height: 2px; background: var(--muted); position: relative; }
+.fx-a::after { content: ""; position: absolute; right: -2px; top: -6px; border-left: 9px solid var(--muted); border-block: 7px solid transparent; }
+.fx-flow > .fx-a[data-l] { width: 6.6rem; }
+.fx-a[data-l]::before { content: attr(data-l); position: absolute; bottom: 0.45rem; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+.fx-op { flex: none; align-self: center; padding-inline: 0.6rem; font: 600 1.6rem/1 var(--font-mono); color: var(--muted); }
+.fx-a.back::after { right: auto; left: -2px; border-left: 0; border-right: 9px solid var(--muted); }
+.fx-cap { font-size: 0.86rem; color: var(--muted); max-width: 80ch; }
+.fx-cols { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+.fx-tag { display: inline-block; padding: 0.1rem 0.45rem; font: 600 0.75rem/1.4 var(--font-mono); border: 1px solid currentColor; }
+.fx-tag.ok { color: var(--kept); } .fx-tag.no { color: var(--refused); } .fx-tag.prog { color: var(--accent); }
+
+/* 2: requirement matrix */
+.fx-mx { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.fx-mx th { font: var(--label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); text-align: center; padding: 0.4rem; border-bottom: 1px solid var(--grid); }
+.fx-mx th:first-child { text-align: left; }
+.fx-mx td { padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--grid); text-align: center; color: var(--ink-2); }
+.fx-mx td:first-child { text-align: left; color: var(--ink); }
+.fx-mx a.dot { display: inline-block; width: 0.95rem; height: 0.95rem; border-radius: 50%; background: var(--kept); vertical-align: middle; }
+.fx-mx a.dot:hover, .fx-mx a.dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fx-mx .na { color: var(--muted); }
+.fx-mx a.sl { color: var(--accent); font: 600 0.9rem var(--font-mono); }
+.fx-box { overflow-x: auto; max-width: 100%; }
+.fx-box > table { min-width: 34rem; }
+
+/* 3: two rules, same holders */
+.fx-rule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.fx-rule .fx-n { gap: 0.55rem; }
+.fx-rule .row { display: flex; justify-content: space-between; gap: 1rem; font-variant-numeric: tabular-nums; }
+.fx-rule .row b { font: 600 1.25rem/1.2 var(--font-mono); color: var(--ink); }
+.fx-time { display: grid; grid-template-columns: 6rem repeat(3, minmax(0, 1fr)); gap: 0.4rem 0; align-items: center; font-variant-numeric: tabular-nums; }
+.fx-time .ax { font-size: 0.82rem; color: var(--muted); border-bottom: 2px solid var(--muted); padding-bottom: 0.3rem; text-align: center; }
+.fx-time .ax.rec { color: var(--amber); border-bottom-color: var(--amber); font-weight: 600; }
+.fx-time .who { font: 600 0.95rem var(--font-mono); color: var(--ink); }
+.fx-time .q { text-align: center; font: 600 1.1rem var(--font-mono); color: var(--ink); }
+.fx-time .q.rec { color: var(--amber); }
+.fx-time .mid { text-align: center; font-size: 0.82rem; color: var(--muted); }
+
+/* 4: saved slots */
+.fx-slots { display: grid; grid-template-columns: 7rem repeat(4, minmax(0, 1fr)); gap: 0.3rem; align-items: stretch; font-variant-numeric: tabular-nums; }
+.fx-slots > span { padding: 0.45rem 0.5rem; border: 1px solid var(--border); text-align: center; font: 500 0.95rem var(--font-mono); color: var(--muted); }
+.fx-slots > span.h { border: 0; color: var(--muted); font: var(--label); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.fx-slots > span.lab { border: 0; text-align: left; color: var(--ink); font-weight: 600; }
+.fx-slots > span.saved { border-color: var(--amber); color: var(--amber); font-weight: 700; background: var(--amber-soft); }
+
+/* 5: hub */
+.fx-hub { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.8rem 0; align-items: center; }
+.fx-hub .core { grid-column: 2; grid-row: 1 / span 2; padding: 1.4rem 1.2rem; border: 2px solid var(--amber); text-align: center; display: grid; gap: 0.3rem; }
+.fx-hub .core b { font-size: 1.15rem; color: var(--ink); }
+.fx-hub .core small { color: var(--muted); }
+.fx-hub .l, .fx-hub .r { display: flex; align-items: center; min-width: 0; }
+.fx-hub .l { grid-column: 1; } .fx-hub .r { grid-column: 3; flex-direction: row-reverse; }
+.fx-hub .l .fx-n, .fx-hub .r .fx-n { flex: 1 1 auto; }
+.fx-hub .stub { flex: none; width: 2rem; height: 2px; background: var(--muted); }
+
+/* 9: one transaction */
+.fx-tx { border: 2px solid var(--accent); padding: 1.1rem 1rem 1rem; position: relative; display: grid; gap: 0.8rem; }
+.fx-tx > .t { position: absolute; top: -0.75rem; left: 0.8rem; padding-inline: 0.4rem; background: var(--bg); font: 600 0.82rem var(--font-mono); color: var(--accent); }
+
+/* 12: who sent each step */
+.fx-lanes { display: grid; grid-template-columns: 9rem repeat(5, minmax(0, 1fr)); gap: 0.35rem; align-items: stretch; }
+.fx-lanes .hd { font-size: 0.8rem; color: var(--muted); text-align: center; align-self: end; }
+.fx-lanes .who { font-size: 0.86rem; color: var(--ink); font-weight: 600; align-self: center; }
+.fx-lanes .cell { min-height: 2.6rem; border: 1px dashed var(--grid); }
+.fx-lanes a.cell { border: 0; display: grid; place-items: center; font: 600 0.78rem var(--font-mono); text-decoration: none; color: var(--bg); }
+.fx-lanes a.op { background: var(--muted); }
+.fx-lanes a.out { background: var(--kept); }
+.fx-lanes a.cell:hover, .fx-lanes a.cell:focus-visible { outline: 2px solid var(--accent); }
+
+/* 13: attack tiles */
+.fx-att { display: grid; gap: 0.9rem; }
+.fx-att .grp { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 0.6rem; align-items: start; }
+.fx-att .grp > b { font-size: 0.92rem; color: var(--ink); padding-top: 0.3rem; }
+.fx-att .grp > b small { display: block; color: var(--muted); font-weight: 400; }
+.fx-att .tiles { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.fx-att .tiles a { padding: 0.3rem 0.5rem; border: 1px solid var(--refused); background: var(--refused-bg); color: var(--ink); font: 500 0.78rem var(--font-mono); text-decoration: none; }
+.fx-att .tiles a:hover, .fx-att .tiles a:focus-visible { outline: 2px solid var(--accent); }
+
+/* 14: rule to term */
+.fx-map { display: grid; grid-template-columns: minmax(0, 1fr) 3rem minmax(0, 1fr); gap: 0.45rem 0; align-items: stretch; }
+.fx-map .h { font: var(--label); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); padding-bottom: 0.2rem; }
+.fx-map .fx-a { width: 100%; }
+
+/* 16: system boundary */
+.fx-bound { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(8rem, auto) minmax(0, 1fr); gap: 0.8rem 0; align-items: center; }
+.fx-bound > .fx-zone { grid-column: 1; grid-row: 1 / span 3; align-self: stretch; align-content: center; }
+.fx-bound > .fx-a { grid-column: 2; width: 100%; }
+.fx-bound > .fx-n { grid-column: 3; }
+.fx-zone { border: 2px solid var(--accent); padding: 1rem; display: grid; gap: 0.6rem; }
+.fx-zone.sim { border: 2px dashed var(--amber); }
+.fx-zone > b { font-size: 1rem; color: var(--ink); }
+.fx-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.fx-chips span { padding: 0.25rem 0.5rem; border: 1px solid var(--border); background: var(--surface); font-size: 0.85rem; color: var(--ink); }
+
+
+@media (max-width: 760px) {
+  .dk-slide { padding-block: 2.5rem; }
+  .dk-nav { display: none; }
+  .fx-flow { flex-direction: column; }
+  .fx-a { width: 2px; height: 1.6rem; align-self: center; }
+  .fx-flow > .fx-a[data-l] { width: 2px; }
+  .fx-a::after { right: auto; left: -6px; top: auto; bottom: -2px; border-block: 0; border-inline: 7px solid transparent; border-top: 9px solid var(--muted); }
+  .fx-a[data-l]::before { bottom: auto; top: 50%; left: 0.7rem; transform: translateY(-50%); }
+  .fx-rule { grid-template-columns: minmax(0, 1fr); }
+  .fx-hub { grid-template-columns: minmax(0, 1fr); }
+  .fx-hub .core { grid-column: 1; grid-row: auto; }
+  .fx-hub .l, .fx-hub .r { grid-column: 1; flex-direction: row; }
+  .fx-hub .stub { display: none; }
+  .fx-lanes { grid-template-columns: 5.5rem repeat(5, minmax(0, 1fr)); }
+  .fx-lanes > * { min-width: 0; overflow-wrap: anywhere; }
+  .fx-lanes .hd, .fx-lanes a.cell { font-size: 0.68rem; }
+  .fx-lanes .who { font-size: 0.78rem; }
+  .fx-att .grp { grid-template-columns: minmax(0, 1fr); }
+  .fx-map { grid-template-columns: minmax(0, 1fr); }
+  .fx-map .fx-a { width: 2px; height: 1.2rem; justify-self: center; }
+  .fx-map .h.r { display: none; }
+  .fx-bound { grid-template-columns: minmax(0, 1fr); }
+  .fx-bound > .fx-zone, .fx-bound > .fx-n { grid-column: 1; grid-row: auto; }
+  .fx-bound > .fx-a { display: none; }
+  .fx-slots { grid-template-columns: 5rem repeat(4, minmax(0, 1fr)); }
+}
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Deck</b><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide" id="deck">
+
+<section class="dk-slide" id="s1">
+  <p class="dk-no">Superteam Kazakhstan x KASE · Corporate Actions on Blockchain</p>
+  <h1>Blum services a tokenized bond on Solana, from issue to redemption</h1>
+  <p class="dk-lead">One Solana program keeps the bond's register and pays it. Every step below ran on Solana devnet.</p>
+  <div class="fx fx-flow">
+    <a class="fx-n prog" href="#s5"><b>Issue</b>A Token-2022 bond, placed with registered holders</a><i class="fx-a"></i>
+    <a class="fx-n prog" href="#s4"><b>Trading</b>Every transfer saves positions at record moments</a><i class="fx-a"></i>
+    <a class="fx-n prog" href="#s8"><b>4 coupons</b>Paid to whoever held the bond at each record moment; a buyback and a tender offer along the way</a><i class="fx-a"></i>
+    <a class="fx-n prog" href="#s9"><b>Redemption</b>Principal paid and bonds burned together</a>
+  </div>
+  <div class="dk-links">
+    <a href="index.html"><span>Site</span>Live demonstration</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase"><span>Code</span>GitHub repository</a>
+    <a href="https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet"><span>Devnet</span>The program</a>
+    <a href="overview.html"><span>Doc</span>Technical overview</a>
+  </div>
+  <p class="dk-hint">Arrow keys, space or scroll. Every box and dot is a link to its proof.</p>
+</section>
+
+<section class="dk-slide" id="s2">
+  <p class="dk-no">2 · The track's requirements</p>
+  <h2>Every requirement of the track has code and a devnet run behind it</h2>
+  <div class="fx fx-box"><table class="fx-mx">
+    <thead><tr><th>The listing asks for</th><th>Code</th><th>Devnet</th><th>Site</th><th>Slide</th></tr></thead>
+    <tbody>
+      <tr><td>Test tokenized instrument</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/create_bond.rs#L92"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/address/8YmKCK7xbUuaTmVWFxYiZD7gro7JLbLMxkKx8yK9hCWg?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="flow.html#create"></a></td><td><a class="sl" href="#s5">5</a></td></tr>
+      <tr><td>Holder registry</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/register_holder.rs#L31-L45"></a></td><td><a class="dot" aria-label="devnet" href="__SEND_UNREGISTERED__"></a></td><td><a class="dot" aria-label="site" href="program.html#register_holder"></a></td><td><a class="sl" href="#s6">6</a></td></tr>
+      <tr><td>Record-date mechanism</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L25-L68"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="flow.html#trade"></a></td><td><a class="sl" href="#s3">3</a>, <a class="sl" href="#s4">4</a></td></tr>
+      <tr><td>Entitlement calculation</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L188-L200"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/tx/fn7zRpQNKiCw3jVShksoUXChq3XJTtLg5XpQfP2881ounSPqbKHP5BPAvrF4FHz7ECSNJcm3N6Vep6cAm3rUd5E?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="program.html#amounts"></a></td><td><a class="sl" href="#s7">7</a></td></tr>
+      <tr><td>Coupon payment</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/pay_coupon.rs#L57-L91"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/tx/4A7RfoyXKTgQeuoGLj6wNodPUwCYB3xHdAsw8tM3yhhsXPGfYLLntDxoAnDnteWVzuqkwmeM9qPzAAsu5bkp1ABr?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="flow.html#pay"></a></td><td><a class="sl" href="#s8">8</a></td></tr>
+      <tr><td>Bond redemption</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/redeem_holder.rs#L73-L119"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/tx/5WskSh6DsbSsHGJjrrsSf6sU3Aigv4HGrgMhs2EqvY4QRuyAf8yL2JJWZNMd8wacf2QU26KB2TQya6i7ddVPP8Wm?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="flow.html#redeem"></a></td><td><a class="sl" href="#s9">9</a></td></tr>
+      <tr><td>One additional corporate action</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L290-L307"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/tx/5KMQc7E74vGxTtCXo3BBeQntbWX7Br2hmAR7r2Bua1ufbpSPXLof696HUx2gr5HpgSZPAkQ5N7GX3hnqGgEoDUvW?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="flow.html#tender"></a></td><td><a class="sl" href="#s10">10</a></td></tr>
+      <tr><td>Verifiable on-chain record</td><td><a class="dot" aria-label="code" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/tools/audit/audit.py"></a></td><td><a class="dot" aria-label="devnet" href="https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet"></a></td><td><a class="dot" aria-label="site" href="stages.html#audit"></a></td><td><a class="sl" href="#s11">11</a></td></tr>
+      <tr><td>Implemented versus simulated</td><td><a class="dot" aria-label="doc" href="https://github.com/weArecAIborg/blum-solana-kase#implemented-vs-simulated"></a></td><td class="na">n/a</td><td><a class="dot" aria-label="site" href="overview.html"></a></td><td><a class="sl" href="#s16">16</a></td></tr>
+      <tr><td>Technical overview</td><td><a class="dot" aria-label="doc" href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/technical-overview.md"></a></td><td class="na">n/a</td><td><a class="dot" aria-label="site" href="overview.html"></a></td><td><a class="sl" href="#s17">17</a></td></tr>
+    </tbody>
+  </table></div>
+  <p class="fx-cap">Each dot opens its proof: a line of code, a devnet transaction or account, a page of this site. Results in one place: slide <a href="#s15">15</a>.</p>
+</section>
+
+<section class="dk-slide" id="s3">
+  <p class="dk-no">3 · The problem</p>
+  <h2>The bond keeps trading after the record moment, so paying today's holders pays wrong amounts</h2>
+  <p class="dk-lead">Kazakhstan's depository pays whoever held the bond at <b>09:00 on the payment day</b> and does not stop trading. A Solana program cannot list every holder at 09:00.</p>
+  <div class="fx fx-time" aria-label="Two holders' bonds at the record moment and at payment">
+    <span></span><span class="ax rec">09:00 record moment</span><span class="ax">trades go on</span><span class="ax">payment</span>
+    <span class="who">BH#458</span><span class="q rec">12 bonds</span><span class="mid">sold 3 to BH#43, then more</span><span class="q">6 bonds</span>
+    <span class="who">BH#43</span><span class="q rec">5 bonds</span><span class="mid">bought 3, then sold</span><span class="q">4 bonds</span>
+  </div>
+  <div class="fx fx-rule">
+    <div class="fx-n ok"><b>Paid by the 09:00 list: Blum, measured</b>
+      <div class="row"><span>BH#458, 12 x 50</span><b><a href="https://explorer.solana.com/tx/44MKrPkWDSKbNpnFuRAoKUHFQPuyZf3SbeGoVsRb5vwnPeWvx23UhFdVL9jD1aXDwMYK8fvsNYTuCCdamUhbiZht?cluster=devnet">600.00</a></b></div>
+      <div class="row"><span>BH#43, 5 x 50</span><b><a href="https://explorer.solana.com/tx/3NMSiGe6YQnxkzBKhjNMnPEhjtmLwELsRiPwvGdYnns7nWD3GDKLwznPWyoRyd4UmA4WUVTMVVQj3kCd9NHTC9ru?cluster=devnet">250.00</a></b></div></div>
+    <div class="fx-n no"><b>Paid by holdings at payment: wrong</b>
+      <div class="row"><span>BH#458, 6 x 50</span><b>300.00</b></div>
+      <div class="row"><span>BH#43, 4 x 50</span><b>200.00</b></div></div>
+  </div>
+  <p class="fx-cap">Across the 1000-holder run, paying by holdings at payment would have got <b>1,039 of 4,000</b> coupon payments wrong. The two payments above are links to their transactions.</p>
+  <div class="dk-links">
+    <a href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet"><span>Devnet</span>BH#458 sells 3 to BH#43</a>
+    <a href="stages.html#record"><span>Site</span>Stages: the record moment</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/bond-mechanics.md"><span>Doc</span>The depository's rule, with sources</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s4">
+  <p class="dk-no">4 · Record-date mechanism</p>
+  <h2>Each transfer first saves both holders' positions for the record moments that have passed</h2>
+  <div class="fx fx-flow">
+    <div class="fx-n"><b>BH#458 sends 3 bonds</b>A Token-2022 transfer, right after record moment 0</div><i class="fx-a" data-l="same transaction"></i>
+    <div class="fx-n prog"><b>Token-2022 calls the program</b>The bond's transfer hook</div><i class="fx-a"></i>
+    <div class="fx-n prog"><b>Save first</b>BH#458: 12 and BH#43: 5, for record moment 0</div><i class="fx-a"></i>
+    <div class="fx-n"><b>Then the bonds move</b>BH#458: 9, BH#43: 8</div>
+  </div>
+  <div class="fx fx-slots" aria-label="BH#458's saved positions">
+    <span class="h"></span><span class="h">Record moment 0</span><span class="h">1</span><span class="h">2</span><span class="h">3</span>
+    <span class="lab">BH#458</span><span class="saved">12 saved</span><span>not saved yet</span><span>not saved yet</span><span>not saved yet</span>
+  </div>
+  <p class="dk-lead">A slot is saved only when the holder next changes. Until then its current quantity is the record-moment quantity, so <b>no snapshot, no freeze, and nobody has to act at 09:00</b>.</p>
+  <div class="dk-links">
+    <a href="flow.html#trade"><span>Site</span>Flow: this transfer, step by step</a>
+    <a href="program.html#position"><span>Site</span>Program: the position history</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L25-L68"><span>Code</span>PositionHistory</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/transfer_hook.rs#L54-L98"><span>Code</span>The transfer hook</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s5">
+  <p class="dk-no">5 · Test tokenized instrument</p>
+  <h2>The bond is a Token-2022 token, and every power over it belongs to the program</h2>
+  <div class="fx fx-hub">
+    <div class="l"><div class="fx-n prog"><b>Mint</b>The program: to registered holders, before the first record moment, up to the issue size</div><i class="stub"></i></div>
+    <div class="core"><b>Bond token</b><small>1 token = 1 bond</small><small>face 1,000, 10% a year, paid twice a year, 2 years</small></div>
+    <div class="r"><div class="fx-n prog"><b>Transfer hook</b>The program: runs inside every transfer</div><i class="stub"></i></div>
+    <div class="l"><div class="fx-n prog"><b>Burn</b>The program only (permanent delegate, permissioned burn), always with a payment</div><i class="stub"></i></div>
+    <div class="r"><div class="fx-n end"><b>Freeze</b>Nobody: the token has no freeze authority</div><i class="stub"></i></div>
+  </div>
+  <p class="fx-cap">At creation the program also checks the payment and record days against the terms, and refuses a cash token that could shrink or take a payment.</p>
+  <div class="dk-links">
+    <a href="flow.html#create"><span>Site</span>Flow: create_bond</a>
+    <a href="program.html#create_bond"><span>Site</span>Program: create_bond</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/create_bond.rs#L171-L191"><span>Code</span>The cash token check</a>
+    <a href="https://explorer.solana.com/address/8YmKCK7xbUuaTmVWFxYiZD7gro7JLbLMxkKx8yK9hCWg?cluster=devnet"><span>Devnet</span>The 1000-holder bond</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s6">
+  <p class="dk-no">6 · Holder registry</p>
+  <h2>Only registered wallets can hold the bond</h2>
+  <p class="dk-lead">The registrar creates one holder record per wallet (KYC is simulated). The transfer hook checks both sides of every transfer.</p>
+  <div class="fx fx-flow">
+    <div class="fx-n"><b>A transfer is sent</b>From BH#458</div><i class="fx-a"></i>
+    <div class="fx-n prog"><b>The hook checks</b>Both sides have a holder record; each uses its one bond account</div><i class="fx-a"></i>
+    <div class="fx" style="display:grid;gap:0.5rem;flex:1 1 0">
+      <a class="fx-n ok" href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet"><b>To BH#43: moves</b>registered</a>
+      <a class="fx-n no" href="__SEND_UNREGISTERED__"><b>To an unregistered wallet: refused</b>AccountOwnedByWrongProgram</a>
+      <a class="fx-n no" href="__SECOND_ACCOUNT__"><b>To its own second account: refused</b>NotAssociatedTokenAccount</a>
+    </div>
+  </div>
+  <p class="fx-cap">1,000 registered holders on devnet. Each box above opens its transaction.</p>
+  <div class="dk-links">
+    <a href="program.html#register_holder"><span>Site</span>Program: register_holder</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/register_holder.rs#L31-L45"><span>Code</span>register_holder</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L220-L237"><span>Code</span>HolderRecord</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s7">
+  <p class="dk-no">7 · Entitlement calculation</p>
+  <h2>The program computes each payment from the terms and the record-moment position</h2>
+  <div class="fx fx-flow">
+    <div class="fx-n"><em>10</em>bonds at the record moment</div><i class="fx-op">×</i>
+    <div class="fx-n"><em>1,000</em>face</div><i class="fx-op">×</i>
+    <div class="fx-n"><em>10%</em>a year</div><i class="fx-op">÷</i>
+    <div class="fx-n"><em>2</em>payments a year</div><i class="fx-op">=</i>
+    <a class="fx-n ok" href="https://explorer.solana.com/tx/fn7zRpQNKiCw3jVShksoUXChq3XJTtLg5XpQfP2881ounSPqbKHP5BPAvrF4FHz7ECSNJcm3N6Vep6cAm3rUd5E?cluster=devnet"><em>500.00</em>BH#1 was paid this</a>
+  </div>
+  <div class="fx fx-flow">
+    <div class="fx-n"><em>10</em>bonds at maturity</div><i class="fx-op">×</i>
+    <div class="fx-n"><em>1,000</em>face, at par</div><i class="fx-op">=</i>
+    <a class="fx-n ok" href="https://explorer.solana.com/tx/5WskSh6DsbSsHGJjrrsSf6sU3Aigv4HGrgMhs2EqvY4QRuyAf8yL2JJWZNMd8wacf2QU26KB2TQya6i7ddVPP8Wm?cluster=devnet"><em>10,000.00</em>BH#3's principal</a><i class="fx-op">+</i>
+    <a class="fx-n ok" href="https://explorer.solana.com/tx/4xBZZpGvLAhDBScowSZ5gd69UZ7Bh7ses5PGf11hsDwX3ErA87uaoHiHNGF6b894W8GYZF9n754ttWeHGrHsYvuM?cluster=devnet"><em>500.00</em>BH#3's final coupon</a>
+  </div>
+  <p class="fx-cap">The listing's own example, paid on devnet. Rounded down once per holder; each coupon's budget uses the same formula on the whole supply, so payments never exceed it. 4,000 of 4,000 amounts in the 1000-holder run match the terms; the math matches QuantLib and FinancePy.</p>
+  <div class="dk-links">
+    <a href="program.html#amounts"><span>Site</span>Program: amounts</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L188-L200"><span>Code</span>coupon and principal</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/tools/reference/check_report.py"><span>Code</span>QuantLib and FinancePy check</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s8">
+  <p class="dk-no">8 · Scenario 1: coupon payment</p>
+  <h2>A coupon is paid from its own vault, and only once that vault can pay everyone</h2>
+  <div class="fx fx-flow">
+    <a class="fx-n prog" href="https://explorer.solana.com/tx/4A7RfoyXKTgQeuoGLj6wNodPUwCYB3xHdAsw8tM3yhhsXPGfYLLntDxoAnDnteWVzuqkwmeM9qPzAAsu5bkp1ABr?cluster=devnet"><b>open_event</b>Anyone, after the record moment. Budget for coupon 0: 512,550.00</a><i class="fx-a"></i>
+    <a class="fx-n sim" href="https://explorer.solana.com/tx/3kZKd2nd1piZKzbM8wnYmAJTdEFhbugy7gderzhgSdMV34bcy6SGZnaZBXGgvAkCW63fYgZYFW6FPGuQ8DUGVM7o?cluster=devnet"><b>Funding</b>The issuer fills the coupon's own vault (simulated bank)</a><i class="fx-a"></i>
+    <a class="fx-n prog" href="https://explorer.solana.com/tx/3RewkEknJxLn8nXQqQ4eBSinFif4X55u1y3e1zq2k4z16tTgQFRdCyqPEeQ1MeygaAtLFVj5Zx1PKUC3GYDijPcV?cluster=devnet"><b>confirm_funding</b>Anyone: vault holds the whole budget, or nobody is paid</a><i class="fx-a"></i>
+    <a class="fx-n prog" href="https://explorer.solana.com/tx/fn7zRpQNKiCw3jVShksoUXChq3XJTtLg5XpQfP2881ounSPqbKHP5BPAvrF4FHz7ECSNJcm3N6Vep6cAm3rUd5E?cluster=devnet"><b>pay_coupon x 1,000</b>Anyone, any order. Cash and the paid mark in one transaction: never twice</a><i class="fx-a"></i>
+    <div class="fx-n ok"><b>Vault: 0.00</b>All 1,000 holders paid</div>
+  </div>
+  <p class="dk-lead"><b>4 coupons, 2,003,300.00</b> paid to 1,000 holders; every vault emptied.</p>
+  <div class="dk-links">
+    <a href="flow.html#pay"><span>Site</span>Flow: pay_coupon</a>
+    <a href="timeline.html"><span>Site</span>Timeline: one bond, step by step</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/pay_coupon.rs#L57-L91"><span>Code</span>pay_coupon</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s9">
+  <p class="dk-no">9 · Scenario 2: bond redemption</p>
+  <h2>At maturity, bonds are burned and principal is paid in the same transaction</h2>
+  <div class="fx fx-flow" style="align-items:center">
+    <div class="fx-n end"><b>Final record moment</b>The hook closes trading</div><i class="fx-a"></i>
+    <a class="fx-tx" style="flex:2 1 0;text-decoration:none;color:inherit" href="https://explorer.solana.com/tx/5WskSh6DsbSsHGJjrrsSf6sU3Aigv4HGrgMhs2EqvY4QRuyAf8yL2JJWZNMd8wacf2QU26KB2TQya6i7ddVPP8Wm?cluster=devnet"><span class="t">one transaction: redeem_holder</span>
+      <div class="fx-flow"><div class="fx-n"><b>BH#3's 10 bonds</b></div><i class="fx-a"></i><div class="fx-n no"><b>Burned</b>supply -10</div></div>
+      <div class="fx-flow"><div class="fx-n"><b>Redemption vault</b></div><i class="fx-a"></i><div class="fx-n ok"><b>10,000.00 to BH#3</b></div></div></a>
+    <i class="fx-a"></i>
+    <a class="fx-n ok" href="https://explorer.solana.com/tx/4xBZZpGvLAhDBScowSZ5gd69UZ7Bh7ses5PGf11hsDwX3ErA87uaoHiHNGF6b894W8GYZF9n754ttWeHGrHsYvuM?cluster=devnet"><b>Final coupon, separately</b>500.00 to BH#3</a>
+  </div>
+  <p class="dk-lead">Both or neither: no bond is burned unpaid. <b>9,665 bonds</b> from 918 holders redeemed; final supply <b>0</b>.</p>
+  <div class="dk-links">
+    <a href="flow.html#redeem"><span>Site</span>Flow: redeem_holder</a>
+    <a href="stages.html#redeem"><span>Site</span>Stages: redemption</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/instructions/redeem_holder.rs#L73-L119"><span>Code</span>redeem_holder</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s10">
+  <p class="dk-no">10 · Scenario 3: the additional corporate action</p>
+  <h2>Tendered bonds still earn their coupon, and the issuer buys exactly its maximum</h2>
+  <div class="fx fx-flow">
+    <div class="fx-n sim"><b>Offer funded</b>410 bonds x 1,000.00, in the offer's own vault</div><i class="fx-a"></i>
+    <div class="fx-n prog"><b>Window: 441 tendered</b>132 holders. Bonds stay in their accounts, locked</div><i class="fx-a"></i>
+    <a class="fx-n ok" href="https://explorer.solana.com/tx/wLcTTydknExkwjtbiJHJKeE1vAmcsEiPRz8uVQfrtZXA5sm4hNeA7VfkQCeJGPN367NjogFKm7SwxXFXPh7ds7f?cluster=devnet"><b>Record moment 2, inside the window</b>Coupon 2 paid on the locked bonds: 132 of 132</a><i class="fx-a"></i>
+    <div class="fx-n prog"><b>Resolved in tender order</b>410 accepted, 31 released</div><i class="fx-a"></i>
+    <a class="fx-n ok" href="https://explorer.solana.com/tx/5KMQc7E74vGxTtCXo3BBeQntbWX7Br2hmAR7r2Bua1ufbpSPXLof696HUx2gr5HpgSZPAkQ5N7GX3hnqGgEoDUvW?cluster=devnet"><b>Settled</b>Burned and paid 410,000.00: exactly the maximum</a>
+  </div>
+  <p class="dk-lead">Also a <b>buyback</b>, first come first served: <a href="https://explorer.solana.com/tx/3QfqaWnYkuAGgjTCuPm3TufGfiBVureJtdANKGja7UuiY1kmaRCAbLbbNje3waXqxMVxCC1dzWai5fg2CrwaS5EE?cluster=devnet">176 bonds at 990.00</a>, each sale burned and paid in one transaction.</p>
+  <div class="dk-links">
+    <a href="flow.html#tender"><span>Site</span>Flow: tender, resolve, settle</a>
+    <a href="program.html#accept_next"><span>Site</span>Program: the tender rule</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/programs/bond_servicing/src/state.rs#L290-L307"><span>Code</span>Offer::accept_next</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/buyback-tender.md"><span>Doc</span>Buyback and tender design</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s11">
+  <p class="dk-no">11 · Verifiable on-chain record</p>
+  <h2>The ledger is the record, and an audit that never reads the program re-checks it</h2>
+  <div class="fx fx-flow">
+    <div class="fx-n prog"><b>The program</b>Every step is a transaction; events such as CouponPaid in its log</div><i class="fx-a" data-l="writes"></i>
+    <div class="fx-n end"><b>Solana ledger</b>Public transactions and token balances</div><i class="fx-a" data-l="reads only"></i>
+    <div class="fx-n"><b>Ledger-only audit</b>Plus the run's scenario file. Never the program's accounts or the operator's report</div><i class="fx-a"></i>
+    <div class="fx" style="display:grid;gap:0.5rem;flex:1 1 0">
+      <div class="fx-n ok"><b>3,959 of 3,959 checks pass</b>1000-holder run</div>
+      <div class="fx-n no"><b>0.000001 slipped into a vault: 2 checks fail</b>Tamper test</div>
+    </div>
+  </div>
+  <p class="fx-cap">Every balance and payment is checked against the bond's terms to the smallest cash unit.</p>
+  <div class="dk-links">
+    <a href="stages.html#audit"><span>Site</span>Stages: the audit</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/expertise/independent-ledger-audit.md"><span>Doc</span>How the audit works</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/tools/audit/audit.py"><span>Code</span>audit.py</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/devnet-evidence-crowd-1000.md"><span>Doc</span>1000-holder run: every account and transaction</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s12">
+  <p class="dk-no">12 · Nothing depends on the operator</p>
+  <h2>Our operator stopped after coupon 0, and a wallet with no role finished the bond</h2>
+  <div class="fx fx-lanes" aria-label="Who sent each step of the keeper run"><!--__RELAY__--></div>
+  <p class="dk-lead">Amounts come from on-chain positions, so the sender cannot change who is paid or how much. Audit of this run: <b>23 of 23</b>.</p>
+  <div class="dk-links">
+    <a href="https://explorer.solana.com/address/9epkkMCfXjFoDKMoBrG4mE1Pw9BRvPvmyhctxbrHFxGp?cluster=devnet"><span>Devnet</span>The outside wallet</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/devnet-evidence-keeper.md"><span>Doc</span>Keeper run: accounts and transactions</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s13">
+  <p class="dk-no">13 · Attacks</p>
+  <h2>__ATTACKS_TITLE__</h2>
+  <div class="fx fx-att"><!--__ATTACKS__--></div>
+  <p class="fx-cap">Each tile is a failed transaction anyone can open. 21 more are refused in local tests. Trusted, not stopped: the registrar, the cash issuer's freeze, and the program's upgrade authority.</p>
+  <div class="dk-links">
+    <a href="index.html#holder"><span>Site</span>Parties: what was refused, per party</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/hostile-attempts.md"><span>Doc</span>Every attempt, explained</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/ops/src/attacks.ts"><span>Code</span>The attacker run</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s14">
+  <p class="dk-no">14 · Real-world applicability</p>
+  <h2>Market rules become terms of the bond, so any bond can be serviced</h2>
+  <div class="fx fx-map">
+    <span class="h">Kazakh depository rule</span><span></span><span class="h r">The bond's term</span>
+    <div class="fx-n"><b>Holder list at 09:00 Almaty on the payment day</b></div><i class="fx-a"></i><div class="fx-n prog">Record time 09:00, UTC+5, record day = payment day</div>
+    <div class="fx-n"><b>Trading goes on during coupon day</b></div><i class="fx-a"></i><div class="fx-n prog">Transfers stay open; the hook saves positions</div>
+    <div class="fx-n"><b>Trading stops for redemption</b></div><i class="fx-a"></i><div class="fx-n prog">Transfers close at the final record moment</div>
+    <div class="fx-n"><b>Payments move off weekends and holidays</b></div><i class="fx-a"></i><div class="fx-n prog">Weekend days and a holiday calendar file</div>
+  </div>
+  <p class="fx-cap">For MUM108_0015, a real KASE bond, the computed payment dates equal KASE's published ones.</p>
+  <div class="dk-links">
+    <a href="stages.html"><span>Site</span>Stages: each rule next to its measurement</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/bond-mechanics.md"><span>Doc</span>The depository's rules, with sources</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/crates/bond_math/tests/reference.rs#L128-L145"><span>Code</span>MUM108_0015 dates equal KASE's</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s15">
+  <p class="dk-no">15 · Results on devnet</p>
+  <h2>1,000 holders, every bond accounted for: 10,251 placed, 0 left</h2>
+  <div class="fx fx-flow">
+    <div class="fx-n"><em>10,251</em>bonds placed with 1,000 holders</div><i class="fx-a" data-l="buyback"></i>
+    <div class="fx-n"><em>-176</em>174,240.00 paid</div><i class="fx-a" data-l="tender"></i>
+    <div class="fx-n"><em>-410</em>410,000.00 paid</div><i class="fx-a" data-l="redemption"></i>
+    <div class="fx-n"><em>-9,665</em>9,665,000.00 paid</div><i class="fx-a"></i>
+    <div class="fx-n ok"><em>0</em>bonds left</div>
+  </div>
+  <div class="fx fx-cols">
+    <div class="fx-n"><em>2,003,300.00</em>4 coupons paid; 4,000 of 4,000 amounts exact</div>
+    <div class="fx-n"><em>2,318</em>transactions, including 600 trades right after record moments</div>
+    <div class="fx-n"><em>3,959 / 3,959</em>ledger-only audit checks</div>
+    <div class="fx-n"><em>35 / 35</em>attacks refused</div>
+  </div>
+  <div class="dk-links">
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/blob/main/docs/devnet-evidence-crowd-1000.md"><span>Doc</span>1000-holder run: every account and transaction</a>
+    <a href="index.html"><span>Site</span>Parties: what each party expects, measured</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s16">
+  <p class="dk-no">16 · Implemented versus simulated</p>
+  <h2>Everything on Solana is real; only the cash, KYC and the trading venue are simulated</h2>
+  <div class="fx fx-bound">
+    <div class="fx-zone"><b>On Solana devnet: implemented</b>
+      <div class="fx-chips"><span>Bond token</span><span>Holder registry</span><span>Positions at record moments</span><span>Entitlements</span><span>Coupon vaults</span><span>Coupon payment</span><span>Redemption with burn</span><span>Buyback</span><span>Tender offer</span><span>Events and accounts</span><span>Servicing by any wallet</span></div></div>
+    <i class="fx-a back" data-l="cash into vaults"></i><div class="fx-n sim"><b>Simulated: cash and the issuer's bank</b>A test token minted into the vaults, standing for fiat or a stablecoin</div>
+    <i class="fx-a back" data-l="wallets to register"></i><div class="fx-n sim"><b>Simulated: KYC</b>The registrar registers generated wallets, BH#1 to BH#1000</div>
+    <i class="fx-a back" data-l="transfers"></i><div class="fx-n sim"><b>Simulated: the trading venue</b>Trades are direct transfers: no order book, no cash leg</div>
+  </div>
+  <p class="fx-cap">Devnet time is compressed: 1 bond day = 1 to 20 seconds. Limits: fixed-rate bonds, up to 40 coupon periods, direct holders; the registrar and the program's upgrade authority, a single wallet, are trusted.</p>
+  <div class="dk-links">
+    <a href="https://github.com/weArecAIborg/blum-solana-kase#implemented-vs-simulated"><span>Doc</span>Implemented vs simulated</a>
+    <a href="overview.html"><span>Doc</span>Technical overview: limits</a>
+  </div>
+</section>
+
+<section class="dk-slide" id="s17">
+  <p class="dk-no">17 · Technical overview</p>
+  <h2>One repository: the program, the checks that doubt it, and this site</h2>
+  <div class="fx fx-flow">
+    <div class="fx-n sim"><b>Scenario file</b>Terms, holders, trades, offers</div><i class="fx-a"></i>
+    <div class="fx-n"><b>Operator</b>Sends each step on time</div><i class="fx-a"></i>
+    <a class="fx-n prog" href="program.html"><b>bond_servicing</b>Anchor program on devnet; uses bond_math</a><i class="fx-a"></i>
+    <div class="fx-n end"><b>Solana ledger</b></div><i class="fx-a"></i>
+    <div class="fx" style="display:grid;gap:0.5rem;flex:1 1 0">
+      <div class="fx-n"><b>Report check</b>QuantLib, FinancePy</div>
+      <div class="fx-n"><b>Ledger-only audit</b></div>
+      <a class="fx-n" href="index.html"><b>This site</b>Built from measured data</a>
+    </div>
+  </div>
+  <div class="fx fx-cols">
+    <div class="fx-n"><em>36 + 5</em>program tests on the compiled program</div>
+    <div class="fx-n"><em>14 + 6</em>bond math tests, against QuantLib and FinancePy</div>
+    <div class="fx-n"><em>327271f3…</em>sha256: the program on devnet is a build of the repository, byte for byte</div>
+  </div>
+  <div class="dk-links">
+    <a href="overview.html"><span>Doc</span>Technical overview</a>
+    <a href="program.html"><span>Site</span>Program: the code as flowcharts</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase"><span>Code</span>GitHub repository</a>
+    <a href="https://github.com/weArecAIborg/blum-solana-kase/tree/main/programs/bond_servicing/tests"><span>Code</span>The tests</a>
+  </div>
+  <p class="dk-hint">Or press Claude or ChatGPT at the top: your own AI reads the sources and explains them.</p>
+</section>
+
+</main>
+<nav class="dk-nav" aria-label="Slides"><button type="button" id="dk-prev" aria-label="Previous slide">&#8592;</button><output id="dk-at">1 / 17</output><button type="button" id="dk-next" aria-label="Next slide">&#8594;</button></nav>
+<script>
+const slides = [...document.querySelectorAll(".dk-slide")];
+const at = document.getElementById("dk-at");
+let current = 0;
+const go = (i) => { current = Math.max(0, Math.min(slides.length - 1, i)); slides[current].scrollIntoView({ behavior: "smooth", block: "start" }); };
+const watch = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) { current = slides.indexOf(e.target); at.textContent = `${current + 1} / ${slides.length}`; }
+}, { rootMargin: "-45% 0px -45% 0px" });
+slides.forEach((s) => watch.observe(s));
+document.getElementById("dk-prev").addEventListener("click", () => go(current - 1));
+document.getElementById("dk-next").addEventListener("click", () => go(current + 1));
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea, select") || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (["ArrowDown", "ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(current + (e.shiftKey && e.key === " " ? -1 : 1)); }
+  else if (["ArrowUp", "ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(current - 1); }
+  else if (e.key === "Home") { e.preventDefault(); go(0); }
+  else if (e.key === "End") { e.preventDefault(); go(slides.length - 1); }
+});
+</script>
+</body></html>

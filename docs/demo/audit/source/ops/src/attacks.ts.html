@@ -1,0 +1,453 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ops/src/attacks.ts · audit source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../stages.html">← Bond stages</a><h1>ops/src/attacks.ts</h1>
+<p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 f3585ecc926f80730b0af720d680e1d744ce21eb25aded53b27392307ed3ad74</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>// Hostile actor for a bond run (scenario field &quot;attacker&quot;). At each step of the bond&#x27;s life it tries the actions that</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>// would take bonds or cash from someone, or let someone act without authority. Every attempt is sent without</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>// simulation (skipPreflight), so a refusal is a failed transaction on the chain that anyone can open in an explorer.</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>// An attempt passes only if it is refused by the guard named in `guard`; the run fails otherwise</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>// (scenario.ts exits with an error after writing the report).</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>// Also shows the bank&#x27;s frozen cash account case: one holder cannot be paid, the others are paid, nobody waits.</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code></code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>import * as anchor from &quot;@anchor-lang/core&quot;;</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>import {</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>  ExtensionType,</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>  TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>  TOKEN_PROGRAM_ID,</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>  createAssociatedTokenAccountIdempotentInstruction,</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>  createBurnCheckedInstruction,</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>  createFreezeAccountInstruction,</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>  createInitializeAccount3Instruction,</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>  createInitializeMintInstruction,</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>  createInitializePermanentDelegateInstruction,</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>  createInitializeTransferFeeConfigInstruction,</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>  createMintToInstruction,</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>  createThawAccountInstruction,</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>  createTransferCheckedInstruction,</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>  createTransferCheckedWithTransferHookInstruction,</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>  createTransferInstruction,</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>  getAssociatedTokenAddressSync,</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>  getMint,</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>  getMintLen,</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>} from &quot;@solana/spl-token&quot;;</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>import {</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>  Connection,</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>  Keypair,</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>  LAMPORTS_PER_SOL,</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>  PublicKey,</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>  SystemProgram,</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>  Transaction,</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>  TransactionInstruction,</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>} from &quot;@solana/web3.js&quot;;</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>import BN from &quot;bn.js&quot;;</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code></code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>const LOADER = new PublicKey(&quot;BPFLoaderUpgradeab1e11111111111111111111111&quot;);</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code></code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>export type HostileSpec = {</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>  wallet: string;</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>  // Whose bonds and coupons are attacked; the accomplice is the registered holder whose position a forgery would raise.</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>  victim: string;</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code>  accomplice: string;</code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>  // The bank freezes this holder&#x27;s cash account before this coupon&#x27;s payments and thaws it after the others are paid.</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>  frozenCash: { holder: string; coupon: number };</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>};</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code></code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>export type Attempt = {</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>  id: string;</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>  when: string;</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>  actor: string;</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>  tries: string;</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>  wouldCost: string;</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>  guard: string;</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>  outcome: &quot;refused&quot; | &quot;accepted&quot;;</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>  reason: string;</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>  ok: boolean;</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>  signature: string;</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>  explorer?: string;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>  chainTime: string;</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>};</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code></code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>export type Ctx = {</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>  connection: Connection;</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>  program: anchor.Program;</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>  registrar: Keypair;</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>  bank: Keypair;</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>  attacker: Keypair;</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>  spec: HostileSpec;</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>  terms: any;</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>  mint: PublicKey;</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>  bond: PublicKey;</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>  cashMint: PublicKey;</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>  cashDecimals: number;</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>  holders: Record&lt;string, Keypair&gt;;</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>  bondsAta: (name: string) =&gt; PublicKey;</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>  cashAta: (name: string) =&gt; PublicKey;</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>  holderRecord: (name: string) =&gt; PublicKey;</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>  pda: (...seeds: (Buffer | Uint8Array)[]) =&gt; PublicKey;</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>  u16: (n: number) =&gt; Buffer;</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>  offers: { id: number; kind: &quot;buyback&quot; | &quot;tender&quot;; actions: { afterRecordMoment: number; holder: string; sell?: number; tender?: number }[] }[];</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>  offerPda: (id: number) =&gt; PublicKey;</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>  retirementAccounts: (o: any, name: string, payer: PublicKey) =&gt; any;</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>  send: (step: string, ixs: TransactionInstruction[], signers: Keypair[]) =&gt; Promise&lt;string&gt;;</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>  chainNow: () =&gt; Promise&lt;number&gt;;</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>  explorer: (sig: string) =&gt; string | undefined;</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>};</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code></code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>// Why a transaction failed, from its logs: the Anchor error code, a token program&#x27;s error text, or the runtime&#x27;s.</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>const reasonOf = (meta: any) =&gt; {</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>  const logs: string[] = meta.logMessages ?? [];</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>  for (const l of logs) {</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>    const m = /Error Code: (\w+)\. Error Number: \d+\. Error Message: (.*)$/.exec(l);</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>    if (m) return `${m[1]}: ${m[2]}`;</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code>  }</code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>  for (const l of logs) {</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>    const m = /^Program log: Error: (.*)$/.exec(l);</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>    if (m) return m[1];</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>  }</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>  const failed = logs.map((l) =&gt; /^Program \w+ failed: (.*)$/.exec(l)).filter(Boolean).pop();</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>  return failed ? failed[1] : JSON.stringify(meta.err);</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>};</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code></code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>// A signer the instruction names but that nobody can sign for (a program address): keep it in the instruction as a</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>// non-signer, so the transaction reaches the chain and the program checking the signature refuses it there.</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>const unsigned = (ix: TransactionInstruction, key: PublicKey) =&gt; {</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code>  for (const k of ix.keys) if (k.pubkey.equals(key)) k.isSigner = false;</code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>  return ix;</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code>};</code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code></code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>export function hostile(c: Ctx) {</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>  const attempts: Attempt[] = [];</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>  const A = c.attacker.publicKey;</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code>  const victim = c.spec.victim;</code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>  const accomplice = c.spec.accomplice;</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code>  const attackerBonds = getAssociatedTokenAddressSync(c.mint, A, false, TOKEN_2022_PROGRAM_ID);</code></span>
+<span class="line" id="L120"><a href="#L120" aria-label="Line 120">120</a><code>  const attackerCash = getAssociatedTokenAddressSync(c.cashMint, A, false, TOKEN_PROGRAM_ID);</code></span>
+<span class="line" id="L121"><a href="#L121" aria-label="Line 121">121</a><code>  const victimSecondAccount = Keypair.generate();</code></span>
+<span class="line" id="L122"><a href="#L122" aria-label="Line 122">122</a><code>  const asAttacker = new anchor.Program(c.program.idl, new anchor.AnchorProvider(c.connection, new anchor.Wallet(c.attacker), { commitment: &quot;confirmed&quot; }));</code></span>
+<span class="line" id="L123"><a href="#L123" aria-label="Line 123">123</a><code></code></span>
+<span class="line" id="L124"><a href="#L124" aria-label="Line 124">124</a><code>  // Send without simulation and poll its status until it lands (failed or not); resend with a fresh blockhash if it</code></span>
+<span class="line" id="L125"><a href="#L125" aria-label="Line 125">125</a><code>  // expired first. (web3.js confirmTransaction throws a landed transaction&#x27;s error on devnet.)</code></span>
+<span class="line" id="L126"><a href="#L126" aria-label="Line 126">126</a><code>  const land = async (ixs: TransactionInstruction[], signers: Keypair[]) =&gt; {</code></span>
+<span class="line" id="L127"><a href="#L127" aria-label="Line 127">127</a><code>    for (let tries = 1; tries &lt;= 4; tries++) {</code></span>
+<span class="line" id="L128"><a href="#L128" aria-label="Line 128">128</a><code>      const { blockhash, lastValidBlockHeight } = await c.connection.getLatestBlockhash(&quot;confirmed&quot;);</code></span>
+<span class="line" id="L129"><a href="#L129" aria-label="Line 129">129</a><code>      const tx = new Transaction({ feePayer: signers[0].publicKey, blockhash, lastValidBlockHeight }).add(...ixs);</code></span>
+<span class="line" id="L130"><a href="#L130" aria-label="Line 130">130</a><code>      tx.sign(...signers);</code></span>
+<span class="line" id="L131"><a href="#L131" aria-label="Line 131">131</a><code>      const signature = await c.connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 5 });</code></span>
+<span class="line" id="L132"><a href="#L132" aria-label="Line 132">132</a><code>      for (;;) {</code></span>
+<span class="line" id="L133"><a href="#L133" aria-label="Line 133">133</a><code>        const st = (await c.connection.getSignatureStatuses([signature])).value[0];</code></span>
+<span class="line" id="L134"><a href="#L134" aria-label="Line 134">134</a><code>        if (st?.confirmationStatus === &quot;confirmed&quot; || st?.confirmationStatus === &quot;finalized&quot;) return signature;</code></span>
+<span class="line" id="L135"><a href="#L135" aria-label="Line 135">135</a><code>        if ((await c.connection.getBlockHeight(&quot;confirmed&quot;)) &gt; lastValidBlockHeight) break;</code></span>
+<span class="line" id="L136"><a href="#L136" aria-label="Line 136">136</a><code>        await new Promise((r) =&gt; setTimeout(r, 1_000));</code></span>
+<span class="line" id="L137"><a href="#L137" aria-label="Line 137">137</a><code>      }</code></span>
+<span class="line" id="L138"><a href="#L138" aria-label="Line 138">138</a><code>    }</code></span>
+<span class="line" id="L139"><a href="#L139" aria-label="Line 139">139</a><code>    throw new Error(&quot;attempt did not land after 4 sends&quot;);</code></span>
+<span class="line" id="L140"><a href="#L140" aria-label="Line 140">140</a><code>  };</code></span>
+<span class="line" id="L141"><a href="#L141" aria-label="Line 141">141</a><code>  const attempt = async (</code></span>
+<span class="line" id="L142"><a href="#L142" aria-label="Line 142">142</a><code>    a: { id: string; when: string; actor: string; tries: string; wouldCost: string; guard: string },</code></span>
+<span class="line" id="L143"><a href="#L143" aria-label="Line 143">143</a><code>    ixs: TransactionInstruction[],</code></span>
+<span class="line" id="L144"><a href="#L144" aria-label="Line 144">144</a><code>    signers: Keypair[],</code></span>
+<span class="line" id="L145"><a href="#L145" aria-label="Line 145">145</a><code>  ) =&gt; {</code></span>
+<span class="line" id="L146"><a href="#L146" aria-label="Line 146">146</a><code>    const signature = await land(ixs, signers);</code></span>
+<span class="line" id="L147"><a href="#L147" aria-label="Line 147">147</a><code>    let tx = null;</code></span>
+<span class="line" id="L148"><a href="#L148" aria-label="Line 148">148</a><code>    for (let i = 0; i &lt; 20 &amp;&amp; !tx; i++) {</code></span>
+<span class="line" id="L149"><a href="#L149" aria-label="Line 149">149</a><code>      tx = await c.connection.getTransaction(signature, { commitment: &quot;confirmed&quot;, maxSupportedTransactionVersion: 0 });</code></span>
+<span class="line" id="L150"><a href="#L150" aria-label="Line 150">150</a><code>      if (!tx) await new Promise((r) =&gt; setTimeout(r, 1_000));</code></span>
+<span class="line" id="L151"><a href="#L151" aria-label="Line 151">151</a><code>    }</code></span>
+<span class="line" id="L152"><a href="#L152" aria-label="Line 152">152</a><code>    if (!tx) throw new Error(`${a.id}: transaction ${signature} not found`);</code></span>
+<span class="line" id="L153"><a href="#L153" aria-label="Line 153">153</a><code>    const outcome = tx.meta!.err ? &quot;refused&quot; : &quot;accepted&quot;;</code></span>
+<span class="line" id="L154"><a href="#L154" aria-label="Line 154">154</a><code>    const reason = tx.meta!.err ? reasonOf(tx.meta) : &quot;&quot;;</code></span>
+<span class="line" id="L155"><a href="#L155" aria-label="Line 155">155</a><code>    const ok = outcome === &quot;refused&quot; &amp;&amp; reason.includes(a.guard);</code></span>
+<span class="line" id="L156"><a href="#L156" aria-label="Line 156">156</a><code>    const row: Attempt = { ...a, outcome, reason, ok, signature, explorer: c.explorer(signature), chainTime: new Date((await c.chainNow()) * 1000).toISOString() };</code></span>
+<span class="line" id="L157"><a href="#L157" aria-label="Line 157">157</a><code>    attempts.push(row);</code></span>
+<span class="line" id="L158"><a href="#L158" aria-label="Line 158">158</a><code>    console.log(`${ok ? &quot;REFUSED &quot; : &quot;FAILED  &quot;} ${a.id}: ${a.tries} -&gt; ${outcome}${reason ? ` (${reason})` : &quot;&quot;}  ${row.explorer ?? signature}`);</code></span>
+<span class="line" id="L159"><a href="#L159" aria-label="Line 159">159</a><code>    return row;</code></span>
+<span class="line" id="L160"><a href="#L160" aria-label="Line 160">160</a><code>  };</code></span>
+<span class="line" id="L161"><a href="#L161" aria-label="Line 161">161</a><code></code></span>
+<span class="line" id="L162"><a href="#L162" aria-label="Line 162">162</a><code>  // Accounts the attacks use: the attacker&#x27;s own bond and cash accounts, and a second bond account owned by the</code></span>
+<span class="line" id="L163"><a href="#L163" aria-label="Line 163">163</a><code>  // victim but not its associated one. Anyone may open these; the attacker pays.</code></span>
+<span class="line" id="L164"><a href="#L164" aria-label="Line 164">164</a><code>  const setUp = async () =&gt; {</code></span>
+<span class="line" id="L165"><a href="#L165" aria-label="Line 165">165</a><code>    const have = await c.connection.getBalance(A);</code></span>
+<span class="line" id="L166"><a href="#L166" aria-label="Line 166">166</a><code>    if (have &lt; 0.1 * LAMPORTS_PER_SOL)</code></span>
+<span class="line" id="L167"><a href="#L167" aria-label="Line 167">167</a><code>      await c.send(&quot;fund attacker fees&quot;, [SystemProgram.transfer({ fromPubkey: c.registrar.publicKey, toPubkey: A, lamports: 0.1 * LAMPORTS_PER_SOL - have })], [c.registrar]);</code></span>
+<span class="line" id="L168"><a href="#L168" aria-label="Line 168">168</a><code>    const size = (await c.connection.getAccountInfo(c.bondsAta(victim)))!.data.length;</code></span>
+<span class="line" id="L169"><a href="#L169" aria-label="Line 169">169</a><code>    await c.send(&quot;attacker opens its own bond and cash accounts, and a second bond account for the victim&quot;, [</code></span>
+<span class="line" id="L170"><a href="#L170" aria-label="Line 170">170</a><code>      createAssociatedTokenAccountIdempotentInstruction(A, attackerBonds, A, c.mint, TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L171"><a href="#L171" aria-label="Line 171">171</a><code>      createAssociatedTokenAccountIdempotentInstruction(A, attackerCash, A, c.cashMint, TOKEN_PROGRAM_ID),</code></span>
+<span class="line" id="L172"><a href="#L172" aria-label="Line 172">172</a><code>      SystemProgram.createAccount({</code></span>
+<span class="line" id="L173"><a href="#L173" aria-label="Line 173">173</a><code>        fromPubkey: A, newAccountPubkey: victimSecondAccount.publicKey, space: size,</code></span>
+<span class="line" id="L174"><a href="#L174" aria-label="Line 174">174</a><code>        lamports: await c.connection.getMinimumBalanceForRentExemption(size), programId: TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L175"><a href="#L175" aria-label="Line 175">175</a><code>      }),</code></span>
+<span class="line" id="L176"><a href="#L176" aria-label="Line 176">176</a><code>      createInitializeAccount3Instruction(victimSecondAccount.publicKey, c.mint, c.holders[victim].publicKey, TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L177"><a href="#L177" aria-label="Line 177">177</a><code>    ], [c.attacker, victimSecondAccount]);</code></span>
+<span class="line" id="L178"><a href="#L178" aria-label="Line 178">178</a><code>  };</code></span>
+<span class="line" id="L179"><a href="#L179" aria-label="Line 179">179</a><code></code></span>
+<span class="line" id="L180"><a href="#L180" aria-label="Line 180">180</a><code>  // Token-2022 PermissionedBurnExtension (46), BurnChecked (2): account, mint, burn authority, owner or delegate</code></span>
+<span class="line" id="L181"><a href="#L181" aria-label="Line 181">181</a><code>  // (the layout settlement.rs uses).</code></span>
+<span class="line" id="L182"><a href="#L182" aria-label="Line 182">182</a><code>  const permissionedBurn = (account: PublicKey, authority: PublicKey, owner: PublicKey) =&gt; new TransactionInstruction({</code></span>
+<span class="line" id="L183"><a href="#L183" aria-label="Line 183">183</a><code>    programId: TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L184"><a href="#L184" aria-label="Line 184">184</a><code>    data: Buffer.concat([Buffer.from([46, 2]), new BN(1).toArrayLike(Buffer, &quot;le&quot;, 8), Buffer.from([0])]),</code></span>
+<span class="line" id="L185"><a href="#L185" aria-label="Line 185">185</a><code>    keys: [</code></span>
+<span class="line" id="L186"><a href="#L186" aria-label="Line 186">186</a><code>      { pubkey: account, isSigner: false, isWritable: true },</code></span>
+<span class="line" id="L187"><a href="#L187" aria-label="Line 187">187</a><code>      { pubkey: c.mint, isSigner: false, isWritable: true },</code></span>
+<span class="line" id="L188"><a href="#L188" aria-label="Line 188">188</a><code>      { pubkey: authority, isSigner: true, isWritable: false },</code></span>
+<span class="line" id="L189"><a href="#L189" aria-label="Line 189">189</a><code>      { pubkey: owner, isSigner: true, isWritable: false },</code></span>
+<span class="line" id="L190"><a href="#L190" aria-label="Line 190">190</a><code>    ],</code></span>
+<span class="line" id="L191"><a href="#L191" aria-label="Line 191">191</a><code>  });</code></span>
+<span class="line" id="L192"><a href="#L192" aria-label="Line 192">192</a><code></code></span>
+<span class="line" id="L193"><a href="#L193" aria-label="Line 193">193</a><code>  const hooked = (from: string | PublicKey, fromOwner: Keypair, to: PublicKey, amount: number) =&gt;</code></span>
+<span class="line" id="L194"><a href="#L194" aria-label="Line 194">194</a><code>    createTransferCheckedWithTransferHookInstruction(</code></span>
+<span class="line" id="L195"><a href="#L195" aria-label="Line 195">195</a><code>      c.connection, typeof from === &quot;string&quot; ? c.bondsAta(from) : from, c.mint, to, fromOwner.publicKey, BigInt(amount), 0, [], &quot;confirmed&quot;, TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L196"><a href="#L196" aria-label="Line 196">196</a><code>    );</code></span>
+<span class="line" id="L197"><a href="#L197" aria-label="Line 197">197</a><code></code></span>
+<span class="line" id="L198"><a href="#L198" aria-label="Line 198">198</a><code>  const payCoupon = (sv: anchor.Program, payer: PublicKey, e: number, name: string, over: Record&lt;string, PublicKey&gt; = {}) =&gt; {</code></span>
+<span class="line" id="L199"><a href="#L199" aria-label="Line 199">199</a><code>    const event = c.pda(Buffer.from(&quot;event&quot;), c.bond.toBuffer(), c.u16(e));</code></span>
+<span class="line" id="L200"><a href="#L200" aria-label="Line 200">200</a><code>    return sv.methods.payCoupon().accountsPartial({</code></span>
+<span class="line" id="L201"><a href="#L201" aria-label="Line 201">201</a><code>      payer, bond: c.bond, event, holder: c.holderRecord(name), owner: c.holders[name].publicKey,</code></span>
+<span class="line" id="L202"><a href="#L202" aria-label="Line 202">202</a><code>      vault: c.pda(Buffer.from(&quot;vault&quot;), event.toBuffer()), cashMint: c.cashMint, holderCash: c.cashAta(name),</code></span>
+<span class="line" id="L203"><a href="#L203" aria-label="Line 203">203</a><code>      memoProgram: null, cashTokenProgram: TOKEN_PROGRAM_ID, ...over,</code></span>
+<span class="line" id="L204"><a href="#L204" aria-label="Line 204">204</a><code>    }).instruction();</code></span>
+<span class="line" id="L205"><a href="#L205" aria-label="Line 205">205</a><code>  };</code></span>
+<span class="line" id="L206"><a href="#L206" aria-label="Line 206">206</a><code></code></span>
+<span class="line" id="L207"><a href="#L207" aria-label="Line 207">207</a><code>  // Before the first record moment: the register, the bond token and the program itself.</code></span>
+<span class="line" id="L208"><a href="#L208" aria-label="Line 208">208</a><code>  const beforeFirstRecordMoment = async () =&gt; {</code></span>
+<span class="line" id="L209"><a href="#L209" aria-label="Line 209">209</a><code>    await setUp();</code></span>
+<span class="line" id="L210"><a href="#L210" aria-label="Line 210">210</a><code>    const when = &quot;before the first record moment&quot;;</code></span>
+<span class="line" id="L211"><a href="#L211" aria-label="Line 211">211</a><code>    await attempt({ id: &quot;register-self&quot;, when, actor: &quot;attacker&quot;, tries: &quot;registers itself as a holder, signing as registrar&quot;,</code></span>
+<span class="line" id="L212"><a href="#L212" aria-label="Line 212">212</a><code>      wouldCost: &quot;an unvetted wallet in the register&quot;, guard: &quot;ConstraintHasOne&quot; },</code></span>
+<span class="line" id="L213"><a href="#L213" aria-label="Line 213">213</a><code>      [await asAttacker.methods.registerHolder(A).accountsPartial({ registrar: A, bond: c.bond }).instruction()], [c.attacker]);</code></span>
+<span class="line" id="L214"><a href="#L214" aria-label="Line 214">214</a><code>    await attempt({ id: &quot;mint-bonds&quot;, when, actor: &quot;attacker&quot;, tries: &quot;mints 1,000 bonds to itself&quot;,</code></span>
+<span class="line" id="L215"><a href="#L215" aria-label="Line 215">215</a><code>      wouldCost: &quot;the issuer owes coupons and principal on bonds it never sold&quot;, guard: &quot;owner does not match&quot; },</code></span>
+<span class="line" id="L216"><a href="#L216" aria-label="Line 216">216</a><code>      [createMintToInstruction(c.mint, attackerBonds, A, 1_000, [], TOKEN_2022_PROGRAM_ID)], [c.attacker]);</code></span>
+<span class="line" id="L217"><a href="#L217" aria-label="Line 217">217</a><code>    await attempt({ id: &quot;mint-as-program&quot;, when, actor: &quot;attacker&quot;, tries: &quot;mints 1,000 bonds naming the program as mint authority&quot;,</code></span>
+<span class="line" id="L218"><a href="#L218" aria-label="Line 218">218</a><code>      wouldCost: &quot;the issuer owes coupons and principal on bonds it never sold&quot;, guard: &quot;MissingRequiredSignature&quot; },</code></span>
+<span class="line" id="L219"><a href="#L219" aria-label="Line 219">219</a><code>      [unsigned(createMintToInstruction(c.mint, attackerBonds, c.bond, 1_000, [], TOKEN_2022_PROGRAM_ID), c.bond)], [c.attacker]);</code></span>
+<span class="line" id="L220"><a href="#L220" aria-label="Line 220">220</a><code>    await attempt({ id: &quot;take-bonds&quot;, when, actor: &quot;attacker&quot;, tries: `moves ${victim}&#x27;s bonds to itself`,</code></span>
+<span class="line" id="L221"><a href="#L221" aria-label="Line 221">221</a><code>      wouldCost: `${victim} loses its bonds`, guard: &quot;owner does not match&quot; },</code></span>
+<span class="line" id="L222"><a href="#L222" aria-label="Line 222">222</a><code>      [createTransferCheckedInstruction(c.bondsAta(victim), c.mint, attackerBonds, A, 1, 0, [], TOKEN_2022_PROGRAM_ID)], [c.attacker]);</code></span>
+<span class="line" id="L223"><a href="#L223" aria-label="Line 223">223</a><code>    await attempt({ id: &quot;take-as-delegate&quot;, when, actor: &quot;attacker&quot;, tries: `moves ${victim}&#x27;s bonds naming the program, the permanent delegate`,</code></span>
+<span class="line" id="L224"><a href="#L224" aria-label="Line 224">224</a><code>      wouldCost: `${victim} loses its bonds`, guard: &quot;MissingRequiredSignature&quot; },</code></span>
+<span class="line" id="L225"><a href="#L225" aria-label="Line 225">225</a><code>      [unsigned(createTransferCheckedInstruction(c.bondsAta(victim), c.mint, attackerBonds, c.bond, 1, 0, [], TOKEN_2022_PROGRAM_ID), c.bond)], [c.attacker]);</code></span>
+<span class="line" id="L226"><a href="#L226" aria-label="Line 226">226</a><code>    // Token-2022 refuses every standard burn on a mint with permissioned burn (TokenError::InvalidInstruction).</code></span>
+<span class="line" id="L227"><a href="#L227" aria-label="Line 227">227</a><code>    await attempt({ id: &quot;burn-bonds&quot;, when, actor: &quot;attacker&quot;, tries: `burns ${victim}&#x27;s bonds`,</code></span>
+<span class="line" id="L228"><a href="#L228" aria-label="Line 228">228</a><code>      wouldCost: `${victim} loses coupons and principal`, guard: &quot;Invalid instruction&quot; },</code></span>
+<span class="line" id="L229"><a href="#L229" aria-label="Line 229">229</a><code>      [createBurnCheckedInstruction(c.bondsAta(victim), c.mint, A, 1, 0, [], TOKEN_2022_PROGRAM_ID)], [c.attacker]);</code></span>
+<span class="line" id="L230"><a href="#L230" aria-label="Line 230">230</a><code>    // InvalidAccountData: Token-2022&#x27;s check that the approver is the mint&#x27;s permissioned burn authority.</code></span>
+<span class="line" id="L231"><a href="#L231" aria-label="Line 231">231</a><code>    await attempt({ id: &quot;burn-permissioned&quot;, when, actor: &quot;attacker&quot;, tries: `burns ${victim}&#x27;s bonds with the permissioned burn, naming itself burn authority`,</code></span>
+<span class="line" id="L232"><a href="#L232" aria-label="Line 232">232</a><code>      wouldCost: `${victim} loses coupons and principal`, guard: &quot;InvalidAccountData&quot; },</code></span>
+<span class="line" id="L233"><a href="#L233" aria-label="Line 233">233</a><code>      [permissionedBurn(c.bondsAta(victim), A, A)], [c.attacker]);</code></span>
+<span class="line" id="L234"><a href="#L234" aria-label="Line 234">234</a><code>    await attempt({ id: &quot;burn-as-program&quot;, when, actor: &quot;attacker&quot;, tries: `burns ${victim}&#x27;s bonds with the permissioned burn, naming the program, the burn authority`,</code></span>
+<span class="line" id="L235"><a href="#L235" aria-label="Line 235">235</a><code>      wouldCost: `${victim} loses coupons and principal`, guard: &quot;MissingRequiredSignature&quot; },</code></span>
+<span class="line" id="L236"><a href="#L236" aria-label="Line 236">236</a><code>      [unsigned(permissionedBurn(c.bondsAta(victim), c.bond, c.bond), c.bond)], [c.attacker]);</code></span>
+<span class="line" id="L237"><a href="#L237" aria-label="Line 237">237</a><code>    await attempt({ id: &quot;freeze-holder&quot;, when, actor: &quot;attacker&quot;, tries: `freezes ${victim}&#x27;s bond account`,</code></span>
+<span class="line" id="L238"><a href="#L238" aria-label="Line 238">238</a><code>      wouldCost: `${victim} cannot sell`, guard: &quot;cannot freeze&quot; },</code></span>
+<span class="line" id="L239"><a href="#L239" aria-label="Line 239">239</a><code>      [createFreezeAccountInstruction(c.bondsAta(victim), c.mint, A, [], TOKEN_2022_PROGRAM_ID)], [c.attacker]);</code></span>
+<span class="line" id="L240"><a href="#L240" aria-label="Line 240">240</a><code>    await attempt({ id: &quot;send-unregistered&quot;, when, actor: victim, tries: &quot;sends a bond to an unregistered wallet (the attacker)&quot;,</code></span>
+<span class="line" id="L241"><a href="#L241" aria-label="Line 241">241</a><code>      wouldCost: &quot;bonds held outside the register&quot;, guard: &quot;AccountOwnedByWrongProgram&quot; },</code></span>
+<span class="line" id="L242"><a href="#L242" aria-label="Line 242">242</a><code>      [await hooked(victim, c.holders[victim], attackerBonds, 1)], [c.registrar, c.holders[victim]]);</code></span>
+<span class="line" id="L243"><a href="#L243" aria-label="Line 243">243</a><code>    await attempt({ id: &quot;second-account&quot;, when, actor: victim, tries: &quot;moves a bond to a second account of its own&quot;,</code></span>
+<span class="line" id="L244"><a href="#L244" aria-label="Line 244">244</a><code>      wouldCost: &quot;a position the register does not see&quot;, guard: &quot;NotAssociatedTokenAccount&quot; },</code></span>
+<span class="line" id="L245"><a href="#L245" aria-label="Line 245">245</a><code>      [await hooked(victim, c.holders[victim], victimSecondAccount.publicKey, 1)], [c.registrar, c.holders[victim]]);</code></span>
+<span class="line" id="L246"><a href="#L246" aria-label="Line 246">246</a><code>    // Token-2022 error 0x1f = TokenError::MintRequiredForTransfer: a hooked mint&#x27;s accounts move only with transfer_checked.</code></span>
+<span class="line" id="L247"><a href="#L247" aria-label="Line 247">247</a><code>    await attempt({ id: &quot;skip-hook&quot;, when, actor: victim, tries: `sends a bond to ${accomplice} with Token-2022&#x27;s plain Transfer instruction, which skips the transfer hook`,</code></span>
+<span class="line" id="L248"><a href="#L248" aria-label="Line 248">248</a><code>      wouldCost: &quot;a bond moves without its record-moment position being saved&quot;, guard: &quot;custom program error: 0x1f&quot; },</code></span>
+<span class="line" id="L249"><a href="#L249" aria-label="Line 249">249</a><code>      [createTransferInstruction(c.bondsAta(victim), c.bondsAta(accomplice), c.holders[victim].publicKey, 1, [], TOKEN_2022_PROGRAM_ID)], [c.registrar, c.holders[victim]]);</code></span>
+<span class="line" id="L250"><a href="#L250" aria-label="Line 250">250</a><code>    await attempt({ id: &quot;forge-position&quot;, when, actor: &quot;attacker&quot;, tries: `calls the transfer hook directly to add 5 bonds to ${accomplice}&#x27;s record`,</code></span>
+<span class="line" id="L251"><a href="#L251" aria-label="Line 251">251</a><code>      wouldCost: &quot;coupons paid on bonds nobody holds&quot;, guard: &quot;NotTransferring&quot; },</code></span>
+<span class="line" id="L252"><a href="#L252" aria-label="Line 252">252</a><code>      [await asAttacker.methods.transferHook(new BN(5)).accountsPartial({</code></span>
+<span class="line" id="L253"><a href="#L253" aria-label="Line 253">253</a><code>        sourceToken: c.bondsAta(victim), mint: c.mint, destinationToken: c.bondsAta(accomplice), authority: A,</code></span>
+<span class="line" id="L254"><a href="#L254" aria-label="Line 254">254</a><code>        extraAccountMetaList: c.pda(Buffer.from(&quot;extra-account-metas&quot;), c.mint.toBuffer()), bond: c.bond,</code></span>
+<span class="line" id="L255"><a href="#L255" aria-label="Line 255">255</a><code>        sourceHolder: c.holderRecord(victim), destinationHolder: c.holderRecord(accomplice),</code></span>
+<span class="line" id="L256"><a href="#L256" aria-label="Line 256">256</a><code>      }).instruction()], [c.attacker]);</code></span>
+<span class="line" id="L257"><a href="#L257" aria-label="Line 257">257</a><code>    const [programData] = PublicKey.findProgramAddressSync([c.program.programId.toBuffer()], LOADER);</code></span>
+<span class="line" id="L258"><a href="#L258" aria-label="Line 258">258</a><code>    await attempt({ id: &quot;take-program&quot;, when, actor: &quot;attacker&quot;, tries: &quot;makes itself the program&#x27;s upgrade authority&quot;,</code></span>
+<span class="line" id="L259"><a href="#L259" aria-label="Line 259">259</a><code>      wouldCost: &quot;a replaced program could empty every vault&quot;, guard: &quot;Incorrect authority&quot; },</code></span>
+<span class="line" id="L260"><a href="#L260" aria-label="Line 260">260</a><code>      [new TransactionInstruction({ programId: LOADER, data: Buffer.from([4, 0, 0, 0]), keys: [</code></span>
+<span class="line" id="L261"><a href="#L261" aria-label="Line 261">261</a><code>        { pubkey: programData, isSigner: false, isWritable: true },</code></span>
+<span class="line" id="L262"><a href="#L262" aria-label="Line 262">262</a><code>        { pubkey: A, isSigner: true, isWritable: false },</code></span>
+<span class="line" id="L263"><a href="#L263" aria-label="Line 263">263</a><code>        { pubkey: A, isSigner: false, isWritable: false },</code></span>
+<span class="line" id="L264"><a href="#L264" aria-label="Line 264">264</a><code>      ] })], [c.attacker]);</code></span>
+<span class="line" id="L265"><a href="#L265" aria-label="Line 265">265</a><code></code></span>
+<span class="line" id="L266"><a href="#L266" aria-label="Line 266">266</a><code>    // A cash token that keeps a fee on every transfer would pay holders less than the terms.</code></span>
+<span class="line" id="L267"><a href="#L267" aria-label="Line 267">267</a><code>    const feeMint = Keypair.generate();</code></span>
+<span class="line" id="L268"><a href="#L268" aria-label="Line 268">268</a><code>    const len = getMintLen([ExtensionType.TransferFeeConfig]);</code></span>
+<span class="line" id="L269"><a href="#L269" aria-label="Line 269">269</a><code>    await c.send(&quot;registrar creates a cash token with a 1% transfer fee&quot;, [</code></span>
+<span class="line" id="L270"><a href="#L270" aria-label="Line 270">270</a><code>      SystemProgram.createAccount({ fromPubkey: c.registrar.publicKey, newAccountPubkey: feeMint.publicKey, space: len,</code></span>
+<span class="line" id="L271"><a href="#L271" aria-label="Line 271">271</a><code>        lamports: await c.connection.getMinimumBalanceForRentExemption(len), programId: TOKEN_2022_PROGRAM_ID }),</code></span>
+<span class="line" id="L272"><a href="#L272" aria-label="Line 272">272</a><code>      createInitializeTransferFeeConfigInstruction(feeMint.publicKey, c.registrar.publicKey, c.registrar.publicKey, 100, BigInt(1e12), TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L273"><a href="#L273" aria-label="Line 273">273</a><code>      createInitializeMintInstruction(feeMint.publicKey, c.cashDecimals, c.registrar.publicKey, null, TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L274"><a href="#L274" aria-label="Line 274">274</a><code>    ], [c.registrar, feeMint]);</code></span>
+<span class="line" id="L275"><a href="#L275" aria-label="Line 275">275</a><code>    const newMint = Keypair.generate();</code></span>
+<span class="line" id="L276"><a href="#L276" aria-label="Line 276">276</a><code>    await attempt({ id: &quot;fee-cash-token&quot;, when, actor: &quot;registrar&quot;, tries: &quot;creates a bond paid in a cash token that keeps a 1% fee on every transfer&quot;,</code></span>
+<span class="line" id="L277"><a href="#L277" aria-label="Line 277">277</a><code>      wouldCost: &quot;holders receive 1% less than the terms&quot;, guard: &quot;UnsupportedCashToken&quot; },</code></span>
+<span class="line" id="L278"><a href="#L278" aria-label="Line 278">278</a><code>      [await c.program.methods.createBond(c.terms).accountsPartial({</code></span>
+<span class="line" id="L279"><a href="#L279" aria-label="Line 279">279</a><code>        registrar: c.registrar.publicKey, mint: newMint.publicKey, bond: c.pda(Buffer.from(&quot;bond&quot;), newMint.publicKey.toBuffer()), cashMint: feeMint.publicKey,</code></span>
+<span class="line" id="L280"><a href="#L280" aria-label="Line 280">280</a><code>        extraAccountMetaList: c.pda(Buffer.from(&quot;extra-account-metas&quot;), newMint.publicKey.toBuffer()),</code></span>
+<span class="line" id="L281"><a href="#L281" aria-label="Line 281">281</a><code>        tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,</code></span>
+<span class="line" id="L282"><a href="#L282" aria-label="Line 282">282</a><code>      }).instruction()], [c.registrar, newMint]);</code></span>
+<span class="line" id="L283"><a href="#L283" aria-label="Line 283">283</a><code></code></span>
+<span class="line" id="L284"><a href="#L284" aria-label="Line 284">284</a><code>    // A cash token with a permanent delegate lets that delegate move cash out of any account, the vaults included.</code></span>
+<span class="line" id="L285"><a href="#L285" aria-label="Line 285">285</a><code>    const delegateMint = Keypair.generate();</code></span>
+<span class="line" id="L286"><a href="#L286" aria-label="Line 286">286</a><code>    const delegateLen = getMintLen([ExtensionType.PermanentDelegate]);</code></span>
+<span class="line" id="L287"><a href="#L287" aria-label="Line 287">287</a><code>    await c.send(&quot;registrar creates a cash token whose permanent delegate is the attacker&quot;, [</code></span>
+<span class="line" id="L288"><a href="#L288" aria-label="Line 288">288</a><code>      SystemProgram.createAccount({ fromPubkey: c.registrar.publicKey, newAccountPubkey: delegateMint.publicKey, space: delegateLen,</code></span>
+<span class="line" id="L289"><a href="#L289" aria-label="Line 289">289</a><code>        lamports: await c.connection.getMinimumBalanceForRentExemption(delegateLen), programId: TOKEN_2022_PROGRAM_ID }),</code></span>
+<span class="line" id="L290"><a href="#L290" aria-label="Line 290">290</a><code>      createInitializePermanentDelegateInstruction(delegateMint.publicKey, A, TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L291"><a href="#L291" aria-label="Line 291">291</a><code>      createInitializeMintInstruction(delegateMint.publicKey, c.cashDecimals, c.registrar.publicKey, null, TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L292"><a href="#L292" aria-label="Line 292">292</a><code>    ], [c.registrar, delegateMint]);</code></span>
+<span class="line" id="L293"><a href="#L293" aria-label="Line 293">293</a><code>    const delegateBondMint = Keypair.generate();</code></span>
+<span class="line" id="L294"><a href="#L294" aria-label="Line 294">294</a><code>    await attempt({ id: &quot;delegate-cash-token&quot;, when, actor: &quot;registrar&quot;, tries: &quot;creates a bond paid in a cash token whose permanent delegate is the attacker&quot;,</code></span>
+<span class="line" id="L295"><a href="#L295" aria-label="Line 295">295</a><code>      wouldCost: &quot;the delegate empties the vaults before holders are paid&quot;, guard: &quot;UnsupportedCashToken&quot; },</code></span>
+<span class="line" id="L296"><a href="#L296" aria-label="Line 296">296</a><code>      [await c.program.methods.createBond(c.terms).accountsPartial({</code></span>
+<span class="line" id="L297"><a href="#L297" aria-label="Line 297">297</a><code>        registrar: c.registrar.publicKey, mint: delegateBondMint.publicKey, bond: c.pda(Buffer.from(&quot;bond&quot;), delegateBondMint.publicKey.toBuffer()),</code></span>
+<span class="line" id="L298"><a href="#L298" aria-label="Line 298">298</a><code>        cashMint: delegateMint.publicKey, extraAccountMetaList: c.pda(Buffer.from(&quot;extra-account-metas&quot;), delegateBondMint.publicKey.toBuffer()),</code></span>
+<span class="line" id="L299"><a href="#L299" aria-label="Line 299">299</a><code>        tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,</code></span>
+<span class="line" id="L300"><a href="#L300" aria-label="Line 300">300</a><code>      }).instruction()], [c.registrar, delegateBondMint]);</code></span>
+<span class="line" id="L301"><a href="#L301" aria-label="Line 301">301</a><code></code></span>
+<span class="line" id="L302"><a href="#L302" aria-label="Line 302">302</a><code>    // Placement is still open here, so only the issue size stops it: one bond more than the terms allow.</code></span>
+<span class="line" id="L303"><a href="#L303" aria-label="Line 303">303</a><code>    const supply = (await getMint(c.connection, c.mint, &quot;confirmed&quot;, TOKEN_2022_PROGRAM_ID)).supply;</code></span>
+<span class="line" id="L304"><a href="#L304" aria-label="Line 304">304</a><code>    const issueSize = BigInt(c.terms.maxSupply.toString()), beyond = issueSize - supply + 1n;</code></span>
+<span class="line" id="L305"><a href="#L305" aria-label="Line 305">305</a><code>    await attempt({ id: &quot;place-beyond-issue&quot;, when, actor: &quot;registrar&quot;,</code></span>
+<span class="line" id="L306"><a href="#L306" aria-label="Line 306">306</a><code>      tries: `places ${beyond} more bond${beyond === 1n ? &quot;&quot; : &quot;s&quot;} with ${accomplice}, past the issue size of ${issueSize}`,</code></span>
+<span class="line" id="L307"><a href="#L307" aria-label="Line 307">307</a><code>      wouldCost: &quot;bonds beyond the issue the terms announced&quot;, guard: &quot;ExceedsIssueSize&quot; },</code></span>
+<span class="line" id="L308"><a href="#L308" aria-label="Line 308">308</a><code>      [await c.program.methods.place(new BN(beyond.toString())).accountsPartial({</code></span>
+<span class="line" id="L309"><a href="#L309" aria-label="Line 309">309</a><code>        registrar: c.registrar.publicKey, bond: c.bond, mint: c.mint, holder: c.holderRecord(accomplice), holderBonds: c.bondsAta(accomplice), tokenProgram: TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L310"><a href="#L310" aria-label="Line 310">310</a><code>      }).instruction()], [c.registrar]);</code></span>
+<span class="line" id="L311"><a href="#L311" aria-label="Line 311">311</a><code>  };</code></span>
+<span class="line" id="L312"><a href="#L312" aria-label="Line 312">312</a><code></code></span>
+<span class="line" id="L313"><a href="#L313" aria-label="Line 313">313</a><code>  // After a record moment&#x27;s trades.</code></span>
+<span class="line" id="L314"><a href="#L314" aria-label="Line 314">314</a><code>  const afterRecordMoment = async (e: number) =&gt; {</code></span>
+<span class="line" id="L315"><a href="#L315" aria-label="Line 315">315</a><code>    if (e !== 0) return;</code></span>
+<span class="line" id="L316"><a href="#L316" aria-label="Line 316">316</a><code>    await attempt({ id: &quot;place-late&quot;, when: &quot;after the first record moment&quot;, actor: &quot;registrar&quot;, tries: `places 100 new bonds with ${accomplice}`,</code></span>
+<span class="line" id="L317"><a href="#L317" aria-label="Line 317">317</a><code>      wouldCost: &quot;bonds issued after the issue closed&quot;, guard: &quot;PlacementClosed&quot; },</code></span>
+<span class="line" id="L318"><a href="#L318" aria-label="Line 318">318</a><code>      [await c.program.methods.place(new BN(100)).accountsPartial({</code></span>
+<span class="line" id="L319"><a href="#L319" aria-label="Line 319">319</a><code>        registrar: c.registrar.publicKey, bond: c.bond, mint: c.mint, holder: c.holderRecord(accomplice), holderBonds: c.bondsAta(accomplice), tokenProgram: TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L320"><a href="#L320" aria-label="Line 320">320</a><code>      }).instruction()], [c.registrar]);</code></span>
+<span class="line" id="L321"><a href="#L321" aria-label="Line 321">321</a><code>  };</code></span>
+<span class="line" id="L322"><a href="#L322" aria-label="Line 322">322</a><code></code></span>
+<span class="line" id="L323"><a href="#L323" aria-label="Line 323">323</a><code>  // Between opening the first coupon and its funding: the issuer funds it short, and the attacker tries to use that.</code></span>
+<span class="line" id="L324"><a href="#L324" aria-label="Line 324">324</a><code>  let underfundedShown = false;</code></span>
+<span class="line" id="L325"><a href="#L325" aria-label="Line 325">325</a><code>  const whileUnfunded = async (e: number, event: PublicKey, vault: PublicKey, budget: bigint) =&gt; {</code></span>
+<span class="line" id="L326"><a href="#L326" aria-label="Line 326">326</a><code>    if (underfundedShown) return;</code></span>
+<span class="line" id="L327"><a href="#L327" aria-label="Line 327">327</a><code>    underfundedShown = true;</code></span>
+<span class="line" id="L328"><a href="#L328" aria-label="Line 328">328</a><code>    const when = `coupon ${e}, vault funded short by 0.000001`;</code></span>
+<span class="line" id="L329"><a href="#L329" aria-label="Line 329">329</a><code>    await c.send(`issuer funds coupon ${e}&#x27;s vault 0.000001 short`, [createMintToInstruction(c.cashMint, vault, c.bank.publicKey, budget - 1n, [], TOKEN_PROGRAM_ID)], [c.registrar, c.bank]);</code></span>
+<span class="line" id="L330"><a href="#L330" aria-label="Line 330">330</a><code>    await attempt({ id: &quot;confirm-short&quot;, when, actor: &quot;attacker&quot;, tries: &quot;confirms the coupon funded&quot;,</code></span>
+<span class="line" id="L331"><a href="#L331" aria-label="Line 331">331</a><code>      wouldCost: &quot;the last holders find the vault empty&quot;, guard: &quot;InsufficientFunding&quot; },</code></span>
+<span class="line" id="L332"><a href="#L332" aria-label="Line 332">332</a><code>      [await asAttacker.methods.confirmFunding().accountsPartial({ event, vault }).instruction()], [c.attacker]);</code></span>
+<span class="line" id="L333"><a href="#L333" aria-label="Line 333">333</a><code>    await attempt({ id: &quot;pay-unfunded&quot;, when, actor: &quot;attacker&quot;, tries: `pays ${victim} from the unconfirmed vault`,</code></span>
+<span class="line" id="L334"><a href="#L334" aria-label="Line 334">334</a><code>      wouldCost: &quot;the last holders find the vault empty&quot;, guard: &quot;NotFunded&quot; },</code></span>
+<span class="line" id="L335"><a href="#L335" aria-label="Line 335">335</a><code>      [await payCoupon(asAttacker, A, e, victim)], [c.attacker]);</code></span>
+<span class="line" id="L336"><a href="#L336" aria-label="Line 336">336</a><code>    await attempt({ id: &quot;drain-vault&quot;, when, actor: &quot;attacker&quot;, tries: &quot;moves the vault&#x27;s cash to itself&quot;,</code></span>
+<span class="line" id="L337"><a href="#L337" aria-label="Line 337">337</a><code>      wouldCost: &quot;the coupon&#x27;s cash is gone&quot;, guard: &quot;owner does not match&quot; },</code></span>
+<span class="line" id="L338"><a href="#L338" aria-label="Line 338">338</a><code>      [createTransferCheckedInstruction(vault, c.cashMint, attackerCash, A, 1, c.cashDecimals, [], TOKEN_PROGRAM_ID)], [c.attacker]);</code></span>
+<span class="line" id="L339"><a href="#L339" aria-label="Line 339">339</a><code>    await attempt({ id: &quot;drain-as-program&quot;, when, actor: &quot;attacker&quot;, tries: &quot;moves the vault&#x27;s cash to itself naming the program, the vault&#x27;s owner&quot;,</code></span>
+<span class="line" id="L340"><a href="#L340" aria-label="Line 340">340</a><code>      wouldCost: &quot;the coupon&#x27;s cash is gone&quot;, guard: &quot;MissingRequiredSignature&quot; },</code></span>
+<span class="line" id="L341"><a href="#L341" aria-label="Line 341">341</a><code>      [unsigned(createTransferCheckedInstruction(vault, c.cashMint, attackerCash, c.bond, 1, c.cashDecimals, [], TOKEN_PROGRAM_ID), c.bond)], [c.attacker]);</code></span>
+<span class="line" id="L342"><a href="#L342" aria-label="Line 342">342</a><code>  };</code></span>
+<span class="line" id="L343"><a href="#L343" aria-label="Line 343">343</a><code></code></span>
+<span class="line" id="L344"><a href="#L344" aria-label="Line 344">344</a><code>  // Payment is open; before anyone is paid. Returns the holders to pay after afterPayments.</code></span>
+<span class="line" id="L345"><a href="#L345" aria-label="Line 345">345</a><code>  const beforePayments = async (e: number): Promise&lt;string[]&gt; =&gt; {</code></span>
+<span class="line" id="L346"><a href="#L346" aria-label="Line 346">346</a><code>    const when = `coupon ${e}, payment open`;</code></span>
+<span class="line" id="L347"><a href="#L347" aria-label="Line 347">347</a><code>    if (e === 0) {</code></span>
+<span class="line" id="L348"><a href="#L348" aria-label="Line 348">348</a><code>      await attempt({ id: &quot;redirect-coupon&quot;, when, actor: &quot;attacker&quot;, tries: `pays ${victim}&#x27;s coupon into its own cash account`,</code></span>
+<span class="line" id="L349"><a href="#L349" aria-label="Line 349">349</a><code>        wouldCost: `${victim}&#x27;s coupon`, guard: &quot;ConstraintTokenOwner&quot; },</code></span>
+<span class="line" id="L350"><a href="#L350" aria-label="Line 350">350</a><code>        [await payCoupon(asAttacker, A, e, victim, { holderCash: attackerCash })], [c.attacker]);</code></span>
+<span class="line" id="L351"><a href="#L351" aria-label="Line 351">351</a><code>      await attempt({ id: &quot;claim-as-owner&quot;, when, actor: &quot;attacker&quot;, tries: `presents ${victim}&#x27;s holder record as its own`,</code></span>
+<span class="line" id="L352"><a href="#L352" aria-label="Line 352">352</a><code>        wouldCost: `${victim}&#x27;s coupon`, guard: &quot;Constraint&quot; },</code></span>
+<span class="line" id="L353"><a href="#L353" aria-label="Line 353">353</a><code>        [await payCoupon(asAttacker, A, e, victim, { owner: A, holderCash: attackerCash })], [c.attacker]);</code></span>
+<span class="line" id="L354"><a href="#L354" aria-label="Line 354">354</a><code>    }</code></span>
+<span class="line" id="L355"><a href="#L355" aria-label="Line 355">355</a><code>    if (e === 1) {</code></span>
+<span class="line" id="L356"><a href="#L356" aria-label="Line 356">356</a><code>      const prev = c.pda(Buffer.from(&quot;event&quot;), c.bond.toBuffer(), c.u16(0));</code></span>
+<span class="line" id="L357"><a href="#L357" aria-label="Line 357">357</a><code>      await attempt({ id: &quot;other-vault&quot;, when, actor: &quot;attacker&quot;, tries: `pays ${victim}&#x27;s coupon 1 from coupon 0&#x27;s vault`,</code></span>
+<span class="line" id="L358"><a href="#L358" aria-label="Line 358">358</a><code>        wouldCost: &quot;one coupon&#x27;s cash spent on another&quot;, guard: &quot;ConstraintHasOne&quot; },</code></span>
+<span class="line" id="L359"><a href="#L359" aria-label="Line 359">359</a><code>        [await payCoupon(asAttacker, A, e, victim, { vault: c.pda(Buffer.from(&quot;vault&quot;), prev.toBuffer()) })], [c.attacker]);</code></span>
+<span class="line" id="L360"><a href="#L360" aria-label="Line 360">360</a><code>    }</code></span>
+<span class="line" id="L361"><a href="#L361" aria-label="Line 361">361</a><code>    if (e !== c.spec.frozenCash.coupon) return [];</code></span>
+<span class="line" id="L362"><a href="#L362" aria-label="Line 362">362</a><code>    const who = c.spec.frozenCash.holder;</code></span>
+<span class="line" id="L363"><a href="#L363" aria-label="Line 363">363</a><code>    await c.send(`bank freezes ${who}&#x27;s cash account`, [createFreezeAccountInstruction(c.cashAta(who), c.cashMint, c.bank.publicKey, [], TOKEN_PROGRAM_ID)], [c.registrar, c.bank]);</code></span>
+<span class="line" id="L364"><a href="#L364" aria-label="Line 364">364</a><code>    return [who];</code></span>
+<span class="line" id="L365"><a href="#L365" aria-label="Line 365">365</a><code>  };</code></span>
+<span class="line" id="L366"><a href="#L366" aria-label="Line 366">366</a><code></code></span>
+<span class="line" id="L367"><a href="#L367" aria-label="Line 367">367</a><code>  // Everyone else is paid.</code></span>
+<span class="line" id="L368"><a href="#L368" aria-label="Line 368">368</a><code>  const afterPayments = async (e: number) =&gt; {</code></span>
+<span class="line" id="L369"><a href="#L369" aria-label="Line 369">369</a><code>    const when = `coupon ${e}, paid`;</code></span>
+<span class="line" id="L370"><a href="#L370" aria-label="Line 370">370</a><code>    if (e === 0) {</code></span>
+<span class="line" id="L371"><a href="#L371" aria-label="Line 371">371</a><code>      await attempt({ id: &quot;pay-twice&quot;, when, actor: &quot;attacker&quot;, tries: `pays ${victim}&#x27;s coupon again`,</code></span>
+<span class="line" id="L372"><a href="#L372" aria-label="Line 372">372</a><code>        wouldCost: &quot;the issuer pays a coupon twice; the last holders find the vault empty&quot;, guard: &quot;AlreadyPaid&quot; },</code></span>
+<span class="line" id="L373"><a href="#L373" aria-label="Line 373">373</a><code>        [await payCoupon(asAttacker, A, e, victim)], [c.attacker]);</code></span>
+<span class="line" id="L374"><a href="#L374" aria-label="Line 374">374</a><code>      const recs: any[] = await c.program.account.holderRecord.fetchMultiple(Object.keys(c.holders).map(c.holderRecord));</code></span>
+<span class="line" id="L375"><a href="#L375" aria-label="Line 375">375</a><code>      const late = Object.keys(c.holders).find((n, i) =&gt; recs[i] &amp;&amp; Number(recs[i].position.liveFrom) &gt; e &amp;&amp; Number(recs[i].position.at[e]) === 0 &amp;&amp; Number(recs[i].position.quantity) &gt; 0);</code></span>
+<span class="line" id="L376"><a href="#L376" aria-label="Line 376">376</a><code>      if (!late) throw new Error(&quot;scenario has no holder that bought after record moment 0 with none before (needed by attack late-buyer)&quot;);</code></span>
+<span class="line" id="L377"><a href="#L377" aria-label="Line 377">377</a><code>      await attempt({ id: &quot;late-buyer&quot;, when, actor: late, tries: &quot;bought after the record moment and asks for the coupon&quot;,</code></span>
+<span class="line" id="L378"><a href="#L378" aria-label="Line 378">378</a><code>        wouldCost: &quot;the seller&#x27;s coupon paid again to the buyer&quot;, guard: &quot;NothingToPay&quot; },</code></span>
+<span class="line" id="L379"><a href="#L379" aria-label="Line 379">379</a><code>        [await payCoupon(c.program, c.registrar.publicKey, e, late)], [c.registrar]);</code></span>
+<span class="line" id="L380"><a href="#L380" aria-label="Line 380">380</a><code>    }</code></span>
+<span class="line" id="L381"><a href="#L381" aria-label="Line 381">381</a><code>    if (e !== c.spec.frozenCash.coupon) return;</code></span>
+<span class="line" id="L382"><a href="#L382" aria-label="Line 382">382</a><code>    const who = c.spec.frozenCash.holder;</code></span>
+<span class="line" id="L383"><a href="#L383" aria-label="Line 383">383</a><code>    await attempt({ id: &quot;frozen-cash&quot;, when, actor: &quot;anyone&quot;, tries: `pays ${who}, whose cash account the bank froze`,</code></span>
+<span class="line" id="L384"><a href="#L384" aria-label="Line 384">384</a><code>      wouldCost: &quot;nothing: the others are already paid, and the right stays open&quot;, guard: &quot;Account is frozen&quot; },</code></span>
+<span class="line" id="L385"><a href="#L385" aria-label="Line 385">385</a><code>      [await payCoupon(c.program, c.registrar.publicKey, e, who)], [c.registrar]);</code></span>
+<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>    await c.send(`bank thaws ${who}&#x27;s cash account`, [createThawAccountInstruction(c.cashAta(who), c.cashMint, c.bank.publicKey, [], TOKEN_PROGRAM_ID)], [c.registrar, c.bank]);</code></span>
+<span class="line" id="L387"><a href="#L387" aria-label="Line 387">387</a><code>  };</code></span>
+<span class="line" id="L388"><a href="#L388" aria-label="Line 388">388</a><code></code></span>
+<span class="line" id="L389"><a href="#L389" aria-label="Line 389">389</a><code>  // After a phase&#x27;s buyback sales and tenders.</code></span>
+<span class="line" id="L390"><a href="#L390" aria-label="Line 390">390</a><code>  const afterOfferActions = async (e: number) =&gt; {</code></span>
+<span class="line" id="L391"><a href="#L391" aria-label="Line 391">391</a><code>    for (const o of c.offers) {</code></span>
+<span class="line" id="L392"><a href="#L392" aria-label="Line 392">392</a><code>      if (!o.actions.some((a) =&gt; a.afterRecordMoment === e)) continue;</code></span>
+<span class="line" id="L393"><a href="#L393" aria-label="Line 393">393</a><code>      const when = `${o.kind} offer ${o.id} open`;</code></span>
+<span class="line" id="L394"><a href="#L394" aria-label="Line 394">394</a><code>      if (o.kind === &quot;buyback&quot;) {</code></span>
+<span class="line" id="L395"><a href="#L395" aria-label="Line 395">395</a><code>        await attempt({ id: &quot;sell-others-bonds&quot;, when, actor: &quot;attacker&quot;, tries: `sells ${victim}&#x27;s bonds to the buyback`,</code></span>
+<span class="line" id="L396"><a href="#L396" aria-label="Line 396">396</a><code>          wouldCost: `${victim}&#x27;s bonds sold without its consent`, guard: &quot;ConstraintRaw&quot; },</code></span>
+<span class="line" id="L397"><a href="#L397" aria-label="Line 397">397</a><code>          [await asAttacker.methods.sellToOffer(new BN(1)).accountsPartial({ retirement: c.retirementAccounts(o, victim, A), seller: A, offer: c.offerPda(o.id) }).instruction()], [c.attacker]);</code></span>
+<span class="line" id="L398"><a href="#L398" aria-label="Line 398">398</a><code>        await attempt({ id: &quot;over-maximum&quot;, when, actor: victim, tries: &quot;sells 1 bond to the buyback after its maximum is reached&quot;,</code></span>
+<span class="line" id="L399"><a href="#L399" aria-label="Line 399">399</a><code>          wouldCost: &quot;the issuer buys more bonds than it offered&quot;, guard: &quot;ExceedsOffer&quot; },</code></span>
+<span class="line" id="L400"><a href="#L400" aria-label="Line 400">400</a><code>          [await c.program.methods.sellToOffer(new BN(1)).accountsPartial({ retirement: c.retirementAccounts(o, victim, c.holders[victim].publicKey), seller: c.holders[victim].publicKey, offer: c.offerPda(o.id) }).instruction()],</code></span>
+<span class="line" id="L401"><a href="#L401" aria-label="Line 401">401</a><code>          [c.registrar, c.holders[victim]]);</code></span>
+<span class="line" id="L402"><a href="#L402" aria-label="Line 402">402</a><code>      } else {</code></span>
+<span class="line" id="L403"><a href="#L403" aria-label="Line 403">403</a><code>        const tenderer = o.actions.find((a) =&gt; a.afterRecordMoment === e &amp;&amp; a.tender)!.holder;</code></span>
+<span class="line" id="L404"><a href="#L404" aria-label="Line 404">404</a><code>        const rec: any = await c.program.account.holderRecord.fetch(c.holderRecord(tenderer));</code></span>
+<span class="line" id="L405"><a href="#L405" aria-label="Line 405">405</a><code>        const to = tenderer === accomplice ? victim : accomplice;</code></span>
+<span class="line" id="L406"><a href="#L406" aria-label="Line 406">406</a><code>        await attempt({ id: &quot;sell-tendered&quot;, when, actor: tenderer, tries: `transfers all its bonds to ${to}, including those tendered to the issuer`,</code></span>
+<span class="line" id="L407"><a href="#L407" aria-label="Line 407">407</a><code>          wouldCost: &quot;the same bonds sold twice: to the issuer and to a buyer&quot;, guard: &quot;BondsLocked&quot; },</code></span>
+<span class="line" id="L408"><a href="#L408" aria-label="Line 408">408</a><code>          [await hooked(tenderer, c.holders[tenderer], c.bondsAta(to), Number(rec.position.quantity))], [c.registrar, c.holders[tenderer]]);</code></span>
+<span class="line" id="L409"><a href="#L409" aria-label="Line 409">409</a><code>      }</code></span>
+<span class="line" id="L410"><a href="#L410" aria-label="Line 410">410</a><code>    }</code></span>
+<span class="line" id="L411"><a href="#L411" aria-label="Line 411">411</a><code>  };</code></span>
+<span class="line" id="L412"><a href="#L412" aria-label="Line 412">412</a><code></code></span>
+<span class="line" id="L413"><a href="#L413" aria-label="Line 413">413</a><code>  // Trading has closed for redemption.</code></span>
+<span class="line" id="L414"><a href="#L414" aria-label="Line 414">414</a><code>  const afterFinalRecordMoment = async () =&gt; {</code></span>
+<span class="line" id="L415"><a href="#L415" aria-label="Line 415">415</a><code>    await attempt({ id: &quot;trade-at-maturity&quot;, when: &quot;after the final record moment&quot;, actor: accomplice, tries: `sells 1 bond to ${victim}`,</code></span>
+<span class="line" id="L416"><a href="#L416" aria-label="Line 416">416</a><code>      wouldCost: &quot;a bond changes hands while its principal is being paid&quot;, guard: &quot;TransfersClosedAtMaturity&quot; },</code></span>
+<span class="line" id="L417"><a href="#L417" aria-label="Line 417">417</a><code>      [await hooked(accomplice, c.holders[accomplice], c.bondsAta(victim), 1)], [c.registrar, c.holders[accomplice]]);</code></span>
+<span class="line" id="L418"><a href="#L418" aria-label="Line 418">418</a><code>  };</code></span>
+<span class="line" id="L419"><a href="#L419" aria-label="Line 419">419</a><code></code></span>
+<span class="line" id="L420"><a href="#L420" aria-label="Line 420">420</a><code>  const redeemIx = (sv: anchor.Program, payer: PublicKey, event: PublicKey, vault: PublicKey, name: string, over: Record&lt;string, PublicKey&gt; = {}) =&gt;</code></span>
+<span class="line" id="L421"><a href="#L421" aria-label="Line 421">421</a><code>    sv.methods.redeemHolder().accountsPartial({</code></span>
+<span class="line" id="L422"><a href="#L422" aria-label="Line 422">422</a><code>      payer, bond: c.bond, mint: c.mint, event, holder: c.holderRecord(name), owner: c.holders[name].publicKey, holderBonds: c.bondsAta(name),</code></span>
+<span class="line" id="L423"><a href="#L423" aria-label="Line 423">423</a><code>      vault, cashMint: c.cashMint, holderCash: c.cashAta(name), memoProgram: null, tokenProgram: TOKEN_2022_PROGRAM_ID, cashTokenProgram: TOKEN_PROGRAM_ID, ...over,</code></span>
+<span class="line" id="L424"><a href="#L424" aria-label="Line 424">424</a><code>    }).instruction();</code></span>
+<span class="line" id="L425"><a href="#L425" aria-label="Line 425">425</a><code></code></span>
+<span class="line" id="L426"><a href="#L426" aria-label="Line 426">426</a><code>  const beforeRedemption = async (event: PublicKey, vault: PublicKey) =&gt; {</code></span>
+<span class="line" id="L427"><a href="#L427" aria-label="Line 427">427</a><code>    const when = &quot;redemption, payment open&quot;;</code></span>
+<span class="line" id="L428"><a href="#L428" aria-label="Line 428">428</a><code>    await attempt({ id: &quot;redirect-principal&quot;, when, actor: &quot;attacker&quot;, tries: `redeems ${victim}&#x27;s bonds into its own cash account`,</code></span>
+<span class="line" id="L429"><a href="#L429" aria-label="Line 429">429</a><code>      wouldCost: `${victim}&#x27;s principal`, guard: &quot;ConstraintTokenOwner&quot; },</code></span>
+<span class="line" id="L430"><a href="#L430" aria-label="Line 430">430</a><code>      [await redeemIx(asAttacker, A, event, vault, victim, { holderCash: attackerCash })], [c.attacker]);</code></span>
+<span class="line" id="L431"><a href="#L431" aria-label="Line 431">431</a><code>    await attempt({ id: &quot;coupon-from-principal&quot;, when, actor: &quot;attacker&quot;, tries: `pays ${victim} a coupon from the redemption vault`,</code></span>
+<span class="line" id="L432"><a href="#L432" aria-label="Line 432">432</a><code>      wouldCost: &quot;principal cash paid out as coupons&quot;, guard: &quot;WrongEventKind&quot; },</code></span>
+<span class="line" id="L433"><a href="#L433" aria-label="Line 433">433</a><code>      [await asAttacker.methods.payCoupon().accountsPartial({</code></span>
+<span class="line" id="L434"><a href="#L434" aria-label="Line 434">434</a><code>        payer: A, bond: c.bond, event, holder: c.holderRecord(victim), owner: c.holders[victim].publicKey, vault, cashMint: c.cashMint,</code></span>
+<span class="line" id="L435"><a href="#L435" aria-label="Line 435">435</a><code>        holderCash: c.cashAta(victim), memoProgram: null, cashTokenProgram: TOKEN_PROGRAM_ID,</code></span>
+<span class="line" id="L436"><a href="#L436" aria-label="Line 436">436</a><code>      }).instruction()], [c.attacker]);</code></span>
+<span class="line" id="L437"><a href="#L437" aria-label="Line 437">437</a><code>  };</code></span>
+<span class="line" id="L438"><a href="#L438" aria-label="Line 438">438</a><code></code></span>
+<span class="line" id="L439"><a href="#L439" aria-label="Line 439">439</a><code>  const afterRedemption = async (event: PublicKey, vault: PublicKey) =&gt; {</code></span>
+<span class="line" id="L440"><a href="#L440" aria-label="Line 440">440</a><code>    await attempt({ id: &quot;redeem-twice&quot;, when: &quot;redemption, paid&quot;, actor: &quot;attacker&quot;, tries: `redeems ${victim} again`,</code></span>
+<span class="line" id="L441"><a href="#L441" aria-label="Line 441">441</a><code>      wouldCost: &quot;principal paid twice&quot;, guard: &quot;NothingToPay&quot; },</code></span>
+<span class="line" id="L442"><a href="#L442" aria-label="Line 442">442</a><code>      [await redeemIx(asAttacker, A, event, vault, victim)], [c.attacker]);</code></span>
+<span class="line" id="L443"><a href="#L443" aria-label="Line 443">443</a><code>  };</code></span>
+<span class="line" id="L444"><a href="#L444" aria-label="Line 444">444</a><code></code></span>
+<span class="line" id="L445"><a href="#L445" aria-label="Line 445">445</a><code>  return { attempts, beforeFirstRecordMoment, afterRecordMoment, whileUnfunded, beforePayments, afterPayments, afterOfferActions, afterFinalRecordMoment, beforeRedemption, afterRedemption };</code></span>
+<span class="line" id="L446"><a href="#L446" aria-label="Line 446">446</a><code>}</code></span></pre></html>

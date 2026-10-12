@@ -1,0 +1,797 @@
+{
+ "scenario": "devnet-hostile",
+ "name": "DEVNET HOSTILE: B1 terms, 6 holders, trades at record moments, buyback, tender offer, an attacker at every step; the attacker services coupons 2-3 and the redemption (1 bond day = 1 chain second)",
+ "bondMint": "AEKVnujjMtA6hdG2WjLv6EWmbs8LevaeUdyDNoFaGWFb",
+ "cashMint": "7CWX7PdNzDemiDmBjsUKQ15J5q2pz3JQmgPrpfJuYs1p",
+ "attacker": "AkeyRKJSeGVs4DripmSQKoiVXKEycf1W8SaKU95HwA4T",
+ "victim": "BH#1",
+ "frozenCash": {
+  "holder": "BH#5",
+  "coupon": 1
+ },
+ "attempts": [
+  {
+   "id": "register-self",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "registers itself as a holder, signing as registrar",
+   "wouldCost": "an unvetted wallet in the register",
+   "guard": "ConstraintHasOne",
+   "signature": "5WDjripiJDyYPXyYbcenpS6ZTnbrtCouvVRuYM94daEXeHfXd8Q9TCguMXjLtYttmVLVt72sJcGAAyanaP2hTqr3",
+   "explorer": "https://explorer.solana.com/tx/5WDjripiJDyYPXyYbcenpS6ZTnbrtCouvVRuYM94daEXeHfXd8Q9TCguMXjLtYttmVLVt72sJcGAAyanaP2hTqr3?cluster=devnet",
+   "refused": true,
+   "reason": "ConstraintHasOne: A has one constraint was violated.",
+   "byGuard": true,
+   "blockTime": 1791706524
+  },
+  {
+   "id": "mint-bonds",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "mints 1,000 bonds to itself",
+   "wouldCost": "the issuer owes coupons and principal on bonds it never sold",
+   "guard": "owner does not match",
+   "signature": "4kHz8Q3F5iBS3TPeeCVJmHNfWyTdr6814sFpCTXvswDL7nytcjrTgkSmGvWzDAkKhXLppgHrDiqLnJW2GKi1AUnA",
+   "explorer": "https://explorer.solana.com/tx/4kHz8Q3F5iBS3TPeeCVJmHNfWyTdr6814sFpCTXvswDL7nytcjrTgkSmGvWzDAkKhXLppgHrDiqLnJW2GKi1AUnA?cluster=devnet",
+   "refused": true,
+   "reason": "owner does not match",
+   "byGuard": true,
+   "blockTime": 1791706526
+  },
+  {
+   "id": "mint-as-program",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "mints 1,000 bonds naming the program as mint authority",
+   "wouldCost": "the issuer owes coupons and principal on bonds it never sold",
+   "guard": "MissingRequiredSignature",
+   "signature": "2wUBApJTdyXx1Se1qppSF87iyY5cPBo5tPKKNVKT9h3iKeU4Z3ogZxAG7oBSny1n8771bTKD8RoXQrogVMeDnEwA",
+   "explorer": "https://explorer.solana.com/tx/2wUBApJTdyXx1Se1qppSF87iyY5cPBo5tPKKNVKT9h3iKeU4Z3ogZxAG7oBSny1n8771bTKD8RoXQrogVMeDnEwA?cluster=devnet",
+   "refused": true,
+   "reason": "MissingRequiredSignature",
+   "byGuard": true,
+   "blockTime": 1791706527
+  },
+  {
+   "id": "take-bonds",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "moves BH#1's bonds to itself",
+   "wouldCost": "BH#1 loses its bonds",
+   "guard": "owner does not match",
+   "signature": "2fKzqobL1uhvEFzJrq6K9G3Ts3LtEv4DWeUVQjtdP5EhXt56geWR4GUWD6tAyFEWrv19PK3atYJ4giGmNBxfJs81",
+   "explorer": "https://explorer.solana.com/tx/2fKzqobL1uhvEFzJrq6K9G3Ts3LtEv4DWeUVQjtdP5EhXt56geWR4GUWD6tAyFEWrv19PK3atYJ4giGmNBxfJs81?cluster=devnet",
+   "refused": true,
+   "reason": "owner does not match",
+   "byGuard": true,
+   "blockTime": 1791706529
+  },
+  {
+   "id": "take-as-delegate",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "moves BH#1's bonds naming the program, the permanent delegate",
+   "wouldCost": "BH#1 loses its bonds",
+   "guard": "MissingRequiredSignature",
+   "signature": "2V4Af4SVcjvPK9xCFymsjv9Heu4stz67pEDw8XhJLYSSBAMfgkvjgjjYPo9eoXpMmr39gVRWCkCqqsz8iMPzSvDV",
+   "explorer": "https://explorer.solana.com/tx/2V4Af4SVcjvPK9xCFymsjv9Heu4stz67pEDw8XhJLYSSBAMfgkvjgjjYPo9eoXpMmr39gVRWCkCqqsz8iMPzSvDV?cluster=devnet",
+   "refused": true,
+   "reason": "MissingRequiredSignature",
+   "byGuard": true,
+   "blockTime": 1791706532
+  },
+  {
+   "id": "burn-bonds",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "burns BH#1's bonds",
+   "wouldCost": "BH#1 loses coupons and principal",
+   "guard": "Invalid instruction",
+   "signature": "5i5hd1y9jwSNJbNeVCU1nbe4cj83Y43ynCQbB7aiMpoVgpieQdQnjhgVfyn9eaZAkXoiwWnWqteHTpiBsZ9RQdJ7",
+   "explorer": "https://explorer.solana.com/tx/5i5hd1y9jwSNJbNeVCU1nbe4cj83Y43ynCQbB7aiMpoVgpieQdQnjhgVfyn9eaZAkXoiwWnWqteHTpiBsZ9RQdJ7?cluster=devnet",
+   "refused": true,
+   "reason": "Invalid instruction",
+   "byGuard": true,
+   "blockTime": 1791706536
+  },
+  {
+   "id": "burn-permissioned",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "burns BH#1's bonds with the permissioned burn, naming itself burn authority",
+   "wouldCost": "BH#1 loses coupons and principal",
+   "guard": "InvalidAccountData",
+   "signature": "3JUYUn1nZkWWfDY2GqrMTWX4Q5XmDpBDAtPZQYuSDpxKsL8vsq3edvNnYvqHsvQWE8uiMNbKA7NjrBMsUFiUSLPd",
+   "explorer": "https://explorer.solana.com/tx/3JUYUn1nZkWWfDY2GqrMTWX4Q5XmDpBDAtPZQYuSDpxKsL8vsq3edvNnYvqHsvQWE8uiMNbKA7NjrBMsUFiUSLPd?cluster=devnet",
+   "refused": true,
+   "reason": "InvalidAccountData",
+   "byGuard": true,
+   "blockTime": 1791706538
+  },
+  {
+   "id": "burn-as-program",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "burns BH#1's bonds with the permissioned burn, naming the program, the burn authority",
+   "wouldCost": "BH#1 loses coupons and principal",
+   "guard": "MissingRequiredSignature",
+   "signature": "4U2bieNTNDWDsmz6WSPRV3UVXFjAomquUhb2SChbbiysTpqqZkprvtB2bNyvmYXcrTWfqTZUg7y1A6qAsJT8ErUB",
+   "explorer": "https://explorer.solana.com/tx/4U2bieNTNDWDsmz6WSPRV3UVXFjAomquUhb2SChbbiysTpqqZkprvtB2bNyvmYXcrTWfqTZUg7y1A6qAsJT8ErUB?cluster=devnet",
+   "refused": true,
+   "reason": "MissingRequiredSignature",
+   "byGuard": true,
+   "blockTime": 1791706540
+  },
+  {
+   "id": "freeze-holder",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "freezes BH#1's bond account",
+   "wouldCost": "BH#1 cannot sell",
+   "guard": "cannot freeze",
+   "signature": "SiWEENmKknQUggVoaHMWhqVnXVDsxqe9Bv1iH2mxewv85P7onm4xiBt6R8deKbXdRyRCRFare3GqTRxuhn2acHd",
+   "explorer": "https://explorer.solana.com/tx/SiWEENmKknQUggVoaHMWhqVnXVDsxqe9Bv1iH2mxewv85P7onm4xiBt6R8deKbXdRyRCRFare3GqTRxuhn2acHd?cluster=devnet",
+   "refused": true,
+   "reason": "This token mint cannot freeze accounts",
+   "byGuard": true,
+   "blockTime": 1791706542
+  },
+  {
+   "id": "send-unregistered",
+   "when": "before the first record moment",
+   "actor": "BH#1",
+   "tries": "sends a bond to an unregistered wallet (the attacker)",
+   "wouldCost": "bonds held outside the register",
+   "guard": "AccountOwnedByWrongProgram",
+   "signature": "2RZZ181cPxuSw4sQWRqG57jwubi2uRCHdg1StpSK84akNcVX3zvUmX8ogHATMy9JzZVp3WDhkcpKkHx33hz85TfQ",
+   "explorer": "https://explorer.solana.com/tx/2RZZ181cPxuSw4sQWRqG57jwubi2uRCHdg1StpSK84akNcVX3zvUmX8ogHATMy9JzZVp3WDhkcpKkHx33hz85TfQ?cluster=devnet",
+   "refused": true,
+   "reason": "AccountOwnedByWrongProgram: The given account is owned by a different program than expected.",
+   "byGuard": true,
+   "blockTime": 1791706545
+  },
+  {
+   "id": "second-account",
+   "when": "before the first record moment",
+   "actor": "BH#1",
+   "tries": "moves a bond to a second account of its own",
+   "wouldCost": "a position the register does not see",
+   "guard": "NotAssociatedTokenAccount",
+   "signature": "4cfaxez9p8M6c37BA7ZKa5cXEWer318pnEwuVZKZSqNzw1nwofZG7Ch9MK9VvgYX5By4p9ZSv343YP4WoKywiFN4",
+   "explorer": "https://explorer.solana.com/tx/4cfaxez9p8M6c37BA7ZKa5cXEWer318pnEwuVZKZSqNzw1nwofZG7Ch9MK9VvgYX5By4p9ZSv343YP4WoKywiFN4?cluster=devnet",
+   "refused": true,
+   "reason": "NotAssociatedTokenAccount: Bonds may be held only in the owner's associated token account.",
+   "byGuard": true,
+   "blockTime": 1791706547
+  },
+  {
+   "id": "skip-hook",
+   "when": "before the first record moment",
+   "actor": "BH#1",
+   "tries": "sends a bond to BH#2 with Token-2022's plain Transfer instruction, which skips the transfer hook",
+   "wouldCost": "a bond moves without its record-moment position being saved",
+   "guard": "custom program error: 0x1f",
+   "signature": "2AcN3WN7FQu2Z9zUnDP5YPaWpSFKEysazfJMe8r1rg7U69JLyvsQgWMpApoz3pXtvoUp68zfmsGFohxhVKkSiP83",
+   "explorer": "https://explorer.solana.com/tx/2AcN3WN7FQu2Z9zUnDP5YPaWpSFKEysazfJMe8r1rg7U69JLyvsQgWMpApoz3pXtvoUp68zfmsGFohxhVKkSiP83?cluster=devnet",
+   "refused": true,
+   "reason": "custom program error: 0x1f",
+   "byGuard": true,
+   "blockTime": 1791706549
+  },
+  {
+   "id": "forge-position",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "calls the transfer hook directly to add 5 bonds to BH#2's record",
+   "wouldCost": "coupons paid on bonds nobody holds",
+   "guard": "NotTransferring",
+   "signature": "2iFCWWPDu6qe7NTMWVGM5eGLHkxypsUeKfAty2yDtF6j2egwbMQykmFH79mj6eWQKJtRc8anjX38rNoRbUm2YU1U",
+   "explorer": "https://explorer.solana.com/tx/2iFCWWPDu6qe7NTMWVGM5eGLHkxypsUeKfAty2yDtF6j2egwbMQykmFH79mj6eWQKJtRc8anjX38rNoRbUm2YU1U?cluster=devnet",
+   "refused": true,
+   "reason": "NotTransferring: The hook was called outside a token transfer.",
+   "byGuard": true,
+   "blockTime": 1791706550
+  },
+  {
+   "id": "take-program",
+   "when": "before the first record moment",
+   "actor": "attacker",
+   "tries": "makes itself the program's upgrade authority",
+   "wouldCost": "a replaced program could empty every vault",
+   "guard": "Incorrect authority",
+   "signature": "VCLVP9r8beMLCpJKA5JBLnwoC9ww3vWGW7bAJpZ5SeSWZDKYis6naYnjSZfJrTRYbwQFnnEQZNYvtdbdBe1uWQ4",
+   "explorer": "https://explorer.solana.com/tx/VCLVP9r8beMLCpJKA5JBLnwoC9ww3vWGW7bAJpZ5SeSWZDKYis6naYnjSZfJrTRYbwQFnnEQZNYvtdbdBe1uWQ4?cluster=devnet",
+   "refused": true,
+   "reason": "Incorrect authority provided",
+   "byGuard": true,
+   "blockTime": 1791706554
+  },
+  {
+   "id": "fee-cash-token",
+   "when": "before the first record moment",
+   "actor": "registrar",
+   "tries": "creates a bond paid in a cash token that keeps a 1% fee on every transfer",
+   "wouldCost": "holders receive 1% less than the terms",
+   "guard": "UnsupportedCashToken",
+   "signature": "63Ma2XhYghAgrvLiHVwEMm6qRz2F8CsLK1nPhBgSBqJoJjTEPuSVNSbGzfbGFcJBwR9W5coNdZ6V1YhSKsVZ5MtG",
+   "explorer": "https://explorer.solana.com/tx/63Ma2XhYghAgrvLiHVwEMm6qRz2F8CsLK1nPhBgSBqJoJjTEPuSVNSbGzfbGFcJBwR9W5coNdZ6V1YhSKsVZ5MtG?cluster=devnet",
+   "refused": true,
+   "reason": "UnsupportedCashToken: Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults' cash (permanent delegate), or one this program cannot read.",
+   "byGuard": true,
+   "blockTime": 1791706557
+  },
+  {
+   "id": "delegate-cash-token",
+   "when": "before the first record moment",
+   "actor": "registrar",
+   "tries": "creates a bond paid in a cash token whose permanent delegate is the attacker",
+   "wouldCost": "the delegate empties the vaults before holders are paid",
+   "guard": "UnsupportedCashToken",
+   "signature": "gSxKKA9NsgTq9TBRuCVH6TYMCoPJ7cwkp72kjSZw8tCgs8jhtFdofeSaS55riBEpy8kN7DssZAi8TrGsmKoySjU",
+   "explorer": "https://explorer.solana.com/tx/gSxKKA9NsgTq9TBRuCVH6TYMCoPJ7cwkp72kjSZw8tCgs8jhtFdofeSaS55riBEpy8kN7DssZAi8TrGsmKoySjU?cluster=devnet",
+   "refused": true,
+   "reason": "UnsupportedCashToken: Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults' cash (permanent delegate), or one this program cannot read.",
+   "byGuard": true,
+   "blockTime": 1791706560
+  },
+  {
+   "id": "place-beyond-issue",
+   "when": "before the first record moment",
+   "actor": "registrar",
+   "tries": "places 1 more bond with BH#2, past the issue size of 27",
+   "wouldCost": "bonds beyond the issue the terms announced",
+   "guard": "ExceedsIssueSize",
+   "signature": "3ZpPPxy6t3zSX6haWwXrs1vMg9Vs6zRVVkTFUEnM3Gt5XRFukahnyCq2MpZhDuGjQtvkW6EbhiveJMu9d2Mc2wL3",
+   "explorer": "https://explorer.solana.com/tx/3ZpPPxy6t3zSX6haWwXrs1vMg9Vs6zRVVkTFUEnM3Gt5XRFukahnyCq2MpZhDuGjQtvkW6EbhiveJMu9d2Mc2wL3?cluster=devnet",
+   "refused": true,
+   "reason": "ExceedsIssueSize: Placement would exceed the bond's issue size.",
+   "byGuard": true,
+   "blockTime": 1791706562
+  },
+  {
+   "id": "place-late",
+   "when": "after the first record moment",
+   "actor": "registrar",
+   "tries": "places 100 new bonds with BH#2",
+   "wouldCost": "bonds issued after the issue closed",
+   "guard": "PlacementClosed",
+   "signature": "5QXqo4ar7Jq1TEt7yDjbEqpbPWdBT9ucfpXfHFcJ1dGQF8Lv6VS4cC9ypKQjwU12StduVHTKPVwrpGw2uFqn8gmf",
+   "explorer": "https://explorer.solana.com/tx/5QXqo4ar7Jq1TEt7yDjbEqpbPWdBT9ucfpXfHFcJ1dGQF8Lv6VS4cC9ypKQjwU12StduVHTKPVwrpGw2uFqn8gmf?cluster=devnet",
+   "refused": true,
+   "reason": "PlacementClosed: Placement is allowed only before the first record moment.",
+   "byGuard": true,
+   "blockTime": 1791706698
+  },
+  {
+   "id": "sell-others-bonds",
+   "when": "buyback offer 0 open",
+   "actor": "attacker",
+   "tries": "sells BH#1's bonds to the buyback",
+   "wouldCost": "BH#1's bonds sold without its consent",
+   "guard": "ConstraintRaw",
+   "signature": "4LyRjuw6JSxAeDAxGUqRpNFpXA5snch6XnXVeMpm8rpKemcFZ5KbU7JsZMJvkHKpK2b3mZKqKsEYNqvQuFqXJYoz",
+   "explorer": "https://explorer.solana.com/tx/4LyRjuw6JSxAeDAxGUqRpNFpXA5snch6XnXVeMpm8rpKemcFZ5KbU7JsZMJvkHKpK2b3mZKqKsEYNqvQuFqXJYoz?cluster=devnet",
+   "refused": true,
+   "reason": "ConstraintRaw: A raw constraint was violated.",
+   "byGuard": true,
+   "blockTime": 1791706708
+  },
+  {
+   "id": "over-maximum",
+   "when": "buyback offer 0 open",
+   "actor": "BH#1",
+   "tries": "sells 1 bond to the buyback after its maximum is reached",
+   "wouldCost": "the issuer buys more bonds than it offered",
+   "guard": "ExceedsOffer",
+   "signature": "2bp1FWTThQzDh1zw6VkLHsHRPKEi6rj7BsjJ4XyFxotk1S3VUuSXdgsRuzB9XzUtAPB8omugG5Rdi9FW1mN64t9W",
+   "explorer": "https://explorer.solana.com/tx/2bp1FWTThQzDh1zw6VkLHsHRPKEi6rj7BsjJ4XyFxotk1S3VUuSXdgsRuzB9XzUtAPB8omugG5Rdi9FW1mN64t9W?cluster=devnet",
+   "refused": true,
+   "reason": "ExceedsOffer: Quantity exceeds what the offer still accepts.",
+   "byGuard": true,
+   "blockTime": 1791706711
+  },
+  {
+   "id": "confirm-short",
+   "when": "coupon 0, vault funded short by 0.000001",
+   "actor": "attacker",
+   "tries": "confirms the coupon funded",
+   "wouldCost": "the last holders find the vault empty",
+   "guard": "InsufficientFunding",
+   "signature": "4ZRUD95evjq9drgjhq1RnAULLkN4DZZrAQei63ih34ZJf8PTVHCCHHKxVXJ8RUdoEs9LFABmzrmGBuzktRGJBMD4",
+   "explorer": "https://explorer.solana.com/tx/4ZRUD95evjq9drgjhq1RnAULLkN4DZZrAQei63ih34ZJf8PTVHCCHHKxVXJ8RUdoEs9LFABmzrmGBuzktRGJBMD4?cluster=devnet",
+   "refused": true,
+   "reason": "InsufficientFunding: Vault balance does not cover the event's budget.",
+   "byGuard": true,
+   "blockTime": 1791706715
+  },
+  {
+   "id": "pay-unfunded",
+   "when": "coupon 0, vault funded short by 0.000001",
+   "actor": "attacker",
+   "tries": "pays BH#1 from the unconfirmed vault",
+   "wouldCost": "the last holders find the vault empty",
+   "guard": "NotFunded",
+   "signature": "2EsUoxPudM5cSHsfYiZsjYRrxGZqsMVjCEpoYCL2qSbsXedPghAzRdpg77N49NPm5CbKzhYWNjAzpcHivYpwdZuc",
+   "explorer": "https://explorer.solana.com/tx/2EsUoxPudM5cSHsfYiZsjYRrxGZqsMVjCEpoYCL2qSbsXedPghAzRdpg77N49NPm5CbKzhYWNjAzpcHivYpwdZuc?cluster=devnet",
+   "refused": true,
+   "reason": "NotFunded: The event is not funded.",
+   "byGuard": true,
+   "blockTime": 1791706719
+  },
+  {
+   "id": "drain-vault",
+   "when": "coupon 0, vault funded short by 0.000001",
+   "actor": "attacker",
+   "tries": "moves the vault's cash to itself",
+   "wouldCost": "the coupon's cash is gone",
+   "guard": "owner does not match",
+   "signature": "sijk72Rf1difQikgZvU8FWBSh6teoy8BTmMeqqxMRGNJTAq7b4EfpULVLXQyHbXMHDHp2CZz2jepBAL7VxaYWfH",
+   "explorer": "https://explorer.solana.com/tx/sijk72Rf1difQikgZvU8FWBSh6teoy8BTmMeqqxMRGNJTAq7b4EfpULVLXQyHbXMHDHp2CZz2jepBAL7VxaYWfH?cluster=devnet",
+   "refused": true,
+   "reason": "owner does not match",
+   "byGuard": true,
+   "blockTime": 1791706721
+  },
+  {
+   "id": "drain-as-program",
+   "when": "coupon 0, vault funded short by 0.000001",
+   "actor": "attacker",
+   "tries": "moves the vault's cash to itself naming the program, the vault's owner",
+   "wouldCost": "the coupon's cash is gone",
+   "guard": "MissingRequiredSignature",
+   "signature": "3TCGLtmKGXY29yNB4X4WJpFc3fh51rQhuC9kCBE7BkNvaoVqcjUMfESUhR8Fb9txp6KNx7vXFQvubRDmziLbYPV5",
+   "explorer": "https://explorer.solana.com/tx/3TCGLtmKGXY29yNB4X4WJpFc3fh51rQhuC9kCBE7BkNvaoVqcjUMfESUhR8Fb9txp6KNx7vXFQvubRDmziLbYPV5?cluster=devnet",
+   "refused": true,
+   "reason": "MissingRequiredSignature",
+   "byGuard": true,
+   "blockTime": 1791706722
+  },
+  {
+   "id": "redirect-coupon",
+   "when": "coupon 0, payment open",
+   "actor": "attacker",
+   "tries": "pays BH#1's coupon into its own cash account",
+   "wouldCost": "BH#1's coupon",
+   "guard": "ConstraintTokenOwner",
+   "signature": "5Six9uRXdZkBfriTMfwVweNtWwy7SqM6DUH1oCyVn6kp3B8tUh2WqNY21g9qmLPsjSHRHoxNDK7ZTgk6WbdKvEUj",
+   "explorer": "https://explorer.solana.com/tx/5Six9uRXdZkBfriTMfwVweNtWwy7SqM6DUH1oCyVn6kp3B8tUh2WqNY21g9qmLPsjSHRHoxNDK7ZTgk6WbdKvEUj?cluster=devnet",
+   "refused": true,
+   "reason": "ConstraintTokenOwner: A token owner constraint was violated.",
+   "byGuard": true,
+   "blockTime": 1791706730
+  },
+  {
+   "id": "claim-as-owner",
+   "when": "coupon 0, payment open",
+   "actor": "attacker",
+   "tries": "presents BH#1's holder record as its own",
+   "wouldCost": "BH#1's coupon",
+   "guard": "Constraint",
+   "signature": "adM2PAkx5KGtpxMajhKyJtheCQBp1CjeSkT4d5dJugMGWhSXDe8o4EQpyomvL9kSkHYEm2VyCnLVewuwzvQC4ma",
+   "explorer": "https://explorer.solana.com/tx/adM2PAkx5KGtpxMajhKyJtheCQBp1CjeSkT4d5dJugMGWhSXDe8o4EQpyomvL9kSkHYEm2VyCnLVewuwzvQC4ma?cluster=devnet",
+   "refused": true,
+   "reason": "ConstraintSeeds: A seeds constraint was violated.",
+   "byGuard": true,
+   "blockTime": 1791706732
+  },
+  {
+   "id": "pay-twice",
+   "when": "coupon 0, paid",
+   "actor": "attacker",
+   "tries": "pays BH#1's coupon again",
+   "wouldCost": "the issuer pays a coupon twice; the last holders find the vault empty",
+   "guard": "AlreadyPaid",
+   "signature": "5xay6pMkpuvJ9AuWcUyJQW36MWNPzsM1czQRLryZAbMbLpsfbzELe6UwTjFPJjy5j6WoEWVeB2amZr9TicdQihNE",
+   "explorer": "https://explorer.solana.com/tx/5xay6pMkpuvJ9AuWcUyJQW36MWNPzsM1czQRLryZAbMbLpsfbzELe6UwTjFPJjy5j6WoEWVeB2amZr9TicdQihNE?cluster=devnet",
+   "refused": true,
+   "reason": "AlreadyPaid: Already paid.",
+   "byGuard": true,
+   "blockTime": 1791706735
+  },
+  {
+   "id": "late-buyer",
+   "when": "coupon 0, paid",
+   "actor": "BH#3",
+   "tries": "bought after the record moment and asks for the coupon",
+   "wouldCost": "the seller's coupon paid again to the buyer",
+   "guard": "NothingToPay",
+   "signature": "2Rf9ET9CJZr8ShaNDVehrrJ13ZH83YNdKfpS9qDmTsJStcpGVw3Nu9hyTVyFQa5xBDuKg2TxrBFPMkVahFbEfrtM",
+   "explorer": "https://explorer.solana.com/tx/2Rf9ET9CJZr8ShaNDVehrrJ13ZH83YNdKfpS9qDmTsJStcpGVw3Nu9hyTVyFQa5xBDuKg2TxrBFPMkVahFbEfrtM?cluster=devnet",
+   "refused": true,
+   "reason": "NothingToPay: Nothing to pay.",
+   "byGuard": true,
+   "blockTime": 1791706738
+  },
+  {
+   "id": "sell-tendered",
+   "when": "tender offer 1 open",
+   "actor": "BH#1",
+   "tries": "transfers all its bonds to BH#2, including those tendered to the issuer",
+   "wouldCost": "the same bonds sold twice: to the issuer and to a buyer",
+   "guard": "BondsLocked",
+   "signature": "345NJWPmJRZ343jvWJmzT7PsoRNBc8khREiBLGGdsEWNdbYM3a763Vg35nJkfumjgsbPYPnZHFmmNYEAGPAYMCN7",
+   "explorer": "https://explorer.solana.com/tx/345NJWPmJRZ343jvWJmzT7PsoRNBc8khREiBLGGdsEWNdbYM3a763Vg35nJkfumjgsbPYPnZHFmmNYEAGPAYMCN7?cluster=devnet",
+   "refused": true,
+   "reason": "BondsLocked: Bonds are locked in a tender.",
+   "byGuard": true,
+   "blockTime": 1791706885
+  },
+  {
+   "id": "other-vault",
+   "when": "coupon 1, payment open",
+   "actor": "attacker",
+   "tries": "pays BH#1's coupon 1 from coupon 0's vault",
+   "wouldCost": "one coupon's cash spent on another",
+   "guard": "ConstraintHasOne",
+   "signature": "5WSuAifw8rTCXpTqY849Zea79Yts7aqHsy7864YB9B5MSEtfx4QKuncV9JtBtHhkX1Dw14GemWcCjQ4BUPg2jnCs",
+   "explorer": "https://explorer.solana.com/tx/5WSuAifw8rTCXpTqY849Zea79Yts7aqHsy7864YB9B5MSEtfx4QKuncV9JtBtHhkX1Dw14GemWcCjQ4BUPg2jnCs?cluster=devnet",
+   "refused": true,
+   "reason": "ConstraintHasOne: A has one constraint was violated.",
+   "byGuard": true,
+   "blockTime": 1791706896
+  },
+  {
+   "id": "frozen-cash",
+   "when": "coupon 1, paid",
+   "actor": "anyone",
+   "tries": "pays BH#5, whose cash account the bank froze",
+   "wouldCost": "nothing: the others are already paid, and the right stays open",
+   "guard": "Account is frozen",
+   "signature": "tddRDsBodPWfY22XrwPuvacUocqLYJXe1iKa9XnXZVzEBpxQpd13TQarrXMVSFt2pCFNUb5NFfaBPr9hU5v8UW7",
+   "explorer": "https://explorer.solana.com/tx/tddRDsBodPWfY22XrwPuvacUocqLYJXe1iKa9XnXZVzEBpxQpd13TQarrXMVSFt2pCFNUb5NFfaBPr9hU5v8UW7?cluster=devnet",
+   "refused": true,
+   "reason": "Account is frozen",
+   "byGuard": true,
+   "blockTime": 1791706899
+  },
+  {
+   "id": "trade-at-maturity",
+   "when": "after the final record moment",
+   "actor": "BH#2",
+   "tries": "sells 1 bond to BH#1",
+   "wouldCost": "a bond changes hands while its principal is being paid",
+   "guard": "TransfersClosedAtMaturity",
+   "signature": "6kT7VRwvjVPm7jNGrzPG7p4Ft8LgS8hRfhEokYF488KmY6uUvXPY7JYKiXHzLdAccfa16Hi5CxkS4n7S9xRseGz",
+   "explorer": "https://explorer.solana.com/tx/6kT7VRwvjVPm7jNGrzPG7p4Ft8LgS8hRfhEokYF488KmY6uUvXPY7JYKiXHzLdAccfa16Hi5CxkS4n7S9xRseGz?cluster=devnet",
+   "refused": true,
+   "reason": "TransfersClosedAtMaturity: Transfers are closed from the final record moment (redemption).",
+   "byGuard": true,
+   "blockTime": 1791707258
+  },
+  {
+   "id": "redirect-principal",
+   "when": "redemption, payment open",
+   "actor": "attacker",
+   "tries": "redeems BH#1's bonds into its own cash account",
+   "wouldCost": "BH#1's principal",
+   "guard": "ConstraintTokenOwner",
+   "signature": "aBbj6FtFiuaVBkP7v33Uc9em8U8eMFM8fYT8asAPfrrpS9n8nEtaC3KaTzpfZbDCD8DBGb31xpWir9nJZo8YjMA",
+   "explorer": "https://explorer.solana.com/tx/aBbj6FtFiuaVBkP7v33Uc9em8U8eMFM8fYT8asAPfrrpS9n8nEtaC3KaTzpfZbDCD8DBGb31xpWir9nJZo8YjMA?cluster=devnet",
+   "refused": true,
+   "reason": "ConstraintTokenOwner: A token owner constraint was violated.",
+   "byGuard": true,
+   "blockTime": 1791707263
+  },
+  {
+   "id": "coupon-from-principal",
+   "when": "redemption, payment open",
+   "actor": "attacker",
+   "tries": "pays BH#1 a coupon from the redemption vault",
+   "wouldCost": "principal cash paid out as coupons",
+   "guard": "WrongEventKind",
+   "signature": "3tFEC6k3jjgw2JfBt3c3Srut439xGUdRxw3JmgDtrNGpCyHvt3P4qZPSDp4RCEyPd1uKcXEDeXQ4mABmsPpBYsjj",
+   "explorer": "https://explorer.solana.com/tx/3tFEC6k3jjgw2JfBt3c3Srut439xGUdRxw3JmgDtrNGpCyHvt3P4qZPSDp4RCEyPd1uKcXEDeXQ4mABmsPpBYsjj?cluster=devnet",
+   "refused": true,
+   "reason": "WrongEventKind: Instruction does not apply to this event type.",
+   "byGuard": true,
+   "blockTime": 1791707265
+  },
+  {
+   "id": "redeem-twice",
+   "when": "redemption, paid",
+   "actor": "attacker",
+   "tries": "redeems BH#1 again",
+   "wouldCost": "principal paid twice",
+   "guard": "NothingToPay",
+   "signature": "2UNSXXKdVfFnVM7kCqEFX8JEb7NbJHzqsrPugiHtC5G66V6tmFoSrA2S9ZqcHjEVkhdQzJnGyoa2PJnNXcnkRoFP",
+   "explorer": "https://explorer.solana.com/tx/2UNSXXKdVfFnVM7kCqEFX8JEb7NbJHzqsrPugiHtC5G66V6tmFoSrA2S9ZqcHjEVkhdQzJnGyoa2PJnNXcnkRoFP?cluster=devnet",
+   "refused": true,
+   "reason": "NothingToPay: Nothing to pay.",
+   "byGuard": true,
+   "blockTime": 1791707271
+  }
+ ],
+ "serviced": [
+  {
+   "step": "attacker opens its own bond and cash accounts, and a second bond account for the victim",
+   "signature": "5GN1zPZgRLjWtFCUn8aaagh5KjwgJ3BhDN91xJe3N6G5MNLLcH1diEvrfQyYJ6K29gjLbQX2FCTRoiTzizW648Bg",
+   "explorer": "https://explorer.solana.com/tx/5GN1zPZgRLjWtFCUn8aaagh5KjwgJ3BhDN91xJe3N6G5MNLLcH1diEvrfQyYJ6K29gjLbQX2FCTRoiTzizW648Bg?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "open_event coupon 2 [outside keeper]",
+   "signature": "3da1YgAraC1xN8UKYiqsZuy7iPCtorLsftbKpGsn8DfU3Z3wPx5Fd58hXuYaY6dDmB6adz9ekYciXe13RMxhHYdg",
+   "explorer": "https://explorer.solana.com/tx/3da1YgAraC1xN8UKYiqsZuy7iPCtorLsftbKpGsn8DfU3Z3wPx5Fd58hXuYaY6dDmB6adz9ekYciXe13RMxhHYdg?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "confirm_funding coupon 2 [outside keeper]",
+   "signature": "4GoNJNi4hHnpbKamE9pCY4Z5zxEyHUw3nxLy4c5nbXrRiAc9fyRVWUV5cnuRYUMt3zAfXnwuBbJMHcMVqdynnHTC",
+   "explorer": "https://explorer.solana.com/tx/4GoNJNi4hHnpbKamE9pCY4Z5zxEyHUw3nxLy4c5nbXrRiAc9fyRVWUV5cnuRYUMt3zAfXnwuBbJMHcMVqdynnHTC?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "pay_coupon 2 BH#1..BH#6 [outside keeper]",
+   "signature": "2jkaB7X4GjVxHFMcLJ4ZdmiwiTt9k2tvg7xGsabhadb6X2H9JdwkSm7BTsM8RNUXQBJBZuc1fS75LyfeScshkDMP",
+   "explorer": "https://explorer.solana.com/tx/2jkaB7X4GjVxHFMcLJ4ZdmiwiTt9k2tvg7xGsabhadb6X2H9JdwkSm7BTsM8RNUXQBJBZuc1fS75LyfeScshkDMP?cluster=devnet",
+   "cashTo": [
+    "BH#1",
+    "BH#2",
+    "BH#5",
+    "BH#6"
+   ],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "open_event coupon 3 [outside keeper]",
+   "signature": "2fJwSxTWfysFs1dmzzF4jGKepw68cXeAuktc6qeN9VEi6GbgxwLKQaEpp92FyBw7C3kUXoaCg9cPNhgTZaPCJjpc",
+   "explorer": "https://explorer.solana.com/tx/2fJwSxTWfysFs1dmzzF4jGKepw68cXeAuktc6qeN9VEi6GbgxwLKQaEpp92FyBw7C3kUXoaCg9cPNhgTZaPCJjpc?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "confirm_funding coupon 3 [outside keeper]",
+   "signature": "dRRYcHdvgkkyUUQPT4epNx8vkkGdQgTGRua1an9gFRfdXJch8LiEu4xh7dnJ2jb9qYBHTzfhiQAYyoqyPgntaD9",
+   "explorer": "https://explorer.solana.com/tx/dRRYcHdvgkkyUUQPT4epNx8vkkGdQgTGRua1an9gFRfdXJch8LiEu4xh7dnJ2jb9qYBHTzfhiQAYyoqyPgntaD9?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "pay_coupon 3 BH#1..BH#6 [outside keeper]",
+   "signature": "6HnCxJDL6tz6Jw4wLASAW91eNqKvePr84mZF1SpS9VMTSGFm3x31sg2RjtRK1dEFeuwqGNqu6vGi2WCYTfaJnAt",
+   "explorer": "https://explorer.solana.com/tx/6HnCxJDL6tz6Jw4wLASAW91eNqKvePr84mZF1SpS9VMTSGFm3x31sg2RjtRK1dEFeuwqGNqu6vGi2WCYTfaJnAt?cluster=devnet",
+   "cashTo": [
+    "BH#1",
+    "BH#2",
+    "BH#3",
+    "BH#4",
+    "BH#5",
+    "BH#6"
+   ],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "open_event redemption [outside keeper]",
+   "signature": "2KsxkmqFwUw81PWbZ8UDMFSUgvEDbNHQyjiFLG9jzEodCqv26RqNcvrpDjSPdFiJMPzq9Vi5rVZJaKA7mtdU2Atd",
+   "explorer": "https://explorer.solana.com/tx/2KsxkmqFwUw81PWbZ8UDMFSUgvEDbNHQyjiFLG9jzEodCqv26RqNcvrpDjSPdFiJMPzq9Vi5rVZJaKA7mtdU2Atd?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "confirm_funding redemption [outside keeper]",
+   "signature": "3prf379K9LmYkHcmjRUrAaCrzs2AUVHruijRDWdYr35vih8H6h1GsjoLanFG3spa5Uee5TVN5gWnpLYSFWmzbCbg",
+   "explorer": "https://explorer.solana.com/tx/3prf379K9LmYkHcmjRUrAaCrzs2AUVHruijRDWdYr35vih8H6h1GsjoLanFG3spa5Uee5TVN5gWnpLYSFWmzbCbg?cluster=devnet",
+   "cashTo": [],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "redeem_holder BH#1..BH#4 [outside keeper]",
+   "signature": "5AgcUX6cP5ucG8ciaep8KxHqpJe4fQYxjTtA6xqzTpY6RAQgT4TvPq6c8TW3VY1sx7nubXTKjyNK9qEMAUBsYhky",
+   "explorer": "https://explorer.solana.com/tx/5AgcUX6cP5ucG8ciaep8KxHqpJe4fQYxjTtA6xqzTpY6RAQgT4TvPq6c8TW3VY1sx7nubXTKjyNK9qEMAUBsYhky?cluster=devnet",
+   "cashTo": [
+    "BH#1",
+    "BH#2",
+    "BH#3",
+    "BH#4"
+   ],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  },
+  {
+   "step": "redeem_holder BH#5..BH#6 [outside keeper]",
+   "signature": "3vXbPix8caoU3bfRM2PcjxJw7KBo9uGDqffqXmVuNzuEoRZmf6dYPKZ9LmtS5jTCQABRthAovqE8v7mfowG2Js2s",
+   "explorer": "https://explorer.solana.com/tx/3vXbPix8caoU3bfRM2PcjxJw7KBo9uGDqffqXmVuNzuEoRZmf6dYPKZ9LmtS5jTCQABRthAovqE8v7mfowG2Js2s?cluster=devnet",
+   "cashTo": [
+    "BH#5",
+    "BH#6"
+   ],
+   "cashToAttacker": 0,
+   "bondsToAttacker": 0
+  }
+ ],
+ "audit": {
+  "passed": true,
+  "checks": [
+   {
+    "id": "M1",
+    "label": "bond: sum of all account balances = supply",
+    "ok": true
+   },
+   {
+    "id": "M1",
+    "label": "cash: sum of all account balances = supply",
+    "ok": true
+   },
+   {
+    "id": "M2",
+    "label": "every transaction: balance changes = minted - burned",
+    "ok": true
+   },
+   {
+    "id": "M3",
+    "label": "history sums = current balances (both channels agree)",
+    "ok": true
+   },
+   {
+    "id": "M4",
+    "label": "the bond's vaults = cash accounts owned by the bond token's mint authority (6ywdrmUD...)",
+    "ok": true
+   },
+   {
+    "id": "M4",
+    "label": "cash enters the vaults only from the bank's mints",
+    "ok": true
+   },
+   {
+    "id": "M4",
+    "label": "cash leaves the vaults only to scenario wallets",
+    "ok": true
+   },
+   {
+    "id": "M4",
+    "label": "no account outside the scenario wallets moved bonds",
+    "ok": true
+   },
+   {
+    "id": "C1",
+    "label": "BH#1: coupon arrivals from the vault",
+    "ok": true
+   },
+   {
+    "id": "C2",
+    "label": "BH#1: bond movements",
+    "ok": true
+   },
+   {
+    "id": "C3",
+    "label": "BH#1: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated",
+    "ok": true
+   },
+   {
+    "id": "C1",
+    "label": "BH#2: coupon arrivals from the vault",
+    "ok": true
+   },
+   {
+    "id": "C2",
+    "label": "BH#2: bond movements",
+    "ok": true
+   },
+   {
+    "id": "C3",
+    "label": "BH#2: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated",
+    "ok": true
+   },
+   {
+    "id": "C1",
+    "label": "BH#3: coupon arrivals from the vault",
+    "ok": true
+   },
+   {
+    "id": "C2",
+    "label": "BH#3: bond movements",
+    "ok": true
+   },
+   {
+    "id": "C3",
+    "label": "BH#3: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated",
+    "ok": true
+   },
+   {
+    "id": "C1",
+    "label": "BH#4: coupon arrivals from the vault",
+    "ok": true
+   },
+   {
+    "id": "C2",
+    "label": "BH#4: bond movements",
+    "ok": true
+   },
+   {
+    "id": "C3",
+    "label": "BH#4: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated",
+    "ok": true
+   },
+   {
+    "id": "C1",
+    "label": "BH#5: coupon arrivals from the vault",
+    "ok": true
+   },
+   {
+    "id": "C2",
+    "label": "BH#5: bond movements",
+    "ok": true
+   },
+   {
+    "id": "C3",
+    "label": "BH#5: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated",
+    "ok": true
+   },
+   {
+    "id": "C1",
+    "label": "BH#6: coupon arrivals from the vault",
+    "ok": true
+   },
+   {
+    "id": "C2",
+    "label": "BH#6: bond movements",
+    "ok": true
+   },
+   {
+    "id": "C3",
+    "label": "BH#6: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated",
+    "ok": true
+   },
+   {
+    "id": "C4",
+    "label": "vaults: inflow = outflow + final balance; outflow = calculated payments; final = calculated leftover",
+    "ok": true
+   },
+   {
+    "id": "C7",
+    "label": "BH#1: cash from this bond and bonds held now = calculated",
+    "ok": true
+   },
+   {
+    "id": "C7",
+    "label": "BH#2: cash from this bond and bonds held now = calculated",
+    "ok": true
+   },
+   {
+    "id": "C7",
+    "label": "BH#3: cash from this bond and bonds held now = calculated",
+    "ok": true
+   },
+   {
+    "id": "C7",
+    "label": "BH#4: cash from this bond and bonds held now = calculated",
+    "ok": true
+   },
+   {
+    "id": "C7",
+    "label": "BH#5: cash from this bond and bonds held now = calculated",
+    "ok": true
+   },
+   {
+    "id": "C7",
+    "label": "BH#6: cash from this bond and bonds held now = calculated",
+    "ok": true
+   },
+   {
+    "id": "C5",
+    "label": "every coupon paid after its record moment and before the next one; coupons after 1 after the final record moment (declared operator failure) (compressed time: 1 bond day = 1 s, so the 8-hour 09:00-17:00 window is 0.3 s and is not checked)",
+    "ok": true
+   },
+   {
+    "id": "C6",
+    "label": "listing example: BH#1 held 10 bonds at the first record moment, measured first coupon = 500",
+    "ok": true
+   }
+  ],
+  "transactions": 82
+ },
+ "measured": "2026-10-11 08:49 UTC",
+ "rpc": "https://api.devnet.solana.com"
+}

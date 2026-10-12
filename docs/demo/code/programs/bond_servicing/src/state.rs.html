@@ -1,0 +1,354 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/state.rs · source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/state.rs</h1>
+<p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file e14705ac356391a065cd73cdc842f170f1f27a422a7d037d47eadd2683c864fc</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>use bond_math::amount::{coupon_amount, fixed_coupon_amount, principal_amount, AccrualBasis};</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>use bond_math::date::Date;</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>use bond_math::daycount::Thirty360;</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>use bond_math::time::{chain_to_bond_time, SECONDS_PER_DAY};</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code></code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>use crate::constants::MAX_PERIODS;</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>use crate::error::BondError;</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code></code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>/// How a coupon is computed (see `bond_math::amount::AccrualBasis`).</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>pub enum CouponBasis {</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>    /// Rate / periods per year for every regular period.</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>    FixedPerPeriod { periods_per_year: u32 },</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>    /// 30/360 accrual: 0 = BondBasis, 1 = European, 2 = USA.</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>    Thirty360 { convention: u8 },</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>}</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code></code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>pub enum EventKind {</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>    Coupon,</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>    Redemption,</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>}</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code></code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>/// A quantity over the bond&#x27;s record moments. Record moments are numbered 0..periods in time order.</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>///</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>/// `quantity` is the quantity now. It has not changed since the last change, which happened when `live_from`</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>/// record moments had passed. So the quantity at record moment `e` is:</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>///   - `at[e]` if `e &lt; live_from` (saved by the first change after moment `e`);</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>///   - `quantity` otherwise (no change since moment `e`).</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>/// `save` must run before every change; then no record moment&#x27;s quantity is ever lost or overwritten, however</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>/// late anyone looks.</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>pub struct PositionHistory {</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>    pub quantity: u64,</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>    pub live_from: u16,</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>    pub at: [u64; MAX_PERIODS],</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>}</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code></code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>impl PositionHistory {</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>    /// A new position created when `passed` record moments have passed: zero at all of them.</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    pub fn new(passed: u16) -&gt; Self {</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>        Self { quantity: 0, live_from: passed, at: [0; MAX_PERIODS] }</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>    }</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code></code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code>    /// Keep the current quantity for every record moment passed since the last change. Returns the saved</code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>    /// range of record moments, if any.</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>    pub fn save(&amp;mut self, passed: u16) -&gt; Option&lt;(u16, u16)&gt; {</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>        if passed &lt;= self.live_from {</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>            return None;</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>        }</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>        let from = self.live_from;</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>        for e in from..passed {</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>            self.at[e as usize] = self.quantity;</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>        }</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>        self.live_from = passed;</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>        Some((from, passed))</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>    }</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code></code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>    /// Quantity at record moment `e`; valid once moment `e` has passed.</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>    pub fn at_moment(&amp;self, e: u16) -&gt; u64 {</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>        if e &lt; self.live_from {</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>            self.at[e as usize]</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>        } else {</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>            self.quantity</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>        }</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    }</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>}</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code></code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>#[account]</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>#[derive(InitSpace)]</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>pub struct Bond {</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>    pub registrar: Pubkey,</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    pub mint: Pubkey,</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>    pub cash_mint: Pubkey,</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>    /// Face value of one bond in cash-token base units.</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>    pub face_units: u64,</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>    pub rate_bps: u32,</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>    pub basis: CouponBasis,</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>    /// Redemption price in basis points of face (10_000 = par).</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>    pub redemption_price_bps: u32,</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>    /// Day serials (days since 1970-01-01).</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>    pub issue_day: i32,</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>    pub maturity_day: i32,</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>    pub months_per_period: u32,</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>    /// Business-day-adjusted payment day of each coupon period (computed off-chain with the bond&#x27;s calendar).</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>    #[max_len(MAX_PERIODS)]</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>    pub payment_days: Vec&lt;i32&gt;,</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>    /// Record day of each coupon period; the record moment is `record_seconds_local` on that day.</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>    #[max_len(MAX_PERIODS)]</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code>    pub record_days: Vec&lt;i32&gt;,</code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>    pub record_seconds_local: i32,</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>    /// Payment opens at this local time on the payment day (never before the record moment).</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>    pub payment_seconds_local: i32,</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>    pub utc_offset_seconds: i32,</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>    /// Time model: bond time = bond_origin + (chain time - chain_origin) * 86_400 / chain_seconds_per_bond_day.</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>    pub chain_origin: i64,</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code>    pub bond_origin: i64,</code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>    pub chain_seconds_per_bond_day: i64,</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>    /// Bond supply over record moments. Only the program changes supply (placement, redemption), and it saves</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>    /// the history first, so the supply at any record moment is known without counting holders.</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>    pub supply: PositionHistory,</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>    /// Issue size in bonds, fixed by the terms: placement never takes the supply above it.</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>    pub max_supply: u64,</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>    pub bump: u8,</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code>}</code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code></code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>impl Bond {</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>    pub fn periods(&amp;self) -&gt; u16 {</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code>        self.payment_days.len() as u16</code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>    }</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code></code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code>    /// Index of the redemption event; coupon events are 0..periods.</code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>    pub fn redemption_event(&amp;self) -&gt; u16 {</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>        self.periods()</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>    }</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code></code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>    /// The coupon period an event belongs to: the redemption shares the final period&#x27;s dates.</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code>    pub fn period_of(&amp;self, event: u16) -&gt; Result&lt;u16&gt; {</code></span>
+<span class="line" id="L120"><a href="#L120" aria-label="Line 120">120</a><code>        require!(event &lt;= self.redemption_event(), BondError::EventOutOfRange);</code></span>
+<span class="line" id="L121"><a href="#L121" aria-label="Line 121">121</a><code>        Ok(if event == self.redemption_event() { event - 1 } else { event })</code></span>
+<span class="line" id="L122"><a href="#L122" aria-label="Line 122">122</a><code>    }</code></span>
+<span class="line" id="L123"><a href="#L123" aria-label="Line 123">123</a><code></code></span>
+<span class="line" id="L124"><a href="#L124" aria-label="Line 124">124</a><code>    pub fn now(&amp;self) -&gt; Result&lt;i64&gt; {</code></span>
+<span class="line" id="L125"><a href="#L125" aria-label="Line 125">125</a><code>        let chain_now = Clock::get()?.unix_timestamp;</code></span>
+<span class="line" id="L126"><a href="#L126" aria-label="Line 126">126</a><code>        chain_to_bond_time(chain_now, self.chain_origin, self.bond_origin, self.chain_seconds_per_bond_day)</code></span>
+<span class="line" id="L127"><a href="#L127" aria-label="Line 127">127</a><code>            .ok_or_else(|| error!(BondError::Overflow))</code></span>
+<span class="line" id="L128"><a href="#L128" aria-label="Line 128">128</a><code>    }</code></span>
+<span class="line" id="L129"><a href="#L129" aria-label="Line 129">129</a><code></code></span>
+<span class="line" id="L130"><a href="#L130" aria-label="Line 130">130</a><code>    fn local_moment(&amp;self, day: i32, seconds_local: i32) -&gt; i64 {</code></span>
+<span class="line" id="L131"><a href="#L131" aria-label="Line 131">131</a><code>        i64::from(day) * SECONDS_PER_DAY + i64::from(seconds_local) - i64::from(self.utc_offset_seconds)</code></span>
+<span class="line" id="L132"><a href="#L132" aria-label="Line 132">132</a><code>    }</code></span>
+<span class="line" id="L133"><a href="#L133" aria-label="Line 133">133</a><code></code></span>
+<span class="line" id="L134"><a href="#L134" aria-label="Line 134">134</a><code>    /// Record moment (bond time) of an event.</code></span>
+<span class="line" id="L135"><a href="#L135" aria-label="Line 135">135</a><code>    pub fn record_time(&amp;self, event: u16) -&gt; Result&lt;i64&gt; {</code></span>
+<span class="line" id="L136"><a href="#L136" aria-label="Line 136">136</a><code>        let period = self.period_of(event)?;</code></span>
+<span class="line" id="L137"><a href="#L137" aria-label="Line 137">137</a><code>        Ok(self.local_moment(self.record_days[period as usize], self.record_seconds_local))</code></span>
+<span class="line" id="L138"><a href="#L138" aria-label="Line 138">138</a><code>    }</code></span>
+<span class="line" id="L139"><a href="#L139" aria-label="Line 139">139</a><code></code></span>
+<span class="line" id="L140"><a href="#L140" aria-label="Line 140">140</a><code>    /// Moment (bond time) from which an event may be paid.</code></span>
+<span class="line" id="L141"><a href="#L141" aria-label="Line 141">141</a><code>    pub fn payment_time(&amp;self, event: u16) -&gt; Result&lt;i64&gt; {</code></span>
+<span class="line" id="L142"><a href="#L142" aria-label="Line 142">142</a><code>        let period = self.period_of(event)?;</code></span>
+<span class="line" id="L143"><a href="#L143" aria-label="Line 143">143</a><code>        Ok(self.local_moment(self.payment_days[period as usize], self.payment_seconds_local))</code></span>
+<span class="line" id="L144"><a href="#L144" aria-label="Line 144">144</a><code>    }</code></span>
+<span class="line" id="L145"><a href="#L145" aria-label="Line 145">145</a><code></code></span>
+<span class="line" id="L146"><a href="#L146" aria-label="Line 146">146</a><code>    /// Trading closes at the final record moment: balances are frozen for redemption.</code></span>
+<span class="line" id="L147"><a href="#L147" aria-label="Line 147">147</a><code>    pub fn final_record_time(&amp;self) -&gt; Result&lt;i64&gt; {</code></span>
+<span class="line" id="L148"><a href="#L148" aria-label="Line 148">148</a><code>        self.record_time(self.periods() - 1)</code></span>
+<span class="line" id="L149"><a href="#L149" aria-label="Line 149">149</a><code>    }</code></span>
+<span class="line" id="L150"><a href="#L150" aria-label="Line 150">150</a><code></code></span>
+<span class="line" id="L151"><a href="#L151" aria-label="Line 151">151</a><code>    /// Number of record moments at or before `bond_now`.</code></span>
+<span class="line" id="L152"><a href="#L152" aria-label="Line 152">152</a><code>    pub fn passed_record_moments(&amp;self, bond_now: i64) -&gt; Result&lt;u16&gt; {</code></span>
+<span class="line" id="L153"><a href="#L153" aria-label="Line 153">153</a><code>        self.passed_record_moments_from(bond_now, 0)</code></span>
+<span class="line" id="L154"><a href="#L154" aria-label="Line 154">154</a><code>    }</code></span>
+<span class="line" id="L155"><a href="#L155" aria-label="Line 155">155</a><code></code></span>
+<span class="line" id="L156"><a href="#L156" aria-label="Line 156">156</a><code>    /// Holder-local cursors provide a period hint; no shared mutable epoch cache.</code></span>
+<span class="line" id="L157"><a href="#L157" aria-label="Line 157">157</a><code>    pub fn passed_record_moments_from(&amp;self, bond_now: i64, hint: u16) -&gt; Result&lt;u16&gt; {</code></span>
+<span class="line" id="L158"><a href="#L158" aria-label="Line 158">158</a><code>        let mut lo = usize::from(hint).min(self.record_days.len());</code></span>
+<span class="line" id="L159"><a href="#L159" aria-label="Line 159">159</a><code>        // Preserve exact lookup even if a supplied hint is ahead of the queried time.</code></span>
+<span class="line" id="L160"><a href="#L160" aria-label="Line 160">160</a><code>        if lo &gt; 0 &amp;&amp; self.local_moment(self.record_days[lo - 1], self.record_seconds_local) &gt; bond_now { lo = 0; }</code></span>
+<span class="line" id="L161"><a href="#L161" aria-label="Line 161">161</a><code>        if lo == self.record_days.len() || self.local_moment(self.record_days[lo], self.record_seconds_local) &gt; bond_now {</code></span>
+<span class="line" id="L162"><a href="#L162" aria-label="Line 162">162</a><code>            return Ok(lo as u16);</code></span>
+<span class="line" id="L163"><a href="#L163" aria-label="Line 163">163</a><code>        }</code></span>
+<span class="line" id="L164"><a href="#L164" aria-label="Line 164">164</a><code>        let passed = self.record_days[lo..].partition_point(|day| self.local_moment(*day, self.record_seconds_local) &lt;= bond_now);</code></span>
+<span class="line" id="L165"><a href="#L165" aria-label="Line 165">165</a><code>        Ok((lo + passed) as u16)</code></span>
+<span class="line" id="L166"><a href="#L166" aria-label="Line 166">166</a><code>    }</code></span>
+<span class="line" id="L167"><a href="#L167" aria-label="Line 167">167</a><code></code></span>
+<span class="line" id="L168"><a href="#L168" aria-label="Line 168">168</a><code>    /// Unadjusted accrual dates of coupon period `i` (regular schedule, counted back from maturity).</code></span>
+<span class="line" id="L169"><a href="#L169" aria-label="Line 169">169</a><code>    pub fn accrual_dates(&amp;self, i: u16) -&gt; (Date, Date) {</code></span>
+<span class="line" id="L170"><a href="#L170" aria-label="Line 170">170</a><code>        let maturity = Date::from_days(i64::from(self.maturity_day));</code></span>
+<span class="line" id="L171"><a href="#L171" aria-label="Line 171">171</a><code>        let back = i32::from(self.periods() - i);</code></span>
+<span class="line" id="L172"><a href="#L172" aria-label="Line 172">172</a><code>        let step = self.months_per_period as i32;</code></span>
+<span class="line" id="L173"><a href="#L173" aria-label="Line 173">173</a><code>        (maturity.add_months(-back * step), maturity.add_months(-(back - 1) * step))</code></span>
+<span class="line" id="L174"><a href="#L174" aria-label="Line 174">174</a><code>    }</code></span>
+<span class="line" id="L175"><a href="#L175" aria-label="Line 175">175</a><code></code></span>
+<span class="line" id="L176"><a href="#L176" aria-label="Line 176">176</a><code>    pub fn accrual_basis(&amp;self) -&gt; Result&lt;AccrualBasis&gt; {</code></span>
+<span class="line" id="L177"><a href="#L177" aria-label="Line 177">177</a><code>        Ok(match self.basis {</code></span>
+<span class="line" id="L178"><a href="#L178" aria-label="Line 178">178</a><code>            CouponBasis::FixedPerPeriod { periods_per_year } =&gt; AccrualBasis::FixedPerPeriod { periods_per_year },</code></span>
+<span class="line" id="L179"><a href="#L179" aria-label="Line 179">179</a><code>            CouponBasis::Thirty360 { convention } =&gt; AccrualBasis::DayCount(match convention {</code></span>
+<span class="line" id="L180"><a href="#L180" aria-label="Line 180">180</a><code>                0 =&gt; Thirty360::BondBasis,</code></span>
+<span class="line" id="L181"><a href="#L181" aria-label="Line 181">181</a><code>                1 =&gt; Thirty360::European,</code></span>
+<span class="line" id="L182"><a href="#L182" aria-label="Line 182">182</a><code>                2 =&gt; Thirty360::Usa,</code></span>
+<span class="line" id="L183"><a href="#L183" aria-label="Line 183">183</a><code>                _ =&gt; return err!(BondError::InvalidTerms),</code></span>
+<span class="line" id="L184"><a href="#L184" aria-label="Line 184">184</a><code>            }),</code></span>
+<span class="line" id="L185"><a href="#L185" aria-label="Line 185">185</a><code>        })</code></span>
+<span class="line" id="L186"><a href="#L186" aria-label="Line 186">186</a><code>    }</code></span>
+<span class="line" id="L187"><a href="#L187" aria-label="Line 187">187</a><code></code></span>
+<span class="line" id="L188"><a href="#L188" aria-label="Line 188">188</a><code>    /// Coupon on a holding of `position` bonds for coupon period `period`, rounded down once.</code></span>
+<span class="line" id="L189"><a href="#L189" aria-label="Line 189">189</a><code>    pub fn coupon(&amp;self, position: u64, period: u16) -&gt; Result&lt;u64&gt; {</code></span>
+<span class="line" id="L190"><a href="#L190" aria-label="Line 190">190</a><code>        let amount = match self.basis {</code></span>
+<span class="line" id="L191"><a href="#L191" aria-label="Line 191">191</a><code>            CouponBasis::FixedPerPeriod { periods_per_year } =&gt; fixed_coupon_amount(position, self.face_units, self.rate_bps, periods_per_year),</code></span>
+<span class="line" id="L192"><a href="#L192" aria-label="Line 192">192</a><code>            _ =&gt; { let (start, end) = self.accrual_dates(period);</code></span>
+<span class="line" id="L193"><a href="#L193" aria-label="Line 193">193</a><code>                coupon_amount(position, self.face_units, self.rate_bps, self.accrual_basis()?, start, end) }</code></span>
+<span class="line" id="L194"><a href="#L194" aria-label="Line 194">194</a><code>        };</code></span>
+<span class="line" id="L195"><a href="#L195" aria-label="Line 195">195</a><code>        amount.ok_or_else(|| error!(BondError::Overflow))</code></span>
+<span class="line" id="L196"><a href="#L196" aria-label="Line 196">196</a><code>    }</code></span>
+<span class="line" id="L197"><a href="#L197" aria-label="Line 197">197</a><code></code></span>
+<span class="line" id="L198"><a href="#L198" aria-label="Line 198">198</a><code>    pub fn principal(&amp;self, position: u64) -&gt; Result&lt;u64&gt; {</code></span>
+<span class="line" id="L199"><a href="#L199" aria-label="Line 199">199</a><code>        principal_amount(position, self.face_units, self.redemption_price_bps).ok_or_else(|| error!(BondError::Overflow))</code></span>
+<span class="line" id="L200"><a href="#L200" aria-label="Line 200">200</a><code>    }</code></span>
+<span class="line" id="L201"><a href="#L201" aria-label="Line 201">201</a><code></code></span>
+<span class="line" id="L202"><a href="#L202" aria-label="Line 202">202</a><code>    /// Every amount the bond can owe on `supply` bonds (each coupon budget and the redemption budget) fits the cash</code></span>
+<span class="line" id="L203"><a href="#L203" aria-label="Line 203">203</a><code>    /// token&#x27;s u64 amounts. Checked when supply grows (placement); supply only shrinks afterwards.</code></span>
+<span class="line" id="L204"><a href="#L204" aria-label="Line 204">204</a><code>    pub fn check_serviceable(&amp;self, supply: u64) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L205"><a href="#L205" aria-label="Line 205">205</a><code>        let basis = self.accrual_basis()?;</code></span>
+<span class="line" id="L206"><a href="#L206" aria-label="Line 206">206</a><code>        match basis {</code></span>
+<span class="line" id="L207"><a href="#L207" aria-label="Line 207">207</a><code>            AccrualBasis::FixedPerPeriod { periods_per_year } =&gt; {</code></span>
+<span class="line" id="L208"><a href="#L208" aria-label="Line 208">208</a><code>                fixed_coupon_amount(supply, self.face_units, self.rate_bps, periods_per_year).ok_or(BondError::IssueTooLarge)?;</code></span>
+<span class="line" id="L209"><a href="#L209" aria-label="Line 209">209</a><code>            }</code></span>
+<span class="line" id="L210"><a href="#L210" aria-label="Line 210">210</a><code>            _ =&gt; { for period in 0..self.periods() {</code></span>
+<span class="line" id="L211"><a href="#L211" aria-label="Line 211">211</a><code>                let (start, end) = self.accrual_dates(period);</code></span>
+<span class="line" id="L212"><a href="#L212" aria-label="Line 212">212</a><code>                coupon_amount(supply, self.face_units, self.rate_bps, basis, start, end).ok_or(BondError::IssueTooLarge)?;</code></span>
+<span class="line" id="L213"><a href="#L213" aria-label="Line 213">213</a><code>            } }</code></span>
+<span class="line" id="L214"><a href="#L214" aria-label="Line 214">214</a><code>        }</code></span>
+<span class="line" id="L215"><a href="#L215" aria-label="Line 215">215</a><code>        principal_amount(supply, self.face_units, self.redemption_price_bps).ok_or(BondError::IssueTooLarge)?;</code></span>
+<span class="line" id="L216"><a href="#L216" aria-label="Line 216">216</a><code>        Ok(())</code></span>
+<span class="line" id="L217"><a href="#L217" aria-label="Line 217">217</a><code>    }</code></span>
+<span class="line" id="L218"><a href="#L218" aria-label="Line 218">218</a><code>}</code></span>
+<span class="line" id="L219"><a href="#L219" aria-label="Line 219">219</a><code></code></span>
+<span class="line" id="L220"><a href="#L220" aria-label="Line 220">220</a><code>/// One registered holder of one bond: its quantity over record moments and the coupons already paid.</code></span>
+<span class="line" id="L221"><a href="#L221" aria-label="Line 221">221</a><code>#[account]</code></span>
+<span class="line" id="L222"><a href="#L222" aria-label="Line 222">222</a><code>#[derive(InitSpace)]</code></span>
+<span class="line" id="L223"><a href="#L223" aria-label="Line 223">223</a><code>pub struct HolderRecord {</code></span>
+<span class="line" id="L224"><a href="#L224" aria-label="Line 224">224</a><code>    pub bond: Pubkey,</code></span>
+<span class="line" id="L225"><a href="#L225" aria-label="Line 225">225</a><code>    pub owner: Pubkey,</code></span>
+<span class="line" id="L226"><a href="#L226" aria-label="Line 226">226</a><code>    pub position: PositionHistory,</code></span>
+<span class="line" id="L227"><a href="#L227" aria-label="Line 227">227</a><code>    /// Bit `e` set = coupon `e` paid.</code></span>
+<span class="line" id="L228"><a href="#L228" aria-label="Line 228">228</a><code>    pub paid: u64,</code></span>
+<span class="line" id="L229"><a href="#L229" aria-label="Line 229">229</a><code>    /// Bonds committed to offers: tendered into open offers, or accepted by a closed offer and not yet bought. They</code></span>
+<span class="line" id="L230"><a href="#L230" aria-label="Line 230">230</a><code>    /// stay in the holder&#x27;s account (and keep their coupon rights), but the transfer hook refuses transfers that</code></span>
+<span class="line" id="L231"><a href="#L231" aria-label="Line 231">231</a><code>    /// would take the balance below this, and redemption leaves them to their offer.</code></span>
+<span class="line" id="L232"><a href="#L232" aria-label="Line 232">232</a><code>    pub locked: u64,</code></span>
+<span class="line" id="L233"><a href="#L233" aria-label="Line 233">233</a><code>    /// Bonds redeemed at maturity so far. Principal for each partial redemption is the difference of the principal</code></span>
+<span class="line" id="L234"><a href="#L234" aria-label="Line 234">234</a><code>    /// on the cumulative quantity, so several partial redemptions round exactly like one.</code></span>
+<span class="line" id="L235"><a href="#L235" aria-label="Line 235">235</a><code>    pub redeemed: u64,</code></span>
+<span class="line" id="L236"><a href="#L236" aria-label="Line 236">236</a><code>    pub bump: u8,</code></span>
+<span class="line" id="L237"><a href="#L237" aria-label="Line 237">237</a><code>}</code></span>
+<span class="line" id="L238"><a href="#L238" aria-label="Line 238">238</a><code></code></span>
+<span class="line" id="L239"><a href="#L239" aria-label="Line 239">239</a><code>impl HolderRecord {</code></span>
+<span class="line" id="L240"><a href="#L240" aria-label="Line 240">240</a><code>    pub fn is_paid(&amp;self, event: u16) -&gt; bool {</code></span>
+<span class="line" id="L241"><a href="#L241" aria-label="Line 241">241</a><code>        self.paid &amp; (1u64 &lt;&lt; event) != 0</code></span>
+<span class="line" id="L242"><a href="#L242" aria-label="Line 242">242</a><code>    }</code></span>
+<span class="line" id="L243"><a href="#L243" aria-label="Line 243">243</a><code></code></span>
+<span class="line" id="L244"><a href="#L244" aria-label="Line 244">244</a><code>    pub fn unlocked(&amp;self) -&gt; u64 {</code></span>
+<span class="line" id="L245"><a href="#L245" aria-label="Line 245">245</a><code>        self.position.quantity.saturating_sub(self.locked)</code></span>
+<span class="line" id="L246"><a href="#L246" aria-label="Line 246">246</a><code>    }</code></span>
+<span class="line" id="L247"><a href="#L247" aria-label="Line 247">247</a><code>}</code></span>
+<span class="line" id="L248"><a href="#L248" aria-label="Line 248">248</a><code></code></span>
+<span class="line" id="L249"><a href="#L249" aria-label="Line 249">249</a><code>#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]</code></span>
+<span class="line" id="L250"><a href="#L250" aria-label="Line 250">250</a><code>pub enum OfferKind {</code></span>
+<span class="line" id="L251"><a href="#L251" aria-label="Line 251">251</a><code>    /// Buyback: holders sell at once, first come first served, until the maximum is bought.</code></span>
+<span class="line" id="L252"><a href="#L252" aria-label="Line 252">252</a><code>    FirstCome,</code></span>
+<span class="line" id="L253"><a href="#L253" aria-label="Line 253">253</a><code>    /// Tender offer: holders tender during the window; after it, pro rata if oversubscribed.</code></span>
+<span class="line" id="L254"><a href="#L254" aria-label="Line 254">254</a><code>    ProRata,</code></span>
+<span class="line" id="L255"><a href="#L255" aria-label="Line 255">255</a><code>}</code></span>
+<span class="line" id="L256"><a href="#L256" aria-label="Line 256">256</a><code></code></span>
+<span class="line" id="L257"><a href="#L257" aria-label="Line 257">257</a><code>/// An issuer&#x27;s offer to buy back bonds at a price per bond, up to a maximum quantity, during a window.</code></span>
+<span class="line" id="L258"><a href="#L258" aria-label="Line 258">258</a><code>#[account]</code></span>
+<span class="line" id="L259"><a href="#L259" aria-label="Line 259">259</a><code>#[derive(InitSpace)]</code></span>
+<span class="line" id="L260"><a href="#L260" aria-label="Line 260">260</a><code>pub struct Offer {</code></span>
+<span class="line" id="L261"><a href="#L261" aria-label="Line 261">261</a><code>    pub bond: Pubkey,</code></span>
+<span class="line" id="L262"><a href="#L262" aria-label="Line 262">262</a><code>    pub id: u16,</code></span>
+<span class="line" id="L263"><a href="#L263" aria-label="Line 263">263</a><code>    pub kind: OfferKind,</code></span>
+<span class="line" id="L264"><a href="#L264" aria-label="Line 264">264</a><code>    /// All-in cash price per bond, in cash-token base units.</code></span>
+<span class="line" id="L265"><a href="#L265" aria-label="Line 265">265</a><code>    pub price_units: u64,</code></span>
+<span class="line" id="L266"><a href="#L266" aria-label="Line 266">266</a><code>    pub max_quantity: u64,</code></span>
+<span class="line" id="L267"><a href="#L267" aria-label="Line 267">267</a><code>    /// Window in bond time: open &lt;= t &lt; close.</code></span>
+<span class="line" id="L268"><a href="#L268" aria-label="Line 268">268</a><code>    pub open_time: i64,</code></span>
+<span class="line" id="L269"><a href="#L269" aria-label="Line 269">269</a><code>    pub close_time: i64,</code></span>
+<span class="line" id="L270"><a href="#L270" aria-label="Line 270">270</a><code>    /// Bonds bought (FirstCome) or currently tendered (ProRata).</code></span>
+<span class="line" id="L271"><a href="#L271" aria-label="Line 271">271</a><code>    pub total: u64,</code></span>
+<span class="line" id="L272"><a href="#L272" aria-label="Line 272">272</a><code>    /// The offer&#x27;s own cash account.</code></span>
+<span class="line" id="L273"><a href="#L273" aria-label="Line 273">273</a><code>    pub vault: Pubkey,</code></span>
+<span class="line" id="L274"><a href="#L274" aria-label="Line 274">274</a><code>    pub funded: bool,</code></span>
+<span class="line" id="L275"><a href="#L275" aria-label="Line 275">275</a><code>    /// Tenders made (ProRata): each new tender takes the next number.</code></span>
+<span class="line" id="L276"><a href="#L276" aria-label="Line 276">276</a><code>    pub tenders: u32,</code></span>
+<span class="line" id="L277"><a href="#L277" aria-label="Line 277">277</a><code>    /// Tenders resolved so far, in the order they were made.</code></span>
+<span class="line" id="L278"><a href="#L278" aria-label="Line 278">278</a><code>    pub resolved: u32,</code></span>
+<span class="line" id="L279"><a href="#L279" aria-label="Line 279">279</a><code>    /// Bonds tendered by the tenders resolved so far.</code></span>
+<span class="line" id="L280"><a href="#L280" aria-label="Line 280">280</a><code>    pub resolved_quantity: u64,</code></span>
+<span class="line" id="L281"><a href="#L281" aria-label="Line 281">281</a><code>    pub bump: u8,</code></span>
+<span class="line" id="L282"><a href="#L282" aria-label="Line 282">282</a><code>}</code></span>
+<span class="line" id="L283"><a href="#L283" aria-label="Line 283">283</a><code></code></span>
+<span class="line" id="L284"><a href="#L284" aria-label="Line 284">284</a><code>impl Offer {</code></span>
+<span class="line" id="L285"><a href="#L285" aria-label="Line 285">285</a><code>    /// Cash that covers the whole offer.</code></span>
+<span class="line" id="L286"><a href="#L286" aria-label="Line 286">286</a><code>    pub fn budget(&amp;self) -&gt; Option&lt;u64&gt; {</code></span>
+<span class="line" id="L287"><a href="#L287" aria-label="Line 287">287</a><code>        self.price_units.checked_mul(self.max_quantity)</code></span>
+<span class="line" id="L288"><a href="#L288" aria-label="Line 288">288</a><code>    }</code></span>
+<span class="line" id="L289"><a href="#L289" aria-label="Line 289">289</a><code></code></span>
+<span class="line" id="L290"><a href="#L290" aria-label="Line 290">290</a><code>    /// Bonds accepted from the next tender of `quantity`, once the window has closed. Not oversubscribed: all of it.</code></span>
+<span class="line" id="L291"><a href="#L291" aria-label="Line 291">291</a><code>    /// Oversubscribed: tenders are taken in the order they were made, and each receives the pro-rata share of all</code></span>
+<span class="line" id="L292"><a href="#L292" aria-label="Line 292">292</a><code>    /// tenders up to and including it, rounded down, minus that of the tenders before it. The shares telescope, so the</code></span>
+<span class="line" id="L293"><a href="#L293" aria-label="Line 293">293</a><code>    /// offer buys exactly its maximum; each tender receives at least its own pro-rata share rounded down, never more</code></span>
+<span class="line" id="L294"><a href="#L294" aria-label="Line 294">294</a><code>    /// than it tendered, and differs from its exact share by less than one bond.</code></span>
+<span class="line" id="L295"><a href="#L295" aria-label="Line 295">295</a><code>    pub fn accept_next(&amp;mut self, quantity: u64) -&gt; Option&lt;u64&gt; {</code></span>
+<span class="line" id="L296"><a href="#L296" aria-label="Line 296">296</a><code>        let before = self.resolved_quantity;</code></span>
+<span class="line" id="L297"><a href="#L297" aria-label="Line 297">297</a><code>        let after = before.checked_add(quantity)?;</code></span>
+<span class="line" id="L298"><a href="#L298" aria-label="Line 298">298</a><code>        let accepted = if self.total &lt;= self.max_quantity {</code></span>
+<span class="line" id="L299"><a href="#L299" aria-label="Line 299">299</a><code>            quantity</code></span>
+<span class="line" id="L300"><a href="#L300" aria-label="Line 300">300</a><code>        } else {</code></span>
+<span class="line" id="L301"><a href="#L301" aria-label="Line 301">301</a><code>            let share = |q: u64| (u128::from(q) * u128::from(self.max_quantity) / u128::from(self.total)) as u64;</code></span>
+<span class="line" id="L302"><a href="#L302" aria-label="Line 302">302</a><code>            share(after) - share(before)</code></span>
+<span class="line" id="L303"><a href="#L303" aria-label="Line 303">303</a><code>        };</code></span>
+<span class="line" id="L304"><a href="#L304" aria-label="Line 304">304</a><code>        self.resolved_quantity = after;</code></span>
+<span class="line" id="L305"><a href="#L305" aria-label="Line 305">305</a><code>        self.resolved = self.resolved.checked_add(1)?;</code></span>
+<span class="line" id="L306"><a href="#L306" aria-label="Line 306">306</a><code>        Some(accepted)</code></span>
+<span class="line" id="L307"><a href="#L307" aria-label="Line 307">307</a><code>    }</code></span>
+<span class="line" id="L308"><a href="#L308" aria-label="Line 308">308</a><code>}</code></span>
+<span class="line" id="L309"><a href="#L309" aria-label="Line 309">309</a><code></code></span>
+<span class="line" id="L310"><a href="#L310" aria-label="Line 310">310</a><code>/// One holder&#x27;s tender into one pro-rata offer.</code></span>
+<span class="line" id="L311"><a href="#L311" aria-label="Line 311">311</a><code>#[account]</code></span>
+<span class="line" id="L312"><a href="#L312" aria-label="Line 312">312</a><code>#[derive(InitSpace)]</code></span>
+<span class="line" id="L313"><a href="#L313" aria-label="Line 313">313</a><code>pub struct Tender {</code></span>
+<span class="line" id="L314"><a href="#L314" aria-label="Line 314">314</a><code>    pub offer: Pubkey,</code></span>
+<span class="line" id="L315"><a href="#L315" aria-label="Line 315">315</a><code>    pub owner: Pubkey,</code></span>
+<span class="line" id="L316"><a href="#L316" aria-label="Line 316">316</a><code>    /// Its number in the offer: tenders are resolved in this order.</code></span>
+<span class="line" id="L317"><a href="#L317" aria-label="Line 317">317</a><code>    pub number: u32,</code></span>
+<span class="line" id="L318"><a href="#L318" aria-label="Line 318">318</a><code>    pub quantity: u64,</code></span>
+<span class="line" id="L319"><a href="#L319" aria-label="Line 319">319</a><code>    /// After the window: the accepted part is fixed and the rejected part released (no cash involved).</code></span>
+<span class="line" id="L320"><a href="#L320" aria-label="Line 320">320</a><code>    pub resolved: bool,</code></span>
+<span class="line" id="L321"><a href="#L321" aria-label="Line 321">321</a><code>    pub accepted: u64,</code></span>
+<span class="line" id="L322"><a href="#L322" aria-label="Line 322">322</a><code>    /// The accepted part has been bought (burned and paid).</code></span>
+<span class="line" id="L323"><a href="#L323" aria-label="Line 323">323</a><code>    pub settled: bool,</code></span>
+<span class="line" id="L324"><a href="#L324" aria-label="Line 324">324</a><code>    pub bump: u8,</code></span>
+<span class="line" id="L325"><a href="#L325" aria-label="Line 325">325</a><code>}</code></span>
+<span class="line" id="L326"><a href="#L326" aria-label="Line 326">326</a><code></code></span>
+<span class="line" id="L327"><a href="#L327" aria-label="Line 327">327</a><code>/// One coupon or the redemption. Created once its record moment has passed, so its inputs are final.</code></span>
+<span class="line" id="L328"><a href="#L328" aria-label="Line 328">328</a><code>/// Read-only on the payment path.</code></span>
+<span class="line" id="L329"><a href="#L329" aria-label="Line 329">329</a><code>#[account]</code></span>
+<span class="line" id="L330"><a href="#L330" aria-label="Line 330">330</a><code>#[derive(InitSpace)]</code></span>
+<span class="line" id="L331"><a href="#L331" aria-label="Line 331">331</a><code>pub struct Event {</code></span>
+<span class="line" id="L332"><a href="#L332" aria-label="Line 332">332</a><code>    pub bond: Pubkey,</code></span>
+<span class="line" id="L333"><a href="#L333" aria-label="Line 333">333</a><code>    pub index: u16,</code></span>
+<span class="line" id="L334"><a href="#L334" aria-label="Line 334">334</a><code>    pub kind: EventKind,</code></span>
+<span class="line" id="L335"><a href="#L335" aria-label="Line 335">335</a><code>    /// Record moment and payment opening, in bond time.</code></span>
+<span class="line" id="L336"><a href="#L336" aria-label="Line 336">336</a><code>    pub record_time: i64,</code></span>
+<span class="line" id="L337"><a href="#L337" aria-label="Line 337">337</a><code>    pub payment_time: i64,</code></span>
+<span class="line" id="L338"><a href="#L338" aria-label="Line 338">338</a><code>    /// Bond supply at the record moment (from the bond&#x27;s supply history).</code></span>
+<span class="line" id="L339"><a href="#L339" aria-label="Line 339">339</a><code>    pub supply_at_record: u64,</code></span>
+<span class="line" id="L340"><a href="#L340" aria-label="Line 340">340</a><code>    /// Cash that covers every holder of this event: the amount for the whole supply, rounded down once. Each</code></span>
+<span class="line" id="L341"><a href="#L341" aria-label="Line 341">341</a><code>    /// holder&#x27;s amount is rounded down on its own, so the holders&#x27; amounts never add up to more than this.</code></span>
+<span class="line" id="L342"><a href="#L342" aria-label="Line 342">342</a><code>    pub budget: u64,</code></span>
+<span class="line" id="L343"><a href="#L343" aria-label="Line 343">343</a><code>    /// This event&#x27;s own cash account; other events cannot spend it.</code></span>
+<span class="line" id="L344"><a href="#L344" aria-label="Line 344">344</a><code>    pub vault: Pubkey,</code></span>
+<span class="line" id="L345"><a href="#L345" aria-label="Line 345">345</a><code>    pub funded: bool,</code></span>
+<span class="line" id="L346"><a href="#L346" aria-label="Line 346">346</a><code>    pub bump: u8,</code></span>
+<span class="line" id="L347"><a href="#L347" aria-label="Line 347">347</a><code>}</code></span></pre></html>

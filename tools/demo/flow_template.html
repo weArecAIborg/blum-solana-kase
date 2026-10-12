@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Program flow</title>
+<meta name="description" content="Every step of one tokenized bond's life as Solana executed it: who signs, which programs run in which order, which accounts each one reads and writes, what the program checks and what changed. Each example is a real devnet transaction.">
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Parts: every entity the steps use. */
+.fl-partgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.fl-box { padding-bottom: 0.4rem; }
+.fl-parts { display: grid; }
+.fl-parts li { display: grid; gap: 0.35rem; padding: 0.55rem 1rem; font-size: 0.86rem; color: var(--ink-2); }
+.fl-parts li b { color: var(--ink); font-weight: 600; }
+
+/* An account: its role in the instruction, its name, and whether it signs or is written. */
+.fl-chip { display: inline-flex; gap: 0.3rem; align-items: baseline; font: 400 0.76rem/1.3 var(--font-mono); color: var(--ink-2); text-decoration: none; border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 0.15rem 0.4rem; background: var(--surface); max-width: 100%; overflow-wrap: anywhere; }
+.fl-chip b { font-weight: 600; color: var(--ink); }
+.fl-chip.wallet { border-color: var(--amber); }
+.fl-chip.state { border-color: var(--kept); }
+.fl-chip.token { border-color: var(--accent); }
+.fl-chip.program { border-style: dashed; }
+.fl-chip i { white-space: nowrap; flex: none; font-style: normal; font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0 0.25rem; border-radius: 2px; }
+.fl-chip i.s { color: var(--on-amber); background: var(--amber); }
+.fl-chip i.w { color: var(--surface); background: var(--kept); }
+.fl-chip.amt { border-style: dotted; }
+.fl-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: center; font-size: 0.82rem; color: var(--ink-2); }
+
+/* A step. */
+.fl-step, .fl-step > *, .fl-grid > *, .fl-side > *, .fl-partgrid > * { min-width: 0; }
+.fl-box { overflow-x: auto; }
+.fl-step { display: grid; gap: var(--space-3); scroll-margin-top: 4rem; padding-top: var(--space-4); border-top: 1px solid var(--grid); }
+.fl-head { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: baseline; }
+.fl-head .no { font: 600 1.1rem/1 var(--font-mono); color: var(--amber); min-width: 1.6rem; }
+.fl-head .bs-h2 { font-family: var(--font-mono); font-size: 1.25rem; }
+.fl-head .who { font: 500 0.8rem/1.2 var(--font-mono); color: var(--muted); }
+.fl-head .who b { color: var(--amber); }
+.fl-plain { max-width: 80ch; text-wrap: pretty; }
+.fl-meta { font: 400 0.8rem/1.5 var(--font-mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; align-items: baseline; }
+.fl-meta > span { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; align-items: baseline; }
+.fl-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.fl-side { display: grid; gap: var(--space-4); }
+
+/* The call chain: one box per invocation, indented by depth. */
+.fl-tree { list-style: none; margin: 0; padding: 0.6rem 0.8rem; display: grid; gap: 0.5rem; }
+.fl-node { margin-left: calc(var(--d) * 1.6rem); border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: var(--radius-xs); padding: 0.45rem 0.6rem; display: grid; gap: 0.4rem; background: var(--bg); position: relative; }
+.fl-node.ours { border-left-color: var(--kept); }
+.fl-node[style*="--d:1"]::before, .fl-node[style*="--d:2"]::before { content: "\21b3"; position: absolute; left: -1.25rem; top: 0.4rem; color: var(--muted); }
+.fl-nh { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: baseline; }
+.fl-nh .dep { font: 600 0.7rem/1 var(--font-mono); color: var(--muted); }
+.fl-nh b { font: 600 0.86rem/1.2 var(--font-mono); }
+.fl-node.ours .fl-nh b { color: var(--kept); }
+.fl-nh .ixn { font: 400 0.86rem/1.2 var(--font-mono); color: var(--amber); }
+.fl-nh .cu { margin-left: auto; font: 400 0.72rem/1 var(--font-mono); color: var(--muted); }
+.fl-acc { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.fl-ev { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; font: 400 0.76rem/1.35 var(--font-mono); color: var(--kept); }
+.fl-ev li::before { content: "event  "; color: var(--muted); }
+.fl-ev.big { padding: 0.7rem 1rem 0.2rem; font-size: 0.84rem; }
+
+.fl-checks { padding: 0.3rem 0; }
+.fl-checks li { display: grid; gap: 0.1rem; padding: 0.45rem 1rem; font-size: 0.85rem; color: var(--ink-2); }
+.fl-checks code { font: 600 0.78rem/1.2 var(--font-mono); color: var(--refused); }
+.fl-bal { width: 100%; border-collapse: collapse; }
+.fl-bal td.up { color: var(--kept); } .fl-bal td.down { color: var(--refused); }
+.fl-bal td, .fl-bal th { padding-inline: 0.7rem; }
+.fl-bal td.r { white-space: nowrap; }
+.fl-none, .fl-note { padding: 0.6rem 1rem; font-size: 0.85rem; color: var(--ink-2); margin: 0; }
+.fl-note code, .fl-plain code { font: 400 0.85em/1 var(--font-mono); }
+.fl-src { font: var(--mono-sm); color: var(--muted); overflow-wrap: anywhere; }
+
+/* The swimlane: who may send each step, then the programs; one arrow per call, in the order the runtime ran them. */
+.sl-box { max-height: min(76vh, 58rem); overflow: auto; border: 1px solid var(--border); background: var(--surface); }
+.sl { min-width: 46rem; position: relative; }
+.sl-lanes, .sl-band { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.sl-lanes { position: sticky; top: 0; z-index: 3; background: var(--bar); border-bottom: 1px solid var(--border); padding-block: 0.45rem; }
+.sl-lanes span { text-align: center; font: 600 0.76rem/1.3 var(--font-mono); color: var(--ink); }
+.sl-lanes .g { font: var(--label); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--grid); margin: 0 0.8rem 0.3rem; padding-bottom: 0.2rem; }
+.sl-lanes .wallet { color: var(--amber); }
+.sl-lanes .state { color: var(--kept); }
+.sl-band { border-top: 1px solid var(--grid); padding-bottom: 0.45rem; transition: opacity 0.3s; }
+.sl-band:first-of-type { border-top: 0; }
+.sl-title { display: flex; flex-wrap: wrap; gap: 0.3rem 0.7rem; align-items: baseline; padding: 0.55rem 0.8rem 0.15rem; }
+.sl-title .no { font: 600 0.95rem/1 var(--font-mono); color: var(--amber); text-decoration: none; min-width: 1.3rem; }
+.sl-title b { font: 600 0.86rem/1.2 var(--font-mono); color: var(--ink); }
+.sl-title .t { font: 400 0.74rem/1.2 var(--font-mono); color: var(--muted); }
+.sl-life { background: linear-gradient(var(--grid), var(--grid)) center / 1px 100% no-repeat; }
+.sl-life.wallet { background-image: linear-gradient(var(--amber), var(--amber)); opacity: 0.45; }
+.sl-life.state { background-image: linear-gradient(var(--kept), var(--kept)); background-size: 2px 100%; opacity: 0.6; }
+.sl-msg { position: relative; z-index: 1; height: 1.95rem; }
+.sl-msg::before { content: ""; position: absolute; left: calc(100% / (2 * var(--n))); right: calc(100% / (2 * var(--n))); bottom: 0.45rem; border-top: 2px solid var(--ink-2); }
+.sl-msg::after { content: ""; position: absolute; bottom: calc(0.45rem - 5px); border-block: 6px solid transparent; }
+.sl-msg.r::after { right: calc(100% / (2 * var(--n))); border-left: 9px solid var(--ink-2); }
+.sl-msg.l::after { left: calc(100% / (2 * var(--n))); border-right: 9px solid var(--ink-2); }
+.sl-msg.ours::before { border-top-color: var(--kept); }
+.sl-msg.ours.r::after { border-left-color: var(--kept); }
+.sl-msg.ours.l::after { border-right-color: var(--kept); }
+.sl-msg span { position: absolute; left: 50%; bottom: 0.7rem; transform: translateX(-50%); white-space: nowrap; font: 400 0.74rem/1.2 var(--font-mono); color: var(--ink-2); background: var(--surface); padding: 0 0.3rem; }
+.sl-msg.ours span { color: var(--kept); }
+.sl-foot { display: grid; gap: 0.3rem; padding: 0.3rem 0.8rem 0; position: relative; z-index: 2; }
+.sl-foot p { margin: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: baseline; font-size: 0.78rem; color: var(--ink-2); }
+.sl-foot .k { font: var(--label); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 0.2rem; }
+.sl-quiet { margin: 0.35rem 0.8rem 0.1rem; padding: 0.7rem; border: 1px dashed var(--accent); color: var(--ink-2); font-size: 0.85rem; text-align: center; }
+.sl.focus .sl-band:not(.on) { opacity: 0.28; }
+.sl-band.on { box-shadow: inset 3px 0 0 var(--amber); }
+.sl-band.go .sl-msg { animation: sl-in 0.45s both; animation-delay: calc(var(--i) * 0.5s); }
+@keyframes sl-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sl-band.go .sl-msg { animation: none; } .sl-band { transition: none; } }
+#lanes .bs-now { align-items: start; }
+#lanes .bs-now span { max-width: 90ch; text-wrap: pretty; }
+
+@media (max-width: 900px) {
+  .fl-partgrid, .fl-grid { grid-template-columns: minmax(0, 1fr); }
+  .fl-parts li { grid-template-columns: minmax(0, 1fr); }
+  .fl-node { margin-left: calc(var(--d) * 0.8rem); }
+  .fl-node[style*="--d:1"]::before, .fl-node[style*="--d:2"]::before { left: -0.75rem; }
+}
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Flow</b><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html" aria-current="true">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header">
+    <p class="bs-eyebrow"><!--__EYEBROW__--></p>
+    <h1 class="bs-h1">What runs on Solana, step by step</h1>
+    <p class="bs-lede">Every step of the bond's life is one Solana transaction. For each: who may send it, which programs ran in which order (a program calling another is indented under it), every account each one used with its role, what the program checks before it acts, and which balances changed. Each example is a real transaction of the 8-holder devnet run.</p>
+  </header>
+
+  <section class="fl-step" id="lanes" style="border-top:none;padding-top:0">
+    <div class="fl-head"><h2 class="bs-h2">Every bond movement runs through bond_servicing</h2></div>
+    <p class="fl-plain">One row per step, top to bottom in the bond's order. Columns: who may send the step, then the programs. Arrows: the calls between them in the order the runtime ran them, read from the transactions below; an arrow into bond_servicing is green. In a transfer, the holder calls Token-2022 and Token-2022 calls bond_servicing back: the arrow pointing left. In this run the registrar's wallet paid every fee.</p>
+    <div class="bs-controls"><button class="bs-btn" id="sl-prev" type="button">Prev</button><button class="bs-btn play" id="sl-play" type="button" aria-pressed="false">Play</button><button class="bs-btn" id="sl-next" type="button">Next</button><button class="bs-btn" id="sl-all" type="button">All</button><label class="bs-track"><input type="range" id="sl-range" min="1" value="1" aria-label="Step"><span class="fl-src" id="sl-at">all steps</span></label></div>
+    <div class="bs-now" aria-live="polite"><b id="sl-step">All</b><span id="sl-cap">Play walks through the steps: each row lights up and draws its calls in the order they ran. Prev, Next or the slider pick one step; All shows every row.</span></div>
+    <div class="sl-box"><!--__LANES__--></div>
+  </section>
+
+  <section class="fl-step" id="parts">
+    <div class="fl-head"><span class="no">0</span><h2 class="bs-h2">The parts</h2></div>
+    <p class="fl-legend"><span class="fl-chip wallet"><b>wallet</b></span><span class="fl-chip program"><b>program</b></span><span class="fl-chip state"><b>bond_servicing account</b></span><span class="fl-chip token"><b>token account or mint</b></span><span class="fl-chip"><b>role</b><i class="s">signs</i><i class="w">writes</i></span><span>Hover a name for its address; click it to open it in Solana Explorer.</span></p>
+    <div class="fl-partgrid"><!--__PARTS__--></div>
+  </section>
+
+  <div class="bs-jumps"><!--__JUMPS__--></div>
+
+  <!--__STEPS__-->
+
+  <footer class="bs-footer"><!--__FOOT__--></footer>
+</main>
+<script>
+(() => {
+  const sl = document.querySelector(".sl"), box = document.querySelector(".sl-box"), head = sl.querySelector(".sl-lanes");
+  const bands = [...sl.querySelectorAll(".sl-band")];
+  const $ = (id) => document.getElementById(id);
+  const play = $("sl-play"), range = $("sl-range"), step = $("sl-step"), cap = $("sl-cap"), at = $("sl-at");
+  const rest = cap.textContent, still = matchMedia("(prefers-reduced-motion: reduce)");
+  range.max = bands.length;
+  let cur = -1, timer = null;
+  const show = (i) => {
+    cur = Math.max(0, Math.min(bands.length - 1, i));
+    const b = bands[cur];
+    sl.classList.add("focus");
+    bands.forEach((x, j) => { x.classList.toggle("on", j === cur); x.classList.remove("go"); });
+    void b.offsetWidth;
+    b.classList.add("go");
+    range.value = cur + 1;
+    step.textContent = `${cur + 1} / ${bands.length}`;
+    cap.textContent = `${b.dataset.title}: ${b.dataset.cap}`;
+    at.textContent = b.dataset.when;
+    box.scrollTo({ top: b.offsetTop - head.offsetHeight, behavior: still.matches ? "auto" : "smooth" });
+  };
+  const stop = () => { clearTimeout(timer); timer = null; play.textContent = "Play"; play.setAttribute("aria-pressed", "false"); };
+  const tick = () => {
+    if (cur >= bands.length - 1) return stop();
+    show(cur + 1);
+    timer = setTimeout(tick, 2600 + 600 * Number(bands[cur].dataset.n));
+  };
+  play.addEventListener("click", () => {
+    if (timer) return stop();
+    play.textContent = "Pause";
+    play.setAttribute("aria-pressed", "true");
+    if (cur >= bands.length - 1) cur = -1;
+    tick();
+  });
+  $("sl-prev").addEventListener("click", () => { stop(); show(cur - 1); });
+  $("sl-next").addEventListener("click", () => { stop(); show(cur + 1); });
+  range.addEventListener("input", () => { stop(); show(Number(range.value) - 1); });
+  $("sl-all").addEventListener("click", () => {
+    stop();
+    cur = -1;
+    sl.classList.remove("focus");
+    bands.forEach((x) => x.classList.remove("on", "go"));
+    step.textContent = "All";
+    cap.textContent = rest;
+    at.textContent = "all steps";
+    range.value = 1;
+  });
+})();
+</script>
+</body></html>

@@ -1,0 +1,612 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ops/src/scenario.ts · audit source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../stages.html">← Bond stages</a><h1>ops/src/scenario.ts</h1>
+<p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 563d1ae493919199b434cbbc259274b8b95a42002e97877a1e343da2850a41d3</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>// Operator (registrar + keeper) for bond_servicing: runs one bond&#x27;s whole life, jumping the clock between record</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>// moments on Surfpool or waiting for the real clock on devnet, and writes a report of every position, payment and</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>// transaction.</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>// Usage: npx tsx src/scenario.ts &lt;scenarios/NAME.json&gt; &lt;report.json&gt; &lt;rpc url&gt; &lt;localnet|devnet&gt;</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>//   localnet (Surfpool): the clock is moved forward with surfnet_timeTravel.</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>//   devnet: the real chain clock is awaited (bond time is compressed by the scenario&#x27;s chainSecondsPerBondDay).</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>// Logic: docs/bond-processing.md; overview: docs/technical-overview.md.</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code></code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>import fs from &quot;node:fs&quot;;</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>import os from &quot;node:os&quot;;</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>import path from &quot;node:path&quot;;</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>import { execFileSync } from &quot;node:child_process&quot;;</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>import * as anchor from &quot;@anchor-lang/core&quot;;</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>import {</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>  TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>  TOKEN_PROGRAM_ID,</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>  createAssociatedTokenAccountIdempotentInstruction,</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>  createMintToInstruction,</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>  createTransferCheckedWithTransferHookInstruction,</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>  getAssociatedTokenAddressSync,</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>} from &quot;@solana/spl-token&quot;;</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>import {</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>  ComputeBudgetProgram,</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>  Connection,</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>  Keypair,</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>  LAMPORTS_PER_SOL,</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>  PublicKey,</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>  SYSVAR_CLOCK_PUBKEY,</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>  SystemProgram,</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>  Transaction,</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>  sendAndConfirmTransaction,</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>} from &quot;@solana/web3.js&quot;;</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code></code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>import BN from &quot;bn.js&quot;;</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>import { type HostileSpec, hostile } from &quot;./attacks.ts&quot;;</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>const ROOT = path.resolve(import.meta.dirname, &quot;../..&quot;);</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>const DAY = 86_400;</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>// A holder&#x27;s Tender record (paid by the holder): discriminator 8 + offer 32 + owner 32 + number 4 + quantity 8 +</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>// resolved 1 + accepted 8 + settled 1 + bump 1 (programs/bond_servicing/src/state.rs).</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>const TENDER_ACCOUNT_SIZE = 8 + 32 + 32 + 4 + 8 + 1 + 8 + 1 + 1;</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>const WEEKDAYS = [&quot;Monday&quot;, &quot;Tuesday&quot;, &quot;Wednesday&quot;, &quot;Thursday&quot;, &quot;Friday&quot;, &quot;Saturday&quot;, &quot;Sunday&quot;];</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>const secondsOf = (hhmm: string) =&gt; {</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>  const [h, m] = hhmm.split(&quot;:&quot;).map(Number);</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>  return h * 3_600 + m * 60;</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>};</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code></code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>type Trade = { afterRecordMoment: number; from: string; to: string; amount: number };</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>// Third corporate action (docs/buyback-tender.md). Window ends are bond times relative to record moments.</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>type OfferAction = { afterRecordMoment: number; holder: string; sell?: number; tender?: number; withdraw?: number };</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>type OfferSpec = {</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>  id: number;</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>  kind: &quot;buyback&quot; | &quot;tender&quot;;</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>  priceUnits: string;</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>  maxQuantity: number;</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>  open: { recordMoment: number; plusDays: number };</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>  close: { recordMoment: number; plusDays: number };</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>  actions: OfferAction[];</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>};</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>// Scenario input (scenarios/*.json): the single input the operator acts on and the independent auditor measures</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>// against (expertise/independent-ledger-audit.md).</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>type Scenario = {</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>  name: string;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>  terms: {</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    issue: string;</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>    maturity: string;</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>    monthsPerPeriod: number;</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    periodsPerYear: number;</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>    faceUnits: string;</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>    cashDecimals: number;</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>    rateBps: number;</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>    redemptionPriceBps: number;</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>    recordTimeLocal: string;</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>    paymentOpensLocal: string;</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    utcOffsetHours: number;</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>    recordBusinessDaysBeforePayment: number;</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>    /** Issue size in bonds: the most that may ever be placed. */</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>    maxSupply: number;</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>  };</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>  calendar: string;</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>  weekend: string[];</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>  bondTimeAtCreation: string;</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>  chainSecondsPerBondDay: number;</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>  keys: { bondMint: string; cashMint: string; cashAuthority: string };</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>  wallets: Record&lt;string, string&gt;;</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>  placements: Record&lt;string, number&gt;;</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>  trades: Trade[];</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>  offers: OfferSpec[];</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>  // Operator failure: our operator stops after this coupon; a separate wallet with no role in the bond services</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>  // the remaining coupons and the redemption after the final record moment. null = no handover.</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>  handover: null | { operatorStopsAfterCoupon: number; keeper: string };</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code>  // Hostile actor (ops/src/attacks.ts): tries to take bonds or cash at each step; absent = no attacks.</code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>  attacker?: HostileSpec;</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>};</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code></code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>const readKeypair = (file: string) =&gt;</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>  Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(file, &quot;utf8&quot;))));</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>const dayNumber = (iso: string) =&gt; Math.round(Date.parse(`${iso}T00:00:00Z`) / 1000 / DAY);</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code>const iso = (unix: number) =&gt; new Date(unix * 1000).toISOString();</code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>const dayToUnix = (day: number) =&gt; day * DAY;</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code></code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>async function main() {</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>  const [scenarioFile, out, RPC, cluster] = process.argv.slice(2);</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>  if (!scenarioFile || !out || !RPC || (cluster !== &quot;localnet&quot; &amp;&amp; cluster !== &quot;devnet&quot;))</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>    throw new Error(&quot;usage: scenario.ts &lt;scenarios/NAME.json&gt; &lt;report.json&gt; &lt;rpc url&gt; &lt;localnet|devnet&gt;&quot;);</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>  const explorer = (sig: string) =&gt; (cluster === &quot;devnet&quot; ? `https://explorer.solana.com/tx/${sig}?cluster=devnet` : undefined);</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code>  const spec: Scenario = JSON.parse(fs.readFileSync(path.resolve(scenarioFile), &quot;utf8&quot;));</code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>  const key = path.basename(scenarioFile, &quot;.json&quot;);</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>  const fromRoot = (p: string) =&gt; path.join(ROOT, p);</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>  const holderNames = Object.keys(spec.wallets);</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code></code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>  // Public RPC drops connections now and then (&quot;fetch failed&quot;; it stopped the second 1000-holder run): retry the same</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code>  // HTTP request until it gets through, waiting at most one bond day of chain time between tries (10 s for 429). Whether the run is</code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code>  // still on schedule after an outage is decided by the phase guard, not here. Rate limits (429) are retried by</code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>  // web3.js itself. Resending a signed transaction is safe: same signature.</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>  const retryingFetch = async (input: any, init?: any) =&gt; {</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>    for (let attempt = 1; ; attempt++) {</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code>      let failure: string;</code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>      try {</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code>        const res = await fetch(input, init);</code></span>
+<span class="line" id="L120"><a href="#L120" aria-label="Line 120">120</a><code>        // Devnet answers 429 &quot;Connection rate limits exceeded&quot; in bursts (it stopped the third 1000-holder run after</code></span>
+<span class="line" id="L121"><a href="#L121" aria-label="Line 121">121</a><code>        // web3.js&#x27;s own five retries): treat it like a dropped connection.</code></span>
+<span class="line" id="L122"><a href="#L122" aria-label="Line 122">122</a><code>        if (res.status !== 429) return res;</code></span>
+<span class="line" id="L123"><a href="#L123" aria-label="Line 123">123</a><code>        failure = &quot;429&quot;;</code></span>
+<span class="line" id="L124"><a href="#L124" aria-label="Line 124">124</a><code>      } catch (e) {</code></span>
+<span class="line" id="L125"><a href="#L125" aria-label="Line 125">125</a><code>        failure = String((e as any)?.cause?.code ?? e);</code></span>
+<span class="line" id="L126"><a href="#L126" aria-label="Line 126">126</a><code>      }</code></span>
+<span class="line" id="L127"><a href="#L127" aria-label="Line 127">127</a><code>      console.log(`RPC request failed (${failure}), retry ${attempt}`);</code></span>
+<span class="line" id="L128"><a href="#L128" aria-label="Line 128">128</a><code>      // 429: back off up to devnet&#x27;s 10-second rate-limit window. Retrying every chain second (1 bond day in the hostile</code></span>
+<span class="line" id="L129"><a href="#L129" aria-label="Line 129">129</a><code>      // run) with a few requests in flight kept this IP locked out for over 5 minutes (2026-10-10); a 10-second pause</code></span>
+<span class="line" id="L130"><a href="#L130" aria-label="Line 130">130</a><code>      // cleared it.</code></span>
+<span class="line" id="L131"><a href="#L131" aria-label="Line 131">131</a><code>      const capSeconds = failure === &quot;429&quot; ? Math.max(10, spec.chainSecondsPerBondDay) : spec.chainSecondsPerBondDay;</code></span>
+<span class="line" id="L132"><a href="#L132" aria-label="Line 132">132</a><code>      await new Promise((r) =&gt; setTimeout(r, 1_000 * Math.min(2 ** attempt, capSeconds)));</code></span>
+<span class="line" id="L133"><a href="#L133" aria-label="Line 133">133</a><code>    }</code></span>
+<span class="line" id="L134"><a href="#L134" aria-label="Line 134">134</a><code>  };</code></span>
+<span class="line" id="L135"><a href="#L135" aria-label="Line 135">135</a><code>  const connection = new Connection(RPC, { commitment: &quot;confirmed&quot;, fetch: retryingFetch as any });</code></span>
+<span class="line" id="L136"><a href="#L136" aria-label="Line 136">136</a><code>  const registrar = readKeypair(path.join(os.homedir(), &quot;.config/solana/id.json&quot;));</code></span>
+<span class="line" id="L137"><a href="#L137" aria-label="Line 137">137</a><code>  const bank = readKeypair(fromRoot(spec.keys.cashAuthority));</code></span>
+<span class="line" id="L138"><a href="#L138" aria-label="Line 138">138</a><code>  const cashMint = readKeypair(fromRoot(spec.keys.cashMint)).publicKey;</code></span>
+<span class="line" id="L139"><a href="#L139" aria-label="Line 139">139</a><code>  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(registrar), { commitment: &quot;confirmed&quot; });</code></span>
+<span class="line" id="L140"><a href="#L140" aria-label="Line 140">140</a><code>  const idl = JSON.parse(fs.readFileSync(path.join(ROOT, &quot;target/idl/bond_servicing.json&quot;), &quot;utf8&quot;));</code></span>
+<span class="line" id="L141"><a href="#L141" aria-label="Line 141">141</a><code>  const program = new anchor.Program(idl, provider);</code></span>
+<span class="line" id="L142"><a href="#L142" aria-label="Line 142">142</a><code>  const eventParser = new anchor.EventParser(program.programId, new anchor.BorshCoder(idl));</code></span>
+<span class="line" id="L143"><a href="#L143" aria-label="Line 143">143</a><code>  const log: { step: string; signature: string; explorer?: string; chainTime: string; bondTime?: string }[] = [];</code></span>
+<span class="line" id="L144"><a href="#L144" aria-label="Line 144">144</a><code></code></span>
+<span class="line" id="L145"><a href="#L145" aria-label="Line 145">145</a><code>  const pda = (...seeds: (Buffer | Uint8Array)[]) =&gt; PublicKey.findProgramAddressSync(seeds, program.programId)[0];</code></span>
+<span class="line" id="L146"><a href="#L146" aria-label="Line 146">146</a><code>  const u16 = (n: number) =&gt; Buffer.from(new Uint16Array([n]).buffer);</code></span>
+<span class="line" id="L147"><a href="#L147" aria-label="Line 147">147</a><code>  const chainNow = async () =&gt; {</code></span>
+<span class="line" id="L148"><a href="#L148" aria-label="Line 148">148</a><code>    const info = await connection.getAccountInfo(SYSVAR_CLOCK_PUBKEY);</code></span>
+<span class="line" id="L149"><a href="#L149" aria-label="Line 149">149</a><code>    return Number(info!.data.readBigInt64LE(32));</code></span>
+<span class="line" id="L150"><a href="#L150" aria-label="Line 150">150</a><code>  };</code></span>
+<span class="line" id="L151"><a href="#L151" aria-label="Line 151">151</a><code>  const record = async (step: string, signature: string, bondTime?: number) =&gt; {</code></span>
+<span class="line" id="L152"><a href="#L152" aria-label="Line 152">152</a><code>    const at = iso(await chainNow());</code></span>
+<span class="line" id="L153"><a href="#L153" aria-label="Line 153">153</a><code>    log.push({ step, signature, explorer: explorer(signature), chainTime: at, bondTime: bondTime ? iso(bondTime) : undefined });</code></span>
+<span class="line" id="L154"><a href="#L154" aria-label="Line 154">154</a><code>    console.log(`${at}  ${step}  ${explorer(signature) ?? signature}`);</code></span>
+<span class="line" id="L155"><a href="#L155" aria-label="Line 155">155</a><code>  };</code></span>
+<span class="line" id="L156"><a href="#L156" aria-label="Line 156">156</a><code>  // Many holders per transaction need more than the default 200,000 compute units.</code></span>
+<span class="line" id="L157"><a href="#L157" aria-label="Line 157">157</a><code>  const computeLimit = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });</code></span>
+<span class="line" id="L158"><a href="#L158" aria-label="Line 158">158</a><code>  const chunks = &lt;T,&gt;(items: T[], size: number) =&gt; Array.from({ length: Math.ceil(items.length / size) }, (_, i) =&gt; items.slice(i * size, i * size + size));</code></span>
+<span class="line" id="L159"><a href="#L159" aria-label="Line 159">159</a><code>  const span = (names: string[]) =&gt; (names.length === 1 ? names[0] : `${names[0]}..${names[names.length - 1]}`);</code></span>
+<span class="line" id="L160"><a href="#L160" aria-label="Line 160">160</a><code>  // Reach a chain time: jump the clock on Surfpool; wait for the real clock on devnet.</code></span>
+<span class="line" id="L161"><a href="#L161" aria-label="Line 161">161</a><code>  const reachChainTime = async (chainTarget: number) =&gt; {</code></span>
+<span class="line" id="L162"><a href="#L162" aria-label="Line 162">162</a><code>    if (cluster === &quot;devnet&quot;) {</code></span>
+<span class="line" id="L163"><a href="#L163" aria-label="Line 163">163</a><code>      for (let now = await chainNow(); now &lt; chainTarget; now = await chainNow()) {</code></span>
+<span class="line" id="L164"><a href="#L164" aria-label="Line 164">164</a><code>        await new Promise((r) =&gt; setTimeout(r, Math.min(2_000, (chainTarget - now) * 1_000)));</code></span>
+<span class="line" id="L165"><a href="#L165" aria-label="Line 165">165</a><code>      }</code></span>
+<span class="line" id="L166"><a href="#L166" aria-label="Line 166">166</a><code>      return;</code></span>
+<span class="line" id="L167"><a href="#L167" aria-label="Line 167">167</a><code>    }</code></span>
+<span class="line" id="L168"><a href="#L168" aria-label="Line 168">168</a><code>    if (chainTarget &lt;= (await chainNow())) return;</code></span>
+<span class="line" id="L169"><a href="#L169" aria-label="Line 169">169</a><code>    const res = await fetch(RPC, {</code></span>
+<span class="line" id="L170"><a href="#L170" aria-label="Line 170">170</a><code>      method: &quot;POST&quot;,</code></span>
+<span class="line" id="L171"><a href="#L171" aria-label="Line 171">171</a><code>      headers: { &quot;Content-Type&quot;: &quot;application/json&quot; },</code></span>
+<span class="line" id="L172"><a href="#L172" aria-label="Line 172">172</a><code>      body: JSON.stringify({ jsonrpc: &quot;2.0&quot;, id: 1, method: &quot;surfnet_timeTravel&quot;, params: [{ absoluteTimestamp: chainTarget * 1000 }] }),</code></span>
+<span class="line" id="L173"><a href="#L173" aria-label="Line 173">173</a><code>    });</code></span>
+<span class="line" id="L174"><a href="#L174" aria-label="Line 174">174</a><code>    const body = await res.json();</code></span>
+<span class="line" id="L175"><a href="#L175" aria-label="Line 175">175</a><code>    if (body.error) throw new Error(`time travel failed: ${JSON.stringify(body.error)}`);</code></span>
+<span class="line" id="L176"><a href="#L176" aria-label="Line 176">176</a><code>  };</code></span>
+<span class="line" id="L177"><a href="#L177" aria-label="Line 177">177</a><code>  // Public RPC can report a transaction as expired although it landed (seen on devnet 2026-10-08). On that error,</code></span>
+<span class="line" id="L178"><a href="#L178" aria-label="Line 178">178</a><code>  // ask for the signature&#x27;s status: landed -&gt; use it; not landed -&gt; send again with a fresh blockhash.</code></span>
+<span class="line" id="L179"><a href="#L179" aria-label="Line 179">179</a><code>  const land = async (what: string, sendOnce: () =&gt; Promise&lt;string&gt;) =&gt; {</code></span>
+<span class="line" id="L180"><a href="#L180" aria-label="Line 180">180</a><code>    for (let attempt = 1; attempt &lt;= 4; attempt++) {</code></span>
+<span class="line" id="L181"><a href="#L181" aria-label="Line 181">181</a><code>      try {</code></span>
+<span class="line" id="L182"><a href="#L182" aria-label="Line 182">182</a><code>        return await sendOnce();</code></span>
+<span class="line" id="L183"><a href="#L183" aria-label="Line 183">183</a><code>      } catch (e: any) {</code></span>
+<span class="line" id="L184"><a href="#L184" aria-label="Line 184">184</a><code>        if (!/block height exceeded|expired/i.test(String(e?.message ?? e))) throw e;</code></span>
+<span class="line" id="L185"><a href="#L185" aria-label="Line 185">185</a><code>        if (e?.signature) {</code></span>
+<span class="line" id="L186"><a href="#L186" aria-label="Line 186">186</a><code>          const st = (await connection.getSignatureStatus(e.signature, { searchTransactionHistory: true })).value;</code></span>
+<span class="line" id="L187"><a href="#L187" aria-label="Line 187">187</a><code>          if (st &amp;&amp; !st.err &amp;&amp; (st.confirmationStatus === &quot;confirmed&quot; || st.confirmationStatus === &quot;finalized&quot;)) return e.signature as string;</code></span>
+<span class="line" id="L188"><a href="#L188" aria-label="Line 188">188</a><code>        }</code></span>
+<span class="line" id="L189"><a href="#L189" aria-label="Line 189">189</a><code>        console.log(`${what}: not landed (attempt ${attempt}), sending again`);</code></span>
+<span class="line" id="L190"><a href="#L190" aria-label="Line 190">190</a><code>      }</code></span>
+<span class="line" id="L191"><a href="#L191" aria-label="Line 191">191</a><code>    }</code></span>
+<span class="line" id="L192"><a href="#L192" aria-label="Line 192">192</a><code>    throw new Error(`${what}: not landed after 4 attempts`);</code></span>
+<span class="line" id="L193"><a href="#L193" aria-label="Line 193">193</a><code>  };</code></span>
+<span class="line" id="L194"><a href="#L194" aria-label="Line 194">194</a><code>  const send = async (step: string, ixs: anchor.web3.TransactionInstruction[], signers: Keypair[]) =&gt; {</code></span>
+<span class="line" id="L195"><a href="#L195" aria-label="Line 195">195</a><code>    const signature = await land(step, () =&gt; sendAndConfirmTransaction(connection, new Transaction().add(...ixs), signers, {</code></span>
+<span class="line" id="L196"><a href="#L196" aria-label="Line 196">196</a><code>      commitment: &quot;confirmed&quot;,</code></span>
+<span class="line" id="L197"><a href="#L197" aria-label="Line 197">197</a><code>    }));</code></span>
+<span class="line" id="L198"><a href="#L198" aria-label="Line 198">198</a><code>    await record(step, signature);</code></span>
+<span class="line" id="L199"><a href="#L199" aria-label="Line 199">199</a><code>    return signature;</code></span>
+<span class="line" id="L200"><a href="#L200" aria-label="Line 200">200</a><code>  };</code></span>
+<span class="line" id="L201"><a href="#L201" aria-label="Line 201">201</a><code></code></span>
+<span class="line" id="L202"><a href="#L202" aria-label="Line 202">202</a><code>  // Schedule from bond_math with the bond&#x27;s calendar (holiday file and weekend from the scenario).</code></span>
+<span class="line" id="L203"><a href="#L203" aria-label="Line 203">203</a><code>  const schedule = JSON.parse(</code></span>
+<span class="line" id="L204"><a href="#L204" aria-label="Line 204">204</a><code>    execFileSync(</code></span>
+<span class="line" id="L205"><a href="#L205" aria-label="Line 205">205</a><code>      &quot;cargo&quot;,</code></span>
+<span class="line" id="L206"><a href="#L206" aria-label="Line 206">206</a><code>      [</code></span>
+<span class="line" id="L207"><a href="#L207" aria-label="Line 207">207</a><code>        &quot;run&quot;, &quot;-q&quot;, &quot;-p&quot;, &quot;bond_math&quot;, &quot;--example&quot;, &quot;schedule&quot;, &quot;--&quot;, spec.terms.issue, spec.terms.maturity,</code></span>
+<span class="line" id="L208"><a href="#L208" aria-label="Line 208">208</a><code>        String(spec.terms.monthsPerPeriod), spec.calendar, spec.weekend.join(&quot;,&quot;), String(spec.terms.recordBusinessDaysBeforePayment),</code></span>
+<span class="line" id="L209"><a href="#L209" aria-label="Line 209">209</a><code>      ],</code></span>
+<span class="line" id="L210"><a href="#L210" aria-label="Line 210">210</a><code>      { cwd: ROOT, encoding: &quot;utf8&quot; },</code></span>
+<span class="line" id="L211"><a href="#L211" aria-label="Line 211">211</a><code>    ),</code></span>
+<span class="line" id="L212"><a href="#L212" aria-label="Line 212">212</a><code>  ) as { payment_days: number[]; payment_dates: string[]; record_days: number[]; record_dates: string[] };</code></span>
+<span class="line" id="L213"><a href="#L213" aria-label="Line 213">213</a><code>  const periods = schedule.payment_days.length;</code></span>
+<span class="line" id="L214"><a href="#L214" aria-label="Line 214">214</a><code></code></span>
+<span class="line" id="L215"><a href="#L215" aria-label="Line 215">215</a><code>  // Bond time at creation comes from the scenario; chain time is whatever the network clock says now.</code></span>
+<span class="line" id="L216"><a href="#L216" aria-label="Line 216">216</a><code>  const bondOrigin = Date.parse(spec.bondTimeAtCreation) / 1000;</code></span>
+<span class="line" id="L217"><a href="#L217" aria-label="Line 217">217</a><code>  const mint = readKeypair(fromRoot(spec.keys.bondMint));</code></span>
+<span class="line" id="L218"><a href="#L218" aria-label="Line 218">218</a><code>  const bond = pda(Buffer.from(&quot;bond&quot;), mint.publicKey.toBuffer());</code></span>
+<span class="line" id="L219"><a href="#L219" aria-label="Line 219">219</a><code>  const terms = {</code></span>
+<span class="line" id="L220"><a href="#L220" aria-label="Line 220">220</a><code>    faceUnits: new BN(spec.terms.faceUnits),</code></span>
+<span class="line" id="L221"><a href="#L221" aria-label="Line 221">221</a><code>    rateBps: spec.terms.rateBps,</code></span>
+<span class="line" id="L222"><a href="#L222" aria-label="Line 222">222</a><code>    basis: { fixedPerPeriod: { periodsPerYear: spec.terms.periodsPerYear } },</code></span>
+<span class="line" id="L223"><a href="#L223" aria-label="Line 223">223</a><code>    redemptionPriceBps: spec.terms.redemptionPriceBps,</code></span>
+<span class="line" id="L224"><a href="#L224" aria-label="Line 224">224</a><code>    issueDay: dayNumber(spec.terms.issue),</code></span>
+<span class="line" id="L225"><a href="#L225" aria-label="Line 225">225</a><code>    maturityDay: dayNumber(spec.terms.maturity),</code></span>
+<span class="line" id="L226"><a href="#L226" aria-label="Line 226">226</a><code>    monthsPerPeriod: spec.terms.monthsPerPeriod,</code></span>
+<span class="line" id="L227"><a href="#L227" aria-label="Line 227">227</a><code>    paymentDays: schedule.payment_days,</code></span>
+<span class="line" id="L228"><a href="#L228" aria-label="Line 228">228</a><code>    recordDays: schedule.record_days,</code></span>
+<span class="line" id="L229"><a href="#L229" aria-label="Line 229">229</a><code>    recordSecondsLocal: secondsOf(spec.terms.recordTimeLocal),</code></span>
+<span class="line" id="L230"><a href="#L230" aria-label="Line 230">230</a><code>    paymentSecondsLocal: secondsOf(spec.terms.paymentOpensLocal),</code></span>
+<span class="line" id="L231"><a href="#L231" aria-label="Line 231">231</a><code>    utcOffsetSeconds: spec.terms.utcOffsetHours * 3_600,</code></span>
+<span class="line" id="L232"><a href="#L232" aria-label="Line 232">232</a><code>    weekendDays: spec.weekend.reduce((mask, d) =&gt; mask | (1 &lt;&lt; WEEKDAYS.indexOf(d)), 0),</code></span>
+<span class="line" id="L233"><a href="#L233" aria-label="Line 233">233</a><code>    bondOrigin: new BN(bondOrigin),</code></span>
+<span class="line" id="L234"><a href="#L234" aria-label="Line 234">234</a><code>    chainSecondsPerBondDay: new BN(spec.chainSecondsPerBondDay),</code></span>
+<span class="line" id="L235"><a href="#L235" aria-label="Line 235">235</a><code>    maxSupply: new BN(spec.terms.maxSupply),</code></span>
+<span class="line" id="L236"><a href="#L236" aria-label="Line 236">236</a><code>  };</code></span>
+<span class="line" id="L237"><a href="#L237" aria-label="Line 237">237</a><code>  // A run that stopped after creating the bond resumes it (run-devnet.sh &lt;name&gt; resume): the bond and every holder</code></span>
+<span class="line" id="L238"><a href="#L238" aria-label="Line 238">238</a><code>  // already registered are read from the chain, not created again.</code></span>
+<span class="line" id="L239"><a href="#L239" aria-label="Line 239">239</a><code>  if (await connection.getAccountInfo(bond)) console.log(`resuming bond ${bond.toBase58()} (already on chain)`);</code></span>
+<span class="line" id="L240"><a href="#L240" aria-label="Line 240">240</a><code>  else await record(</code></span>
+<span class="line" id="L241"><a href="#L241" aria-label="Line 241">241</a><code>    &quot;create_bond&quot;,</code></span>
+<span class="line" id="L242"><a href="#L242" aria-label="Line 242">242</a><code>    await land(&quot;rpc&quot;, () =&gt; program.methods</code></span>
+<span class="line" id="L243"><a href="#L243" aria-label="Line 243">243</a><code>      .createBond(terms)</code></span>
+<span class="line" id="L244"><a href="#L244" aria-label="Line 244">244</a><code>      .accountsPartial({</code></span>
+<span class="line" id="L245"><a href="#L245" aria-label="Line 245">245</a><code>        registrar: registrar.publicKey, mint: mint.publicKey, bond, cashMint,</code></span>
+<span class="line" id="L246"><a href="#L246" aria-label="Line 246">246</a><code>        extraAccountMetaList: pda(Buffer.from(&quot;extra-account-metas&quot;), mint.publicKey.toBuffer()),</code></span>
+<span class="line" id="L247"><a href="#L247" aria-label="Line 247">247</a><code>        tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,</code></span>
+<span class="line" id="L248"><a href="#L248" aria-label="Line 248">248</a><code>      })</code></span>
+<span class="line" id="L249"><a href="#L249" aria-label="Line 249">249</a><code>      .signers([mint])</code></span>
+<span class="line" id="L250"><a href="#L250" aria-label="Line 250">250</a><code>      .rpc()),</code></span>
+<span class="line" id="L251"><a href="#L251" aria-label="Line 251">251</a><code>  );</code></span>
+<span class="line" id="L252"><a href="#L252" aria-label="Line 252">252</a><code>  const bondAccount: any = await program.account.bond.fetch(bond);</code></span>
+<span class="line" id="L253"><a href="#L253" aria-label="Line 253">253</a><code>  const chainOrigin = Number(bondAccount.chainOrigin);</code></span>
+<span class="line" id="L254"><a href="#L254" aria-label="Line 254">254</a><code>  // Earliest chain time at which the program&#x27;s bond clock reaches bondTime (same mapping as bond_math::time).</code></span>
+<span class="line" id="L255"><a href="#L255" aria-label="Line 255">255</a><code>  const chainTimeFor = (bondTime: number) =&gt;</code></span>
+<span class="line" id="L256"><a href="#L256" aria-label="Line 256">256</a><code>    chainOrigin + Math.ceil(((bondTime - bondOrigin) * spec.chainSecondsPerBondDay) / DAY);</code></span>
+<span class="line" id="L257"><a href="#L257" aria-label="Line 257">257</a><code></code></span>
+<span class="line" id="L258"><a href="#L258" aria-label="Line 258">258</a><code>  // Holders, registry, placement: a few holders per transaction; the registrar pays every fee and deposit, so holders</code></span>
+<span class="line" id="L259"><a href="#L259" aria-label="Line 259">259</a><code>  // need no SOL of their own (except tenderers, who pay their tender record&#x27;s deposit).</code></span>
+<span class="line" id="L260"><a href="#L260" aria-label="Line 260">260</a><code>  const holders: Record&lt;string, Keypair&gt; = {};</code></span>
+<span class="line" id="L261"><a href="#L261" aria-label="Line 261">261</a><code>  for (const name of holderNames) holders[name] = readKeypair(fromRoot(spec.wallets[name]));</code></span>
+<span class="line" id="L262"><a href="#L262" aria-label="Line 262">262</a><code>  const nameOf = new Map(holderNames.map((n) =&gt; [holders[n].publicKey.toBase58(), n]));</code></span>
+<span class="line" id="L263"><a href="#L263" aria-label="Line 263">263</a><code>  const bondsAta = (name: string) =&gt; getAssociatedTokenAddressSync(mint.publicKey, holders[name].publicKey, false, TOKEN_2022_PROGRAM_ID);</code></span>
+<span class="line" id="L264"><a href="#L264" aria-label="Line 264">264</a><code>  const cashAta = (name: string) =&gt; getAssociatedTokenAddressSync(cashMint, holders[name].publicKey, false, TOKEN_PROGRAM_ID);</code></span>
+<span class="line" id="L265"><a href="#L265" aria-label="Line 265">265</a><code>  const holderRecord = (name: string) =&gt; pda(Buffer.from(&quot;holder&quot;), mint.publicKey.toBuffer(), holders[name].publicKey.toBuffer());</code></span>
+<span class="line" id="L266"><a href="#L266" aria-label="Line 266">266</a><code>  // Token account balances, 100 accounts per request (amount = bytes 64..72; a missing account holds 0).</code></span>
+<span class="line" id="L267"><a href="#L267" aria-label="Line 267">267</a><code>  const balances = async (accounts: PublicKey[]) =&gt; {</code></span>
+<span class="line" id="L268"><a href="#L268" aria-label="Line 268">268</a><code>    const out: bigint[] = [];</code></span>
+<span class="line" id="L269"><a href="#L269" aria-label="Line 269">269</a><code>    for (const part of chunks(accounts, 100)) {</code></span>
+<span class="line" id="L270"><a href="#L270" aria-label="Line 270">270</a><code>      const infos = await connection.getMultipleAccountsInfo(part, &quot;confirmed&quot;);</code></span>
+<span class="line" id="L271"><a href="#L271" aria-label="Line 271">271</a><code>      out.push(...infos.map((i) =&gt; (i &amp;&amp; i.data.length &gt;= 72 ? i.data.readBigUInt64LE(64) : 0n)));</code></span>
+<span class="line" id="L272"><a href="#L272" aria-label="Line 272">272</a><code>    }</code></span>
+<span class="line" id="L273"><a href="#L273" aria-label="Line 273">273</a><code>    return out;</code></span>
+<span class="line" id="L274"><a href="#L274" aria-label="Line 274">274</a><code>  };</code></span>
+<span class="line" id="L275"><a href="#L275" aria-label="Line 275">275</a><code>  const balance = async (account: PublicKey) =&gt; (await balances([account]))[0];</code></span>
+<span class="line" id="L276"><a href="#L276" aria-label="Line 276">276</a><code>  // Building a hooked transfer looks up the mint, the hook&#x27;s account list and both token accounts (for their owners,</code></span>
+<span class="line" id="L277"><a href="#L277" aria-label="Line 277">277</a><code>  // which seed the holder records). None of those fields change, so each account is looked up once per run, not once</code></span>
+<span class="line" id="L278"><a href="#L278" aria-label="Line 278">278</a><code>  // per transfer: per-transfer lookups made trades the slowest step on devnet (7.7 s per trade in phase 1 of the third</code></span>
+<span class="line" id="L279"><a href="#L279" aria-label="Line 279">279</a><code>  // 1000-holder run, against 1.5 s per payment transaction). The builder calls only getAccountInfo.</code></span>
+<span class="line" id="L280"><a href="#L280" aria-label="Line 280">280</a><code>  const lookedUp = new Map&lt;string, Promise&lt;anchor.web3.AccountInfo&lt;Buffer&gt; | null&gt;&gt;();</code></span>
+<span class="line" id="L281"><a href="#L281" aria-label="Line 281">281</a><code>  const staticLookups = {</code></span>
+<span class="line" id="L282"><a href="#L282" aria-label="Line 282">282</a><code>    getAccountInfo: (key: PublicKey, commitment?: anchor.web3.Commitment) =&gt; {</code></span>
+<span class="line" id="L283"><a href="#L283" aria-label="Line 283">283</a><code>      const k = key.toBase58();</code></span>
+<span class="line" id="L284"><a href="#L284" aria-label="Line 284">284</a><code>      if (!lookedUp.has(k)) lookedUp.set(k, connection.getAccountInfo(key, commitment));</code></span>
+<span class="line" id="L285"><a href="#L285" aria-label="Line 285">285</a><code>      return lookedUp.get(k)!;</code></span>
+<span class="line" id="L286"><a href="#L286" aria-label="Line 286">286</a><code>    },</code></span>
+<span class="line" id="L287"><a href="#L287" aria-label="Line 287">287</a><code>  } as unknown as Connection;</code></span>
+<span class="line" id="L288"><a href="#L288" aria-label="Line 288">288</a><code>  const records = async (names: string[]) =&gt; {</code></span>
+<span class="line" id="L289"><a href="#L289" aria-label="Line 289">289</a><code>    const out: any[] = [];</code></span>
+<span class="line" id="L290"><a href="#L290" aria-label="Line 290">290</a><code>    for (const part of chunks(names, 100)) out.push(...(await program.account.holderRecord.fetchMultiple(part.map(holderRecord))));</code></span>
+<span class="line" id="L291"><a href="#L291" aria-label="Line 291">291</a><code>    return out;</code></span>
+<span class="line" id="L292"><a href="#L292" aria-label="Line 292">292</a><code>  };</code></span>
+<span class="line" id="L293"><a href="#L293" aria-label="Line 293">293</a><code>  const registered = await records(holderNames);</code></span>
+<span class="line" id="L294"><a href="#L294" aria-label="Line 294">294</a><code>  const toSetUp = holderNames.filter((_, i) =&gt; !registered[i]);</code></span>
+<span class="line" id="L295"><a href="#L295" aria-label="Line 295">295</a><code>  if (toSetUp.length &lt; holderNames.length) console.log(`${holderNames.length - toSetUp.length} holders already registered; setting up ${toSetUp.length}`);</code></span>
+<span class="line" id="L296"><a href="#L296" aria-label="Line 296">296</a><code>  for (const batch of chunks(toSetUp, 3)) {</code></span>
+<span class="line" id="L297"><a href="#L297" aria-label="Line 297">297</a><code>    const ixs: anchor.web3.TransactionInstruction[] = [computeLimit];</code></span>
+<span class="line" id="L298"><a href="#L298" aria-label="Line 298">298</a><code>    for (const name of batch) {</code></span>
+<span class="line" id="L299"><a href="#L299" aria-label="Line 299">299</a><code>      const kp = holders[name];</code></span>
+<span class="line" id="L300"><a href="#L300" aria-label="Line 300">300</a><code>      ixs.push(await program.methods.registerHolder(kp.publicKey).accountsPartial({ registrar: registrar.publicKey, bond }).instruction());</code></span>
+<span class="line" id="L301"><a href="#L301" aria-label="Line 301">301</a><code>      ixs.push(</code></span>
+<span class="line" id="L302"><a href="#L302" aria-label="Line 302">302</a><code>        createAssociatedTokenAccountIdempotentInstruction(registrar.publicKey, bondsAta(name), kp.publicKey, mint.publicKey, TOKEN_2022_PROGRAM_ID),</code></span>
+<span class="line" id="L303"><a href="#L303" aria-label="Line 303">303</a><code>        createAssociatedTokenAccountIdempotentInstruction(registrar.publicKey, cashAta(name), kp.publicKey, cashMint, TOKEN_PROGRAM_ID),</code></span>
+<span class="line" id="L304"><a href="#L304" aria-label="Line 304">304</a><code>      );</code></span>
+<span class="line" id="L305"><a href="#L305" aria-label="Line 305">305</a><code>      const amount = spec.placements[name];</code></span>
+<span class="line" id="L306"><a href="#L306" aria-label="Line 306">306</a><code>      if (amount)</code></span>
+<span class="line" id="L307"><a href="#L307" aria-label="Line 307">307</a><code>        ixs.push(await program.methods.place(new BN(amount))</code></span>
+<span class="line" id="L308"><a href="#L308" aria-label="Line 308">308</a><code>          .accountsPartial({ registrar: registrar.publicKey, bond, mint: mint.publicKey, holder: holderRecord(name), holderBonds: bondsAta(name), tokenProgram: TOKEN_2022_PROGRAM_ID })</code></span>
+<span class="line" id="L309"><a href="#L309" aria-label="Line 309">309</a><code>          .instruction());</code></span>
+<span class="line" id="L310"><a href="#L310" aria-label="Line 310">310</a><code>    }</code></span>
+<span class="line" id="L311"><a href="#L311" aria-label="Line 311">311</a><code>    await send(`register, open accounts, place: ${batch.map((n) =&gt; `${n}${spec.placements[n] ? ` ${spec.placements[n]}` : &quot;&quot;}`).join(&quot;, &quot;)}`, ixs, [registrar]);</code></span>
+<span class="line" id="L312"><a href="#L312" aria-label="Line 312">312</a><code>  }</code></span>
+<span class="line" id="L313"><a href="#L313" aria-label="Line 313">313</a><code>  // Holders may already hold the cash token (other bonds paid in it, earlier runs on the same cluster), so the report</code></span>
+<span class="line" id="L314"><a href="#L314" aria-label="Line 314">314</a><code>  // carries each holder&#x27;s cash before this bond paid anything; what this bond delivered is final - initial.</code></span>
+<span class="line" id="L315"><a href="#L315" aria-label="Line 315">315</a><code>  const initialCashList = await balances(holderNames.map(cashAta));</code></span>
+<span class="line" id="L316"><a href="#L316" aria-label="Line 316">316</a><code>  const initialCash = Object.fromEntries(holderNames.map((h, i) =&gt; [h, initialCashList[i].toString()]));</code></span>
+<span class="line" id="L317"><a href="#L317" aria-label="Line 317">317</a><code></code></span>
+<span class="line" id="L318"><a href="#L318" aria-label="Line 318">318</a><code>  const paidEvents = async (signature: string) =&gt; {</code></span>
+<span class="line" id="L319"><a href="#L319" aria-label="Line 319">319</a><code>    const tx = await connection.getTransaction(signature, { commitment: &quot;confirmed&quot;, maxSupportedTransactionVersion: 0 });</code></span>
+<span class="line" id="L320"><a href="#L320" aria-label="Line 320">320</a><code>    return [...eventParser.parseLogs(tx!.meta!.logMessages!)];</code></span>
+<span class="line" id="L321"><a href="#L321" aria-label="Line 321">321</a><code>  };</code></span>
+<span class="line" id="L322"><a href="#L322" aria-label="Line 322">322</a><code>  // A holder&#x27;s quantity at record moment e, from its on-chain history (state.rs, PositionHistory).</code></span>
+<span class="line" id="L323"><a href="#L323" aria-label="Line 323">323</a><code>  const positionOf = (rec: any, e: number) =&gt; Number(e &lt; rec.position.liveFrom ? rec.position.at[e] : rec.position.quantity);</code></span>
+<span class="line" id="L324"><a href="#L324" aria-label="Line 324">324</a><code>  // Who sends the servicing transactions (open, confirm, pay, redeem): anyone may. By default the operator (the</code></span>
+<span class="line" id="L325"><a href="#L325" aria-label="Line 325">325</a><code>  // registrar&#x27;s wallet); after a handover, a separate wallet with no role in the bond pays the fees itself.</code></span>
+<span class="line" id="L326"><a href="#L326" aria-label="Line 326">326</a><code>  type Servicer = { program: anchor.Program; payer: PublicKey; tag: string };</code></span>
+<span class="line" id="L327"><a href="#L327" aria-label="Line 327">327</a><code>  const operator: Servicer = { program, payer: registrar.publicKey, tag: &quot;&quot; };</code></span>
+<span class="line" id="L328"><a href="#L328" aria-label="Line 328">328</a><code>  let outside: Servicer | null = null;</code></span>
+<span class="line" id="L329"><a href="#L329" aria-label="Line 329">329</a><code>  if (spec.handover) {</code></span>
+<span class="line" id="L330"><a href="#L330" aria-label="Line 330">330</a><code>    const kp = readKeypair(fromRoot(spec.handover.keeper));</code></span>
+<span class="line" id="L331"><a href="#L331" aria-label="Line 331">331</a><code>    if ((await connection.getBalance(kp.publicKey)) &lt; 0.05 * LAMPORTS_PER_SOL)</code></span>
+<span class="line" id="L332"><a href="#L332" aria-label="Line 332">332</a><code>      await send(&quot;fund outside keeper fees&quot;, [SystemProgram.transfer({ fromPubkey: registrar.publicKey, toPubkey: kp.publicKey, lamports: 0.05 * LAMPORTS_PER_SOL })], [registrar]);</code></span>
+<span class="line" id="L333"><a href="#L333" aria-label="Line 333">333</a><code>    const keeperProvider = new anchor.AnchorProvider(connection, new anchor.Wallet(kp), { commitment: &quot;confirmed&quot; });</code></span>
+<span class="line" id="L334"><a href="#L334" aria-label="Line 334">334</a><code>    outside = { program: new anchor.Program(idl, keeperProvider), payer: kp.publicKey, tag: &quot; [outside keeper]&quot; };</code></span>
+<span class="line" id="L335"><a href="#L335" aria-label="Line 335">335</a><code>  }</code></span>
+<span class="line" id="L336"><a href="#L336" aria-label="Line 336">336</a><code>  // Open an event (anyone, after its record moment), fund its vault with exactly the budget (the issuer&#x27;s bank:</code></span>
+<span class="line" id="L337"><a href="#L337" aria-label="Line 337">337</a><code>  // simulated fiat leg; the issuer&#x27;s only role here), confirm the funding.</code></span>
+<span class="line" id="L338"><a href="#L338" aria-label="Line 338">338</a><code>  const openAndFund = async (e: number, label: string, sv: Servicer) =&gt; {</code></span>
+<span class="line" id="L339"><a href="#L339" aria-label="Line 339">339</a><code>    const event = pda(Buffer.from(&quot;event&quot;), bond.toBuffer(), u16(e));</code></span>
+<span class="line" id="L340"><a href="#L340" aria-label="Line 340">340</a><code>    const vault = pda(Buffer.from(&quot;vault&quot;), event.toBuffer());</code></span>
+<span class="line" id="L341"><a href="#L341" aria-label="Line 341">341</a><code>    await record(`open_event ${label}${sv.tag}`, await land(&quot;rpc&quot;, () =&gt; sv.program.methods.openEvent(e).accountsPartial({ payer: sv.payer, bond, event, cashMint, vault, cashTokenProgram: TOKEN_PROGRAM_ID }).rpc()));</code></span>
+<span class="line" id="L342"><a href="#L342" aria-label="Line 342">342</a><code>    const opened: any = await program.account.event.fetch(event);</code></span>
+<span class="line" id="L343"><a href="#L343" aria-label="Line 343">343</a><code>    const budget = BigInt(opened.budget.toString());</code></span>
+<span class="line" id="L344"><a href="#L344" aria-label="Line 344">344</a><code>    if (h &amp;&amp; e &lt; periods) await h.whileUnfunded(e, event, vault, budget);</code></span>
+<span class="line" id="L345"><a href="#L345" aria-label="Line 345">345</a><code>    await send(`fund vault for ${label} (issuer)`, [createMintToInstruction(cashMint, vault, bank.publicKey, budget - (await balance(vault)), [], TOKEN_PROGRAM_ID)], [registrar, bank]);</code></span>
+<span class="line" id="L346"><a href="#L346" aria-label="Line 346">346</a><code>    await record(`confirm_funding ${label}${sv.tag}`, await land(&quot;rpc&quot;, () =&gt; sv.program.methods.confirmFunding().accountsPartial({ event, vault }).rpc()));</code></span>
+<span class="line" id="L347"><a href="#L347" aria-label="Line 347">347</a><code>    return { event, vault, opened };</code></span>
+<span class="line" id="L348"><a href="#L348" aria-label="Line 348">348</a><code>  };</code></span>
+<span class="line" id="L349"><a href="#L349" aria-label="Line 349">349</a><code></code></span>
+<span class="line" id="L350"><a href="#L350" aria-label="Line 350">350</a><code>  const events: any[] = [];</code></span>
+<span class="line" id="L351"><a href="#L351" aria-label="Line 351">351</a><code>  const vaults: string[] = [];</code></span>
+<span class="line" id="L352"><a href="#L352" aria-label="Line 352">352</a><code></code></span>
+<span class="line" id="L353"><a href="#L353" aria-label="Line 353">353</a><code>  // Offers: created and fully funded up front; actions happen in the phase after their record moment.</code></span>
+<span class="line" id="L354"><a href="#L354" aria-label="Line 354">354</a><code>  const bondTerms: any = await program.account.bond.fetch(bond);</code></span>
+<span class="line" id="L355"><a href="#L355" aria-label="Line 355">355</a><code>  const recordTimeOf = (k: number) =&gt;</code></span>
+<span class="line" id="L356"><a href="#L356" aria-label="Line 356">356</a><code>    dayToUnix(Number(bondTerms.recordDays[k])) + Number(bondTerms.recordSecondsLocal) - Number(bondTerms.utcOffsetSeconds);</code></span>
+<span class="line" id="L357"><a href="#L357" aria-label="Line 357">357</a><code>  const offerPda = (id: number) =&gt; pda(Buffer.from(&quot;offer&quot;), bond.toBuffer(), u16(id));</code></span>
+<span class="line" id="L358"><a href="#L358" aria-label="Line 358">358</a><code>  const offerTimes = (o: OfferSpec) =&gt; ({</code></span>
+<span class="line" id="L359"><a href="#L359" aria-label="Line 359">359</a><code>    open: recordTimeOf(o.open.recordMoment) + o.open.plusDays * DAY,</code></span>
+<span class="line" id="L360"><a href="#L360" aria-label="Line 360">360</a><code>    close: recordTimeOf(o.close.recordMoment) + o.close.plusDays * DAY,</code></span>
+<span class="line" id="L361"><a href="#L361" aria-label="Line 361">361</a><code>  });</code></span>
+<span class="line" id="L362"><a href="#L362" aria-label="Line 362">362</a><code>  const offerReports: any[] = [];</code></span>
+<span class="line" id="L363"><a href="#L363" aria-label="Line 363">363</a><code>  for (const o of spec.offers) {</code></span>
+<span class="line" id="L364"><a href="#L364" aria-label="Line 364">364</a><code>    const offer = offerPda(o.id);</code></span>
+<span class="line" id="L365"><a href="#L365" aria-label="Line 365">365</a><code>    const vault = pda(Buffer.from(&quot;vault&quot;), offer.toBuffer());</code></span>
+<span class="line" id="L366"><a href="#L366" aria-label="Line 366">366</a><code>    const { open, close } = offerTimes(o);</code></span>
+<span class="line" id="L367"><a href="#L367" aria-label="Line 367">367</a><code>    await record(</code></span>
+<span class="line" id="L368"><a href="#L368" aria-label="Line 368">368</a><code>      `create_offer ${o.id} (${o.kind})`,</code></span>
+<span class="line" id="L369"><a href="#L369" aria-label="Line 369">369</a><code>      await land(&quot;rpc&quot;, () =&gt; program.methods</code></span>
+<span class="line" id="L370"><a href="#L370" aria-label="Line 370">370</a><code>        .createOffer(o.id, o.kind === &quot;tender&quot;, new BN(o.priceUnits), new BN(o.maxQuantity), new BN(open), new BN(close))</code></span>
+<span class="line" id="L371"><a href="#L371" aria-label="Line 371">371</a><code>        .accountsPartial({ registrar: registrar.publicKey, bond, offer, cashMint, vault, cashTokenProgram: TOKEN_PROGRAM_ID })</code></span>
+<span class="line" id="L372"><a href="#L372" aria-label="Line 372">372</a><code>        .rpc()),</code></span>
+<span class="line" id="L373"><a href="#L373" aria-label="Line 373">373</a><code>    );</code></span>
+<span class="line" id="L374"><a href="#L374" aria-label="Line 374">374</a><code>    const budget = BigInt(o.priceUnits) * BigInt(o.maxQuantity);</code></span>
+<span class="line" id="L375"><a href="#L375" aria-label="Line 375">375</a><code>    await send(`fund vault for offer ${o.id}`, [createMintToInstruction(cashMint, vault, bank.publicKey, budget, [], TOKEN_PROGRAM_ID)], [registrar, bank]);</code></span>
+<span class="line" id="L376"><a href="#L376" aria-label="Line 376">376</a><code>    await record(`confirm_offer_funding ${o.id}`, await land(&quot;rpc&quot;, () =&gt; program.methods.confirmOfferFunding().accountsPartial({ offer, vault }).rpc()));</code></span>
+<span class="line" id="L377"><a href="#L377" aria-label="Line 377">377</a><code>    vaults.push(vault.toBase58());</code></span>
+<span class="line" id="L378"><a href="#L378" aria-label="Line 378">378</a><code>    offerReports.push({</code></span>
+<span class="line" id="L379"><a href="#L379" aria-label="Line 379">379</a><code>      id: o.id, kind: o.kind, priceUnits: o.priceUnits, maxQuantity: o.maxQuantity, openTime: iso(open), closeTime: iso(close),</code></span>
+<span class="line" id="L380"><a href="#L380" aria-label="Line 380">380</a><code>      vault: vault.toBase58(), budget: budget.toString(), actions: [] as any[], settlements: [] as any[], settled: false,</code></span>
+<span class="line" id="L381"><a href="#L381" aria-label="Line 381">381</a><code>    });</code></span>
+<span class="line" id="L382"><a href="#L382" aria-label="Line 382">382</a><code>  }</code></span>
+<span class="line" id="L383"><a href="#L383" aria-label="Line 383">383</a><code>  // Accounts to burn a holder&#x27;s bonds and pay from an offer&#x27;s vault (the program&#x27;s `Retirement`).</code></span>
+<span class="line" id="L384"><a href="#L384" aria-label="Line 384">384</a><code>  const retirementAccounts = (o: OfferSpec, name: string, payer: PublicKey) =&gt; {</code></span>
+<span class="line" id="L385"><a href="#L385" aria-label="Line 385">385</a><code>    const offer = offerPda(o.id);</code></span>
+<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>    return {</code></span>
+<span class="line" id="L387"><a href="#L387" aria-label="Line 387">387</a><code>      payer, bond, mint: mint.publicKey, holder: holderRecord(name), owner: holders[name].publicKey,</code></span>
+<span class="line" id="L388"><a href="#L388" aria-label="Line 388">388</a><code>      holderBonds: bondsAta(name), vault: pda(Buffer.from(&quot;vault&quot;), offer.toBuffer()), cashMint, holderCash: cashAta(name),</code></span>
+<span class="line" id="L389"><a href="#L389" aria-label="Line 389">389</a><code>      memoProgram: null, tokenProgram: TOKEN_2022_PROGRAM_ID, cashTokenProgram: TOKEN_PROGRAM_ID,</code></span>
+<span class="line" id="L390"><a href="#L390" aria-label="Line 390">390</a><code>    };</code></span>
+<span class="line" id="L391"><a href="#L391" aria-label="Line 391">391</a><code>  };</code></span>
+<span class="line" id="L392"><a href="#L392" aria-label="Line 392">392</a><code>  const tenderDeposit = await connection.getMinimumBalanceForRentExemption(TENDER_ACCOUNT_SIZE);</code></span>
+<span class="line" id="L393"><a href="#L393" aria-label="Line 393">393</a><code>  const h = spec.attacker</code></span>
+<span class="line" id="L394"><a href="#L394" aria-label="Line 394">394</a><code>    ? hostile({</code></span>
+<span class="line" id="L395"><a href="#L395" aria-label="Line 395">395</a><code>      connection, program, registrar, bank, attacker: readKeypair(fromRoot(spec.attacker.wallet)), spec: spec.attacker, terms,</code></span>
+<span class="line" id="L396"><a href="#L396" aria-label="Line 396">396</a><code>      mint: mint.publicKey, bond, cashMint, cashDecimals: spec.terms.cashDecimals, holders, bondsAta, cashAta, holderRecord, pda, u16,</code></span>
+<span class="line" id="L397"><a href="#L397" aria-label="Line 397">397</a><code>      offers: spec.offers, offerPda, retirementAccounts, send, chainNow, explorer: (sig) =&gt; explorer(sig),</code></span>
+<span class="line" id="L398"><a href="#L398" aria-label="Line 398">398</a><code>    })</code></span>
+<span class="line" id="L399"><a href="#L399" aria-label="Line 399">399</a><code>    : null;</code></span>
+<span class="line" id="L400"><a href="#L400" aria-label="Line 400">400</a><code>  await h?.beforeFirstRecordMoment();</code></span>
+<span class="line" id="L401"><a href="#L401" aria-label="Line 401">401</a><code>  const offerActions = async (e: number) =&gt; {</code></span>
+<span class="line" id="L402"><a href="#L402" aria-label="Line 402">402</a><code>    for (const [i, o] of spec.offers.entries()) {</code></span>
+<span class="line" id="L403"><a href="#L403" aria-label="Line 403">403</a><code>      for (const act of o.actions.filter((a) =&gt; a.afterRecordMoment === e)) {</code></span>
+<span class="line" id="L404"><a href="#L404" aria-label="Line 404">404</a><code>        await reachChainTime(chainTimeFor(offerTimes(o).open));</code></span>
+<span class="line" id="L405"><a href="#L405" aria-label="Line 405">405</a><code>        const owner = holders[act.holder].publicKey;</code></span>
+<span class="line" id="L406"><a href="#L406" aria-label="Line 406">406</a><code>        let label: string, signature: string, quantity: number;</code></span>
+<span class="line" id="L407"><a href="#L407" aria-label="Line 407">407</a><code>        if (act.sell) {</code></span>
+<span class="line" id="L408"><a href="#L408" aria-label="Line 408">408</a><code>          quantity = act.sell;</code></span>
+<span class="line" id="L409"><a href="#L409" aria-label="Line 409">409</a><code>          label = `sell_to_offer ${o.id}: ${act.holder} sells ${quantity}`;</code></span>
+<span class="line" id="L410"><a href="#L410" aria-label="Line 410">410</a><code>          signature = await land(&quot;rpc&quot;, () =&gt; program.methods.sellToOffer(new BN(quantity))</code></span>
+<span class="line" id="L411"><a href="#L411" aria-label="Line 411">411</a><code>            .accountsPartial({ retirement: retirementAccounts(o, act.holder, owner), seller: owner, offer: offerPda(o.id) })</code></span>
+<span class="line" id="L412"><a href="#L412" aria-label="Line 412">412</a><code>            .signers([holders[act.holder]]).rpc());</code></span>
+<span class="line" id="L413"><a href="#L413" aria-label="Line 413">413</a><code>        } else {</code></span>
+<span class="line" id="L414"><a href="#L414" aria-label="Line 414">414</a><code>          const withdraw = !act.tender;</code></span>
+<span class="line" id="L415"><a href="#L415" aria-label="Line 415">415</a><code>          quantity = (act.tender ?? act.withdraw)!;</code></span>
+<span class="line" id="L416"><a href="#L416" aria-label="Line 416">416</a><code>          // The registrar tops up the holder&#x27;s tender record deposit in the same transaction (one transaction per</code></span>
+<span class="line" id="L417"><a href="#L417" aria-label="Line 417">417</a><code>          // tender, not two).</code></span>
+<span class="line" id="L418"><a href="#L418" aria-label="Line 418">418</a><code>          const have = await connection.getBalance(owner);</code></span>
+<span class="line" id="L419"><a href="#L419" aria-label="Line 419">419</a><code>          const ixs: anchor.web3.TransactionInstruction[] = have &lt; tenderDeposit</code></span>
+<span class="line" id="L420"><a href="#L420" aria-label="Line 420">420</a><code>            ? [SystemProgram.transfer({ fromPubkey: registrar.publicKey, toPubkey: owner, lamports: tenderDeposit - have })] : [];</code></span>
+<span class="line" id="L421"><a href="#L421" aria-label="Line 421">421</a><code>          ixs.push(await program.methods.changeTender(new BN(quantity), withdraw)</code></span>
+<span class="line" id="L422"><a href="#L422" aria-label="Line 422">422</a><code>            .accountsPartial({ owner, bond, offer: offerPda(o.id), holder: holderRecord(act.holder), tender: pda(Buffer.from(&quot;tender&quot;), offerPda(o.id).toBuffer(), owner.toBuffer()) })</code></span>
+<span class="line" id="L423"><a href="#L423" aria-label="Line 423">423</a><code>            .instruction());</code></span>
+<span class="line" id="L424"><a href="#L424" aria-label="Line 424">424</a><code>          label = `change_tender ${o.id}: ${act.holder} ${withdraw ? &quot;withdraws&quot; : &quot;tenders&quot;} ${quantity}${ixs.length &gt; 1 ? &quot; (registrar funds the deposit)&quot; : &quot;&quot;}`;</code></span>
+<span class="line" id="L425"><a href="#L425" aria-label="Line 425">425</a><code>          signature = await land(&quot;rpc&quot;, () =&gt; sendAndConfirmTransaction(connection, new Transaction().add(...ixs), [registrar, holders[act.holder]], { commitment: &quot;confirmed&quot; }));</code></span>
+<span class="line" id="L426"><a href="#L426" aria-label="Line 426">426</a><code>        }</code></span>
+<span class="line" id="L427"><a href="#L427" aria-label="Line 427">427</a><code>        await record(label, signature);</code></span>
+<span class="line" id="L428"><a href="#L428" aria-label="Line 428">428</a><code>        const sold = (await paidEvents(signature)).find((x) =&gt; x.name === &quot;BondsBoughtBack&quot;);</code></span>
+<span class="line" id="L429"><a href="#L429" aria-label="Line 429">429</a><code>        offerReports[i].actions.push({</code></span>
+<span class="line" id="L430"><a href="#L430" aria-label="Line 430">430</a><code>          holder: act.holder, action: act.sell ? &quot;sell&quot; : act.tender ? &quot;tender&quot; : &quot;withdraw&quot;, quantity, signature,</code></span>
+<span class="line" id="L431"><a href="#L431" aria-label="Line 431">431</a><code>          ...(sold ? { burned: Number(sold.data.burned), paid: sold.data.paid.toString() } : {}),</code></span>
+<span class="line" id="L432"><a href="#L432" aria-label="Line 432">432</a><code>        });</code></span>
+<span class="line" id="L433"><a href="#L433" aria-label="Line 433">433</a><code>      }</code></span>
+<span class="line" id="L434"><a href="#L434" aria-label="Line 434">434</a><code>    }</code></span>
+<span class="line" id="L435"><a href="#L435" aria-label="Line 435">435</a><code>  };</code></span>
+<span class="line" id="L436"><a href="#L436" aria-label="Line 436">436</a><code>  // Tender offers whose window closes before the next record moment are settled in this phase, by anyone.</code></span>
+<span class="line" id="L437"><a href="#L437" aria-label="Line 437">437</a><code>  const settleTenders = async (e: number) =&gt; {</code></span>
+<span class="line" id="L438"><a href="#L438" aria-label="Line 438">438</a><code>    const next = e + 1 &lt; periods ? recordTimeOf(e + 1) : Infinity;</code></span>
+<span class="line" id="L439"><a href="#L439" aria-label="Line 439">439</a><code>    for (const [i, o] of spec.offers.entries()) {</code></span>
+<span class="line" id="L440"><a href="#L440" aria-label="Line 440">440</a><code>      if (o.kind !== &quot;tender&quot; || offerReports[i].settled || offerTimes(o).close &gt;= next) continue;</code></span>
+<span class="line" id="L441"><a href="#L441" aria-label="Line 441">441</a><code>      await reachChainTime(chainTimeFor(offerTimes(o).close));</code></span>
+<span class="line" id="L442"><a href="#L442" aria-label="Line 442">442</a><code>      const tendered = new Map&lt;string, number&gt;();</code></span>
+<span class="line" id="L443"><a href="#L443" aria-label="Line 443">443</a><code>      for (const a of o.actions) tendered.set(a.holder, (tendered.get(a.holder) ?? 0) + (a.tender ?? 0) - (a.withdraw ?? 0));</code></span>
+<span class="line" id="L444"><a href="#L444" aria-label="Line 444">444</a><code>      // Tenders are resolved in the order they were made (the order of each holder&#x27;s first tender, as sent above).</code></span>
+<span class="line" id="L445"><a href="#L445" aria-label="Line 445">445</a><code>      // Resolving needs no cash, so all are resolved first: a holder whose cash cannot move blocks nobody else.</code></span>
+<span class="line" id="L446"><a href="#L446" aria-label="Line 446">446</a><code>      const tenderPda = (name: string) =&gt; pda(Buffer.from(&quot;tender&quot;), offerPda(o.id).toBuffer(), holders[name].publicKey.toBuffer());</code></span>
+<span class="line" id="L447"><a href="#L447" aria-label="Line 447">447</a><code>      for (const name of tendered.keys()) {</code></span>
+<span class="line" id="L448"><a href="#L448" aria-label="Line 448">448</a><code>        await record(`resolve_tender ${o.id} ${name}`, await land(&quot;rpc&quot;, () =&gt; program.methods.resolveTender()</code></span>
+<span class="line" id="L449"><a href="#L449" aria-label="Line 449">449</a><code>          .accountsPartial({ bond, offer: offerPda(o.id), holder: holderRecord(name), tender: tenderPda(name) }).rpc()));</code></span>
+<span class="line" id="L450"><a href="#L450" aria-label="Line 450">450</a><code>      }</code></span>
+<span class="line" id="L451"><a href="#L451" aria-label="Line 451">451</a><code>      for (const [name, q] of tendered) {</code></span>
+<span class="line" id="L452"><a href="#L452" aria-label="Line 452">452</a><code>        if (q &lt;= 0) continue;</code></span>
+<span class="line" id="L453"><a href="#L453" aria-label="Line 453">453</a><code>        const signature = await land(&quot;rpc&quot;, () =&gt; program.methods.settleTender()</code></span>
+<span class="line" id="L454"><a href="#L454" aria-label="Line 454">454</a><code>          .accountsPartial({ retirement: retirementAccounts(o, name, registrar.publicKey), offer: offerPda(o.id), tender: pda(Buffer.from(&quot;tender&quot;), offerPda(o.id).toBuffer(), holders[name].publicKey.toBuffer()) })</code></span>
+<span class="line" id="L455"><a href="#L455" aria-label="Line 455">455</a><code>          .rpc());</code></span>
+<span class="line" id="L456"><a href="#L456" aria-label="Line 456">456</a><code>        await record(`settle_tender ${o.id} ${name}`, signature);</code></span>
+<span class="line" id="L457"><a href="#L457" aria-label="Line 457">457</a><code>        const sold = (await paidEvents(signature)).find((x) =&gt; x.name === &quot;BondsBoughtBack&quot;);</code></span>
+<span class="line" id="L458"><a href="#L458" aria-label="Line 458">458</a><code>        offerReports[i].settlements.push({</code></span>
+<span class="line" id="L459"><a href="#L459" aria-label="Line 459">459</a><code>          holder: name, tendered: q, burned: sold ? Number(sold.data.burned) : 0, paid: sold ? sold.data.paid.toString() : &quot;0&quot;, signature,</code></span>
+<span class="line" id="L460"><a href="#L460" aria-label="Line 460">460</a><code>        });</code></span>
+<span class="line" id="L461"><a href="#L461" aria-label="Line 461">461</a><code>      }</code></span>
+<span class="line" id="L462"><a href="#L462" aria-label="Line 462">462</a><code>      offerReports[i].settled = true;</code></span>
+<span class="line" id="L463"><a href="#L463" aria-label="Line 463">463</a><code>    }</code></span>
+<span class="line" id="L464"><a href="#L464" aria-label="Line 464">464</a><code>  };</code></span>
+<span class="line" id="L465"><a href="#L465" aria-label="Line 465">465</a><code>  // One coupon: open, fund, confirm, then pay every holder with a position at the record moment.</code></span>
+<span class="line" id="L466"><a href="#L466" aria-label="Line 466">466</a><code>  const serviceCoupon = async (e: number, sv: Servicer) =&gt; {</code></span>
+<span class="line" id="L467"><a href="#L467" aria-label="Line 467">467</a><code>    const bondAccountNow: any = await program.account.bond.fetch(bond);</code></span>
+<span class="line" id="L468"><a href="#L468" aria-label="Line 468">468</a><code>    const recordTime = dayToUnix(Number(bondAccountNow.recordDays[e])) + Number(bondAccountNow.recordSecondsLocal) - Number(bondAccountNow.utcOffsetSeconds);</code></span>
+<span class="line" id="L469"><a href="#L469" aria-label="Line 469">469</a><code>    const paymentTime = dayToUnix(Number(bondAccountNow.paymentDays[e])) + Number(bondAccountNow.paymentSecondsLocal) - Number(bondAccountNow.utcOffsetSeconds);</code></span>
+<span class="line" id="L470"><a href="#L470" aria-label="Line 470">470</a><code>    const { event, vault, opened } = await openAndFund(e, `coupon ${e}`, sv);</code></span>
+<span class="line" id="L471"><a href="#L471" aria-label="Line 471">471</a><code>    vaults.push(vault.toBase58());</code></span>
+<span class="line" id="L472"><a href="#L472" aria-label="Line 472">472</a><code>    await reachChainTime(chainTimeFor(paymentTime));</code></span>
+<span class="line" id="L473"><a href="#L473" aria-label="Line 473">473</a><code>    const positions: any[] = [];</code></span>
+<span class="line" id="L474"><a href="#L474" aria-label="Line 474">474</a><code>    const payments: any[] = [];</code></span>
+<span class="line" id="L475"><a href="#L475" aria-label="Line 475">475</a><code>    const recs = await records(holderNames);</code></span>
+<span class="line" id="L476"><a href="#L476" aria-label="Line 476">476</a><code>    const bondBalances = await balances(holderNames.map(bondsAta));</code></span>
+<span class="line" id="L477"><a href="#L477" aria-label="Line 477">477</a><code>    holderNames.forEach((name, i) =&gt; positions.push({ holder: name, position: positionOf(recs[i], e), balanceNow: Number(bondBalances[i]) }));</code></span>
+<span class="line" id="L478"><a href="#L478" aria-label="Line 478">478</a><code>    const payable = holderNames.filter((_, i) =&gt; positionOf(recs[i], e) &gt; 0);</code></span>
+<span class="line" id="L479"><a href="#L479" aria-label="Line 479">479</a><code>    const pay = async (names: string[]) =&gt; {</code></span>
+<span class="line" id="L480"><a href="#L480" aria-label="Line 480">480</a><code>      for (const batch of chunks(names, 6)) {</code></span>
+<span class="line" id="L481"><a href="#L481" aria-label="Line 481">481</a><code>        const ixs: anchor.web3.TransactionInstruction[] = [computeLimit];</code></span>
+<span class="line" id="L482"><a href="#L482" aria-label="Line 482">482</a><code>        for (const name of batch)</code></span>
+<span class="line" id="L483"><a href="#L483" aria-label="Line 483">483</a><code>          ixs.push(await sv.program.methods.payCoupon()</code></span>
+<span class="line" id="L484"><a href="#L484" aria-label="Line 484">484</a><code>            .accountsPartial({ payer: sv.payer, bond, event, holder: holderRecord(name), owner: holders[name].publicKey, vault, cashMint, holderCash: cashAta(name), memoProgram: null, cashTokenProgram: TOKEN_PROGRAM_ID })</code></span>
+<span class="line" id="L485"><a href="#L485" aria-label="Line 485">485</a><code>            .instruction());</code></span>
+<span class="line" id="L486"><a href="#L486" aria-label="Line 486">486</a><code>        const signature = await land(&quot;pay_coupon&quot;, () =&gt; sv.program.provider.sendAndConfirm!(new Transaction().add(...ixs), [], { commitment: &quot;confirmed&quot; }));</code></span>
+<span class="line" id="L487"><a href="#L487" aria-label="Line 487">487</a><code>        await record(`pay_coupon ${e} ${span(batch)}${sv.tag}`, signature);</code></span>
+<span class="line" id="L488"><a href="#L488" aria-label="Line 488">488</a><code>        for (const ev of (await paidEvents(signature)).filter((x) =&gt; x.name === &quot;CouponPaid&quot;))</code></span>
+<span class="line" id="L489"><a href="#L489" aria-label="Line 489">489</a><code>          payments.push({ holder: nameOf.get(ev.data.owner.toBase58()), amount: ev.data.amount.toString(), position: Number(ev.data.position), signature, payer: sv.payer.toBase58() });</code></span>
+<span class="line" id="L490"><a href="#L490" aria-label="Line 490">490</a><code>      }</code></span>
+<span class="line" id="L491"><a href="#L491" aria-label="Line 491">491</a><code>    };</code></span>
+<span class="line" id="L492"><a href="#L492" aria-label="Line 492">492</a><code>    // A holder the bank froze is paid after everyone else, once thawed.</code></span>
+<span class="line" id="L493"><a href="#L493" aria-label="Line 493">493</a><code>    const heldBack = (await h?.beforePayments(e)) ?? [];</code></span>
+<span class="line" id="L494"><a href="#L494" aria-label="Line 494">494</a><code>    await pay(payable.filter((n) =&gt; !heldBack.includes(n)));</code></span>
+<span class="line" id="L495"><a href="#L495" aria-label="Line 495">495</a><code>    await h?.afterPayments(e);</code></span>
+<span class="line" id="L496"><a href="#L496" aria-label="Line 496">496</a><code>    await pay(payable.filter((n) =&gt; heldBack.includes(n)));</code></span>
+<span class="line" id="L497"><a href="#L497" aria-label="Line 497">497</a><code>    events.push({</code></span>
+<span class="line" id="L498"><a href="#L498" aria-label="Line 498">498</a><code>      index: e, kind: &quot;coupon&quot;, paymentDate: schedule.payment_dates[e], recordDate: schedule.record_dates[e],</code></span>
+<span class="line" id="L499"><a href="#L499" aria-label="Line 499">499</a><code>      recordTime: iso(recordTime), supplyAtRecord: Number(opened.supplyAtRecord), budget: opened.budget.toString(),</code></span>
+<span class="line" id="L500"><a href="#L500" aria-label="Line 500">500</a><code>      vault: vault.toBase58(), vaultLeft: (await balance(vault)).toString(), positions, payments, servicedBy: sv.payer.toBase58(),</code></span>
+<span class="line" id="L501"><a href="#L501" aria-label="Line 501">501</a><code>    });</code></span>
+<span class="line" id="L502"><a href="#L502" aria-label="Line 502">502</a><code>  };</code></span>
+<span class="line" id="L503"><a href="#L503" aria-label="Line 503">503</a><code>  const deferred: number[] = [];</code></span>
+<span class="line" id="L504"><a href="#L504" aria-label="Line 504">504</a><code></code></span>
+<span class="line" id="L505"><a href="#L505" aria-label="Line 505">505</a><code>  // Coupons: at each record moment, the scenario&#x27;s trades first (the market stays open), then the payments.</code></span>
+<span class="line" id="L506"><a href="#L506" aria-label="Line 506">506</a><code>  for (let e = 0; e &lt; periods; e++) {</code></span>
+<span class="line" id="L507"><a href="#L507" aria-label="Line 507">507</a><code>    const bondAccountNow: any = await program.account.bond.fetch(bond);</code></span>
+<span class="line" id="L508"><a href="#L508" aria-label="Line 508">508</a><code>    const recordTime = dayToUnix(Number(bondAccountNow.recordDays[e])) + Number(bondAccountNow.recordSecondsLocal) - Number(bondAccountNow.utcOffsetSeconds);</code></span>
+<span class="line" id="L509"><a href="#L509" aria-label="Line 509">509</a><code>    await reachChainTime(chainTimeFor(recordTime) + (cluster === &quot;devnet&quot; ? 2 : 60));</code></span>
+<span class="line" id="L510"><a href="#L510" aria-label="Line 510">510</a><code>    // The scenario&#x27;s actions for this phase must land before the next record moment, or positions would differ from</code></span>
+<span class="line" id="L511"><a href="#L511" aria-label="Line 511">511</a><code>    // the scenario&#x27;s; stop instead of producing a run that does not match its own input.</code></span>
+<span class="line" id="L512"><a href="#L512" aria-label="Line 512">512</a><code>    const phaseEnd = e + 1 &lt; periods ? chainTimeFor(dayToUnix(Number(bondAccountNow.recordDays[e + 1])) + Number(bondAccountNow.recordSecondsLocal) - Number(bondAccountNow.utcOffsetSeconds)) : Infinity;</code></span>
+<span class="line" id="L513"><a href="#L513" aria-label="Line 513">513</a><code>    const inPhase = async (what: string) =&gt; {</code></span>
+<span class="line" id="L514"><a href="#L514" aria-label="Line 514">514</a><code>      if ((await chainNow()) &gt;= phaseEnd) throw new Error(`phase ${e} overran the next record moment before: ${what}`);</code></span>
+<span class="line" id="L515"><a href="#L515" aria-label="Line 515">515</a><code>    };</code></span>
+<span class="line" id="L516"><a href="#L516" aria-label="Line 516">516</a><code>    for (const t of spec.trades.filter((t) =&gt; t.afterRecordMoment === e)) {</code></span>
+<span class="line" id="L517"><a href="#L517" aria-label="Line 517">517</a><code>      await inPhase(`transfer ${t.from} -&gt; ${t.to}`);</code></span>
+<span class="line" id="L518"><a href="#L518" aria-label="Line 518">518</a><code>      const ix = await createTransferCheckedWithTransferHookInstruction(</code></span>
+<span class="line" id="L519"><a href="#L519" aria-label="Line 519">519</a><code>        staticLookups, bondsAta(t.from), mint.publicKey, bondsAta(t.to), holders[t.from].publicKey, BigInt(t.amount), 0, [], &quot;confirmed&quot;, TOKEN_2022_PROGRAM_ID,</code></span>
+<span class="line" id="L520"><a href="#L520" aria-label="Line 520">520</a><code>      );</code></span>
+<span class="line" id="L521"><a href="#L521" aria-label="Line 521">521</a><code>      await send(`transfer ${t.amount} ${t.from} -&gt; ${t.to} (after record moment ${e})`, [ix], [registrar, holders[t.from]]);</code></span>
+<span class="line" id="L522"><a href="#L522" aria-label="Line 522">522</a><code>    }</code></span>
+<span class="line" id="L523"><a href="#L523" aria-label="Line 523">523</a><code>    await h?.afterRecordMoment(e);</code></span>
+<span class="line" id="L524"><a href="#L524" aria-label="Line 524">524</a><code>    await offerActions(e);</code></span>
+<span class="line" id="L525"><a href="#L525" aria-label="Line 525">525</a><code>    await h?.afterOfferActions(e);</code></span>
+<span class="line" id="L526"><a href="#L526" aria-label="Line 526">526</a><code>    await inPhase(&quot;offer actions&quot;);</code></span>
+<span class="line" id="L527"><a href="#L527" aria-label="Line 527">527</a><code>    if (!spec.handover || e &lt;= spec.handover.operatorStopsAfterCoupon) await serviceCoupon(e, operator);</code></span>
+<span class="line" id="L528"><a href="#L528" aria-label="Line 528">528</a><code>    else deferred.push(e);</code></span>
+<span class="line" id="L529"><a href="#L529" aria-label="Line 529">529</a><code>    await settleTenders(e);</code></span>
+<span class="line" id="L530"><a href="#L530" aria-label="Line 530">530</a><code>  }</code></span>
+<span class="line" id="L531"><a href="#L531" aria-label="Line 531">531</a><code></code></span>
+<span class="line" id="L532"><a href="#L532" aria-label="Line 532">532</a><code>  // After a handover the outside keeper services, late, every coupon the operator left.</code></span>
+<span class="line" id="L533"><a href="#L533" aria-label="Line 533">533</a><code>  for (const e of deferred) await serviceCoupon(e, outside!);</code></span>
+<span class="line" id="L534"><a href="#L534" aria-label="Line 534">534</a><code></code></span>
+<span class="line" id="L535"><a href="#L535" aria-label="Line 535">535</a><code>  // Redemption: trading closed at the final record moment; burn and pay each holder.</code></span>
+<span class="line" id="L536"><a href="#L536" aria-label="Line 536">536</a><code>  const r = periods;</code></span>
+<span class="line" id="L537"><a href="#L537" aria-label="Line 537">537</a><code>  const redeemer = spec.handover ? outside! : operator;</code></span>
+<span class="line" id="L538"><a href="#L538" aria-label="Line 538">538</a><code>  await h?.afterFinalRecordMoment();</code></span>
+<span class="line" id="L539"><a href="#L539" aria-label="Line 539">539</a><code>  const { event: redemption, vault: redemptionVault, opened: redemptionOpened } = await openAndFund(r, &quot;redemption&quot;, redeemer);</code></span>
+<span class="line" id="L540"><a href="#L540" aria-label="Line 540">540</a><code>  vaults.push(redemptionVault.toBase58());</code></span>
+<span class="line" id="L541"><a href="#L541" aria-label="Line 541">541</a><code>  await h?.beforeRedemption(redemption, redemptionVault);</code></span>
+<span class="line" id="L542"><a href="#L542" aria-label="Line 542">542</a><code>  const redemptions: any[] = [];</code></span>
+<span class="line" id="L543"><a href="#L543" aria-label="Line 543">543</a><code>  const finalRecs = await records(holderNames);</code></span>
+<span class="line" id="L544"><a href="#L544" aria-label="Line 544">544</a><code>  const redeemable = holderNames.filter((_, i) =&gt; Number(finalRecs[i].position.quantity) &gt; Number(finalRecs[i].locked));</code></span>
+<span class="line" id="L545"><a href="#L545" aria-label="Line 545">545</a><code>  for (const batch of chunks(redeemable, 4)) {</code></span>
+<span class="line" id="L546"><a href="#L546" aria-label="Line 546">546</a><code>    const ixs: anchor.web3.TransactionInstruction[] = [computeLimit];</code></span>
+<span class="line" id="L547"><a href="#L547" aria-label="Line 547">547</a><code>    for (const name of batch)</code></span>
+<span class="line" id="L548"><a href="#L548" aria-label="Line 548">548</a><code>      ixs.push(await redeemer.program.methods.redeemHolder()</code></span>
+<span class="line" id="L549"><a href="#L549" aria-label="Line 549">549</a><code>        .accountsPartial({ payer: redeemer.payer, bond, mint: mint.publicKey, event: redemption, holder: holderRecord(name), owner: holders[name].publicKey, holderBonds: bondsAta(name), vault: redemptionVault, cashMint, holderCash: cashAta(name), memoProgram: null, tokenProgram: TOKEN_2022_PROGRAM_ID, cashTokenProgram: TOKEN_PROGRAM_ID })</code></span>
+<span class="line" id="L550"><a href="#L550" aria-label="Line 550">550</a><code>        .instruction());</code></span>
+<span class="line" id="L551"><a href="#L551" aria-label="Line 551">551</a><code>    const signature = await land(&quot;redeem&quot;, () =&gt; redeemer.program.provider.sendAndConfirm!(new Transaction().add(...ixs), [], { commitment: &quot;confirmed&quot; }));</code></span>
+<span class="line" id="L552"><a href="#L552" aria-label="Line 552">552</a><code>    await record(`redeem_holder ${span(batch)}${redeemer.tag}`, signature);</code></span>
+<span class="line" id="L553"><a href="#L553" aria-label="Line 553">553</a><code>    for (const ev of (await paidEvents(signature)).filter((x) =&gt; x.name === &quot;BondsRedeemed&quot;))</code></span>
+<span class="line" id="L554"><a href="#L554" aria-label="Line 554">554</a><code>      redemptions.push({ holder: nameOf.get(ev.data.owner.toBase58()), burned: Number(ev.data.burned), principal: ev.data.principal.toString(), signature });</code></span>
+<span class="line" id="L555"><a href="#L555" aria-label="Line 555">555</a><code>  }</code></span>
+<span class="line" id="L556"><a href="#L556" aria-label="Line 556">556</a><code>  await h?.afterRedemption(redemption, redemptionVault);</code></span>
+<span class="line" id="L557"><a href="#L557" aria-label="Line 557">557</a><code>  const supply = BigInt((await connection.getTokenSupply(mint.publicKey)).value.amount);</code></span>
+<span class="line" id="L558"><a href="#L558" aria-label="Line 558">558</a><code></code></span>
+<span class="line" id="L559"><a href="#L559" aria-label="Line 559">559</a><code>  const report = {</code></span>
+<span class="line" id="L560"><a href="#L560" aria-label="Line 560">560</a><code>    scenario: key,</code></span>
+<span class="line" id="L561"><a href="#L561" aria-label="Line 561">561</a><code>    name: spec.name,</code></span>
+<span class="line" id="L562"><a href="#L562" aria-label="Line 562">562</a><code>    programId: program.programId.toBase58(),</code></span>
+<span class="line" id="L563"><a href="#L563" aria-label="Line 563">563</a><code>    bond: bond.toBase58(),</code></span>
+<span class="line" id="L564"><a href="#L564" aria-label="Line 564">564</a><code>    bondMint: mint.publicKey.toBase58(),</code></span>
+<span class="line" id="L565"><a href="#L565" aria-label="Line 565">565</a><code>    cashMint: cashMint.toBase58(),</code></span>
+<span class="line" id="L566"><a href="#L566" aria-label="Line 566">566</a><code>    terms: {</code></span>
+<span class="line" id="L567"><a href="#L567" aria-label="Line 567">567</a><code>      issue: spec.terms.issue, maturity: spec.terms.maturity, monthsPerPeriod: spec.terms.monthsPerPeriod, faceUnits: spec.terms.faceUnits,</code></span>
+<span class="line" id="L568"><a href="#L568" aria-label="Line 568">568</a><code>      cashDecimals: spec.terms.cashDecimals, rateBps: spec.terms.rateBps, basis: `FixedPerPeriod(${spec.terms.periodsPerYear})`, redemptionPriceBps: spec.terms.redemptionPriceBps,</code></span>
+<span class="line" id="L569"><a href="#L569" aria-label="Line 569">569</a><code>      paymentDates: schedule.payment_dates, recordDates: schedule.record_dates, recordTimeLocal: spec.terms.recordTimeLocal,</code></span>
+<span class="line" id="L570"><a href="#L570" aria-label="Line 570">570</a><code>      paymentOpensLocal: spec.terms.paymentOpensLocal, utcOffsetHours: spec.terms.utcOffsetHours,</code></span>
+<span class="line" id="L571"><a href="#L571" aria-label="Line 571">571</a><code>      calendar: spec.calendar, weekend: spec.weekend,</code></span>
+<span class="line" id="L572"><a href="#L572" aria-label="Line 572">572</a><code>    },</code></span>
+<span class="line" id="L573"><a href="#L573" aria-label="Line 573">573</a><code>    placements: spec.placements,</code></span>
+<span class="line" id="L574"><a href="#L574" aria-label="Line 574">574</a><code>    trades: spec.trades,</code></span>
+<span class="line" id="L575"><a href="#L575" aria-label="Line 575">575</a><code>    offerSpecs: spec.offers,</code></span>
+<span class="line" id="L576"><a href="#L576" aria-label="Line 576">576</a><code>    handover: spec.handover,</code></span>
+<span class="line" id="L577"><a href="#L577" aria-label="Line 577">577</a><code>    events,</code></span>
+<span class="line" id="L578"><a href="#L578" aria-label="Line 578">578</a><code>    offers: await Promise.all(offerReports.map(async (o) =&gt; ({ ...o, vaultLeft: (await balance(new PublicKey(o.vault))).toString() }))),</code></span>
+<span class="line" id="L579"><a href="#L579" aria-label="Line 579">579</a><code>    redemption: {</code></span>
+<span class="line" id="L580"><a href="#L580" aria-label="Line 580">580</a><code>      supplyAtRecord: Number(redemptionOpened.supplyAtRecord), budget: redemptionOpened.budget.toString(),</code></span>
+<span class="line" id="L581"><a href="#L581" aria-label="Line 581">581</a><code>      vault: redemptionVault.toBase58(), vaultLeft: (await balance(redemptionVault)).toString(), redemptions,</code></span>
+<span class="line" id="L582"><a href="#L582" aria-label="Line 582">582</a><code>    },</code></span>
+<span class="line" id="L583"><a href="#L583" aria-label="Line 583">583</a><code>    initialCash,</code></span>
+<span class="line" id="L584"><a href="#L584" aria-label="Line 584">584</a><code>    final: {</code></span>
+<span class="line" id="L585"><a href="#L585" aria-label="Line 585">585</a><code>      supply: supply.toString(),</code></span>
+<span class="line" id="L586"><a href="#L586" aria-label="Line 586">586</a><code>      vaults: Object.fromEntries(await Promise.all(vaults.map(async (v) =&gt; [v, (await balance(new PublicKey(v))).toString()]))),</code></span>
+<span class="line" id="L587"><a href="#L587" aria-label="Line 587">587</a><code>      cash: Object.fromEntries((await balances(holderNames.map(cashAta))).map((b, i) =&gt; [holderNames[i], b.toString()])),</code></span>
+<span class="line" id="L588"><a href="#L588" aria-label="Line 588">588</a><code>    },</code></span>
+<span class="line" id="L589"><a href="#L589" aria-label="Line 589">589</a><code>    transactions: log,</code></span>
+<span class="line" id="L590"><a href="#L590" aria-label="Line 590">590</a><code>    attempts: h?.attempts ?? [],</code></span>
+<span class="line" id="L591"><a href="#L591" aria-label="Line 591">591</a><code>  };</code></span>
+<span class="line" id="L592"><a href="#L592" aria-label="Line 592">592</a><code>  fs.mkdirSync(path.dirname(out), { recursive: true });</code></span>
+<span class="line" id="L593"><a href="#L593" aria-label="Line 593">593</a><code>  fs.writeFileSync(out, JSON.stringify(report, null, 1) + &quot;\n&quot;);</code></span>
+<span class="line" id="L594"><a href="#L594" aria-label="Line 594">594</a><code>  console.log(`report: ${out} (${log.length} transactions)`);</code></span>
+<span class="line" id="L595"><a href="#L595" aria-label="Line 595">595</a><code>  if (h) {</code></span>
+<span class="line" id="L596"><a href="#L596" aria-label="Line 596">596</a><code>    const failed = h.attempts.filter((a) =&gt; !a.ok);</code></span>
+<span class="line" id="L597"><a href="#L597" aria-label="Line 597">597</a><code>    console.log(`attacks: ${h.attempts.length - failed.length} of ${h.attempts.length} refused by their guard`);</code></span>
+<span class="line" id="L598"><a href="#L598" aria-label="Line 598">598</a><code>    if (failed.length) throw new Error(`attacks not refused by their guard: ${failed.map((a) =&gt; `${a.id} (${a.outcome}${a.reason ? `: ${a.reason}` : &quot;&quot;})`).join(&quot;; &quot;)}`);</code></span>
+<span class="line" id="L599"><a href="#L599" aria-label="Line 599">599</a><code>  }</code></span>
+<span class="line" id="L600"><a href="#L600" aria-label="Line 600">600</a><code>}</code></span>
+<span class="line" id="L601"><a href="#L601" aria-label="Line 601">601</a><code></code></span>
+<span class="line" id="L602"><a href="#L602" aria-label="Line 602">602</a><code>main().catch((e) =&gt; {</code></span>
+<span class="line" id="L603"><a href="#L603" aria-label="Line 603">603</a><code>  console.error(e);</code></span>
+<span class="line" id="L604"><a href="#L604" aria-label="Line 604">604</a><code>  process.exit(1);</code></span>
+<span class="line" id="L605"><a href="#L605" aria-label="Line 605">605</a><code>});</code></span></pre></html>

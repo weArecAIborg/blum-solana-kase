@@ -1,0 +1,22 @@
+/* Blum. Default: terminal theme (black ground, amber labels, green/red signals, blue chain accents).
+   Light theme, the site's original palette: [data-theme="light"]. */
+:root {
+  --bg: #000000; --surface: #0a0a0a; --ink: #ecebe6; --ink-2: #c2bfb6; --muted: #8a867d; --grid: #2a2a2a;
+  --border: #3a3a3a; --bar: #262626; --bar-ink: #ffffff; --accent: #5aa9ff; --accent-soft: rgba(90, 169, 255, 0.14);
+  --amber: #ffa028; --amber-soft: rgba(255, 160, 40, 0.12); --panel-blue: #0b2a4a;
+  --paper: #15120d; --paper-line: #3a3326; --paper-ink: #efe6d2; --paper-muted: #b3a688; --seal: #ffa028;
+  --kept: #7fb36a; --kept-bg: rgba(76, 120, 56, 0.32); --refused: #d9705c; --refused-bg: rgba(128, 44, 30, 0.45);
+  --seq-0: #0b2a4a; --seq-1: #5aa9ff;
+  --cell-up: #2f7d3c; --cell-down: #8e2f37; --cell-sel: #1f5fbf; --cell-ink: #ffffff; --chip: #3a3a3a; --chip-ink: #ffffff; --navy: #0f1823; --on-amber: #000000;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f4f5f2; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68; --grid: #e1e0d9;
+  --border: rgba(11, 11, 11, 0.10); --bar: #ecebe6; --bar-ink: #0b0b0b; --accent: #1c5cab; --accent-soft: rgba(28, 92, 171, 0.10);
+  --amber: #a85a00; --amber-soft: rgba(168, 90, 0, 0.08); --panel-blue: #d6e4f5;
+  --paper: #fbf7ee; --paper-line: #e6dcc6; --paper-ink: #2b2418; --paper-muted: #7a6c55; --seal: #8a3b12;
+  --kept: #006300; --kept-bg: rgba(0, 99, 0, 0.07); --refused: #b3261e; --refused-bg: rgba(179, 38, 30, 0.07);
+  --seq-0: #d6e4f5; --seq-1: #1c5cab;
+  --cell-up: #2f7d3c; --cell-down: #9e3340; --cell-sel: #1f5fbf; --cell-ink: #ffffff; --chip: #e1e0d9; --chip-ink: #0b0b0b; --navy: #eef3f9; --on-amber: #ffffff;
+  color-scheme: light;
+}

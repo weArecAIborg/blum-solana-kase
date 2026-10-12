@@ -1,0 +1,86 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>docs/bond-mechanics.md · audit source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../stages.html">← Bond stages</a><h1>docs/bond-mechanics.md</h1>
+<p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 ad581dff7770f7f5264a0a164e996221b0775e2b207291b7ecf871e9e39ecdac</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code># Bond servicing mechanics in Kazakhstan (government bonds on KASE)</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code></code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>Collected 2026-10-06. Status per item: **checked** = read in the source by Claude; **agent** = reported by the</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>research agent with a quote, not re-read. Bond parameters are in `bond-params.md`; sources S1-S8 are listed at the end.</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code></code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>## 1. Coupon payment day (S5, article 8, paragraph 6; checked)</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code></code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>On the payment day the Central Securities Depository (CSD):</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>1. Compiles the list of holders entitled to the coupon &quot;по состоянию на 09:00 алматинского времени указанного дня&quot;</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>   (as of 09:00 Almaty time that day).</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>2. Does NOT suspend registration of secondary-market trades, but pays only the holders on that list.</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>3. Calculates the coupon amount for each holder on the list.</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>4. By 17:00 Almaty time transfers the money received from the issuer to the holders&#x27; bank accounts.</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code></code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>There is no separate record date: KASE shows &quot;–&quot; in the record-date column (S1, agent). The record moment is</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>09:00 on the payment day.</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code></code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>## 2. Redemption day (S5, article 10, paragraph 6; checked)</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code></code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>On the redemption day the CSD:</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>1. Stops registering trades in the issue.</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>2. Compiles the holder list as of 09:00 Almaty time.</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>3. Calculates the face value due to each holder.</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>4. By 17:00 pays the face value and writes the bonds off (&quot;списывает ГКО&quot;) the holders&#x27; sub-accounts.</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code></code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>The write-off is the equivalent of the listing&#x27;s &quot;burn, retire, lock, or otherwise mark the tokens as redeemed&quot;.</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code></code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>## 3. Supporting rules</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code></code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>| Rule | Source | Status |</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>|---|---|---|</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>| Issuer must credit the full amount to the CSD by 16:00 on the payment day | S5 art.8 p.7 | agent |</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>| CSD notifies the issuer no later than 3 working days before payment | S5 art.8 p.3 | agent |</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>| A holder is a person on whose account the bonds sit at the moment the list is compiled | S6 art.159 p.3 | agent |</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>| Payment falling on a non-working day moves to the next working day (coupon and redemption) | S3 p.14, p.15 | checked |</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>| Interest accrues from the first day of circulation to the day before maturity | S3 p.14 | checked |</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>| The last coupon is paid on the redemption day | S3 p.14 | checked |</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>| Redemption at par on the first day after the end of circulation | S3 p.15 | checked |</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>| MEOKAM coupon: `S = N*C*180/360`, twice a year, 30/360 | S3 p.32-34 | checked |</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>| MEUKAM coupon: `S = N*C`, once a year, 30/360 | S3 p.41-43 | checked |</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>| Issuer may buy back all or part of an issue at market price on the secondary market and redeem it | S3 p.16 | agent |</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>| Exchange for a new issue only with holders&#x27; consent | S3 p.17 | agent |</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>| Ministry of Finance bonds are excluded from the CSD paying-agent rules for other issuers | S7 art.2 p.1(1) | agent |</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>| Corporate bonds: holder list as of the date and time in the issuer&#x27;s request | S7 art.9 p.3 | agent |</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>| The CSD rulebook governs depository servicing of government securities | S8 p.32 | agent |</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code></code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>Regular coupon amounts are fixed per period (rate x face / frequency), so the day count does not change them.</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>The day count matters for broken periods.</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code></code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>## 4. Facts that constrain the design</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code></code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>- **Coupon day:** trading continues after the 09:00 list is taken. Entitlement therefore depends on each holder&#x27;s</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>  balance at 09:00, not at the moment the payment is executed.</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>- **Redemption day:** trading stops, so balances are frozen from 09:00 until write-off.</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>- **Settlement:** payment to holders happens on the same day, before 17:00.</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code></code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>## 5. Not found</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code></code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>- An official holiday calendar. 06.03.2027 and 06.03.2032 are Saturdays and 06.03.2033 is a Sunday; KASE shows payment</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>  on Tuesday 09.03.2027 and 09.03.2032 (agent), skipping Monday 08.03, a public holiday in Kazakhstan. The sample</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>  calendar `data/calendars/kz-holidays.txt` is taken from the python `holidays` package and reproduces KASE&#x27;s payment</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>  dates for MUM108_0015 (`crates/bond_math/tests/reference.rs`).</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>- Rounding of the coupon per holder.</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>- Extra interest for a delayed payment.</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>- The issue decision and the first-auction notice for MUM108_0015.</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code></code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>## Sources</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code></code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>- **S1** KASE security page MUM108_0015: &lt;https://kase.kz/ru/investors/gsecs/MUM108_0015&gt;</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>- **S2** KASE news 1549814 (auction terms): &lt;https://kase.kz/ru/information/news/show/1549814&gt;</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>- **S3** Government Decree No. 473 of 27.06.2025, amended 14.07.2026 (No. 615):</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>  &lt;https://adilet.zan.kz/rus/docs/P2500000473&gt; (read on the mirror &lt;https://zakon.uchet.kz/rus/docs/P2500000473&gt;)</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>- **S5** CSD «Правила обслуживания и погашения ГКО» (approved 02.11.2012, in force from 16.01.2017):</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>  &lt;https://backend.kcsd.kz/storage/documents/files/rules-gov-securities-5-ru-6a8c2c9aa90b4.pdf&gt;</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>- **S6** CSD rules on registrar and depository activity (special part), art.159-160:</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>  &lt;https://backend.kcsd.kz/storage/documents/files/rules-particularpart-depositary-registrar-10ru-6a6c40435e8ac.pdf&gt;</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>- **S7** CSD rules on paying-agent services:</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>  &lt;https://backend.kcsd.kz/storage/documents/files/rules-payment-3ru-6973702da8134.pdf&gt;</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>- **S8** National Bank Board Resolution No. 307 of 29.11.2018, p.32: &lt;https://adilet.zan.kz/rus/docs/V1800017920&gt;</code></span></pre></html>

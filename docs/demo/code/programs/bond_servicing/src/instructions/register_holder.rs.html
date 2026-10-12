@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/instructions/register_holder.rs · source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/register_holder.rs</h1>
+<p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file 0fbd06fdcb0ad9cfdcdfb008ee94b61ab556f6040fd11a63189aba385e229a1b</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Register a holder (simulated KYC). The transfer hook requires a holder record on both sides, so only</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! registered wallets can hold bonds. A holder registered after some record moments starts at zero for them.</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code></code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code></code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>use crate::constants::*;</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>use crate::events::HolderRegistered;</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>use crate::state::{Bond, HolderRecord, PositionHistory};</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code></code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>#[instruction(owner: Pubkey)]</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>pub struct RegisterHolder&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>    pub registrar: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code></code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>    #[account(has_one = registrar)]</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code></code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>    #[account(</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>        init,</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>        payer = registrar,</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>        space = 8 + HolderRecord::INIT_SPACE,</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>        seeds = [HOLDER_SEED, bond.mint.as_ref(), owner.as_ref()],</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>        bump,</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>    )]</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>    pub holder: Box&lt;Account&lt;&#x27;info, HolderRecord&gt;&gt;,</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code></code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>    pub system_program: Program&lt;&#x27;info, System&gt;,</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>}</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code></code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>pub fn handle_register_holder(ctx: Context&lt;RegisterHolder&gt;, owner: Pubkey) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>    let bond = &amp;ctx.accounts.bond;</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>    let passed = bond.passed_record_moments(bond.now()?)?;</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code></code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>    let holder = &amp;mut ctx.accounts.holder;</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>    holder.bond = bond.key();</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>    holder.owner = owner;</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>    holder.position = PositionHistory::new(passed);</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>    holder.paid = 0;</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>    holder.locked = 0;</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>    holder.redeemed = 0;</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    holder.bump = ctx.bumps.holder;</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>    emit!(HolderRegistered { bond: bond.key(), owner });</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>    Ok(())</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>}</code></span></pre></html>

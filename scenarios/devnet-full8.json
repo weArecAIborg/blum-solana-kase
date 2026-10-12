@@ -1,0 +1,158 @@
+{
+  "name": "DEVNET FULL, 8 holders: B1 terms, 8 holders, trades at record moments, issuer buyback, tender offer across a record moment, redemption (1 bond day = 1 chain second)",
+  "terms": {
+    "issue": "2026-03-06",
+    "maturity": "2028-03-06",
+    "monthsPerPeriod": 6,
+    "periodsPerYear": 2,
+    "faceUnits": "1000000000",
+    "cashDecimals": 6,
+    "rateBps": 1000,
+    "redemptionPriceBps": 10000,
+    "recordTimeLocal": "09:00",
+    "paymentDeadlineLocal": "17:00",
+    "utcOffsetHours": 5,
+    "paymentOpensLocal": "09:00",
+    "recordBusinessDaysBeforePayment": 0,
+    "maxSupply": 33
+  },
+  "calendar": "data/calendars/kz-holidays.txt",
+  "weekend": [
+    "Saturday",
+    "Sunday"
+  ],
+  "bondTimeAtCreation": "2026-03-03T12:00:00+05:00",
+  "chainSecondsPerBondDay": 1,
+  "keys": {
+    "bondMint": "keys/devnet/bond-mint-full8.json",
+    "cashMint": "keys/devnet/cash-mint.json",
+    "cashAuthority": "keys/devnet/cash-authority.json"
+  },
+  "wallets": {
+    "BH#1": "keys/devnet/holders/bh1.json",
+    "BH#2": "keys/devnet/holders/bh2.json",
+    "BH#3": "keys/devnet/holders/bh3.json",
+    "BH#4": "keys/devnet/holders/bh4.json",
+    "BH#5": "keys/devnet/holders/bh5.json",
+    "BH#6": "keys/devnet/holders/bh6.json",
+    "BH#7": "keys/devnet/holders/bh7.json",
+    "BH#8": "keys/devnet/holders/bh8.json"
+  },
+  "placements": {
+    "BH#1": 10,
+    "BH#2": 5,
+    "BH#4": 8,
+    "BH#5": 4,
+    "BH#7": 6
+  },
+  "trades": [
+    {
+      "afterRecordMoment": 0,
+      "from": "BH#1",
+      "to": "BH#3",
+      "amount": 3
+    },
+    {
+      "afterRecordMoment": 0,
+      "from": "BH#4",
+      "to": "BH#6",
+      "amount": 8
+    },
+    {
+      "afterRecordMoment": 0,
+      "from": "BH#7",
+      "to": "BH#8",
+      "amount": 2
+    },
+    {
+      "afterRecordMoment": 1,
+      "from": "BH#3",
+      "to": "BH#5",
+      "amount": 3
+    },
+    {
+      "afterRecordMoment": 1,
+      "from": "BH#2",
+      "to": "BH#1",
+      "amount": 2
+    },
+    {
+      "afterRecordMoment": 1,
+      "from": "BH#8",
+      "to": "BH#2",
+      "amount": 1
+    },
+    {
+      "afterRecordMoment": 2,
+      "from": "BH#6",
+      "to": "BH#4",
+      "amount": 4
+    },
+    {
+      "afterRecordMoment": 2,
+      "from": "BH#1",
+      "to": "BH#3",
+      "amount": 1
+    }
+  ],
+  "offers": [
+    {
+      "id": 0,
+      "kind": "buyback",
+      "priceUnits": "990000000",
+      "maxQuantity": 4,
+      "open": {
+        "recordMoment": 0,
+        "plusDays": 2
+      },
+      "close": {
+        "recordMoment": 1,
+        "plusDays": -2
+      },
+      "actions": [
+        {
+          "afterRecordMoment": 0,
+          "holder": "BH#2",
+          "sell": 2
+        },
+        {
+          "afterRecordMoment": 0,
+          "holder": "BH#6",
+          "sell": 2
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "kind": "tender",
+      "priceUnits": "1000000000",
+      "maxQuantity": 6,
+      "open": {
+        "recordMoment": 1,
+        "plusDays": 2
+      },
+      "close": {
+        "recordMoment": 2,
+        "plusDays": 10
+      },
+      "actions": [
+        {
+          "afterRecordMoment": 1,
+          "holder": "BH#1",
+          "tender": 6
+        },
+        {
+          "afterRecordMoment": 1,
+          "holder": "BH#5",
+          "tender": 5
+        },
+        {
+          "afterRecordMoment": 1,
+          "holder": "BH#5",
+          "withdraw": 1
+        }
+      ]
+    }
+  ],
+  "handover": null
+}

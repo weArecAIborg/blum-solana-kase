@@ -1,0 +1,50 @@
+{
+  "name": "B1: listing example, 1,000 face, 10%, semi-annual, 2 years",
+  "terms": {
+    "issue": "2026-03-06",
+    "maturity": "2028-03-06",
+    "monthsPerPeriod": 6,
+    "periodsPerYear": 2,
+    "faceUnits": "1000000000",
+    "cashDecimals": 6,
+    "rateBps": 1000,
+    "redemptionPriceBps": 10000,
+    "recordTimeLocal": "09:00",
+    "paymentDeadlineLocal": "17:00",
+    "utcOffsetHours": 5,
+    "paymentOpensLocal": "09:00",
+    "recordBusinessDaysBeforePayment": 0,
+    "maxSupply": 15
+  },
+  "calendar": "data/calendars/kz-holidays.txt",
+  "weekend": [
+    "Saturday",
+    "Sunday"
+  ],
+  "bondTimeAtCreation": "2026-03-03T12:00:00+05:00",
+  "chainSecondsPerBondDay": 86400,
+  "keys": {
+    "bondMint": "keys/localnet/bond-mint-b1.json",
+    "cashMint": "keys/localnet/cash-mint.json",
+    "cashAuthority": "keys/localnet/cash-authority.json"
+  },
+  "wallets": {
+    "BH#1": "keys/localnet/holders/bh1.json",
+    "BH#2": "keys/localnet/holders/bh2.json",
+    "BH#3": "keys/localnet/holders/bh3.json"
+  },
+  "placements": {
+    "BH#1": 10,
+    "BH#2": 5
+  },
+  "trades": [
+    {
+      "afterRecordMoment": 0,
+      "from": "BH#1",
+      "to": "BH#3",
+      "amount": 3
+    }
+  ],
+  "offers": [],
+  "handover": null
+}

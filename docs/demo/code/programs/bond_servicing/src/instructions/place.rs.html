@@ -1,0 +1,72 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/instructions/place.rs · source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/place.rs</h1>
+<p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file 7ba0b26f62dfd740604fe1e6f29a415d1513e7cf27fd10705feb0243ad2e017a</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Placement: mints bonds to a registered holder&#x27;s associated token account, before the first record moment and up to</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! the bond&#x27;s issue size. Updates the holder&#x27;s quantity and the bond&#x27;s supply, which the program alone changes.</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code></code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>use anchor_spl::token_2022::{self, MintTo, Token2022};</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>use anchor_spl::token_interface::{Mint, TokenAccount};</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code></code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>use crate::constants::*;</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>use crate::error::BondError;</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>use crate::events::BondsPlaced;</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>use crate::state::{Bond, HolderRecord};</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code></code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>pub struct Place&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>    pub registrar: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code></code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>    #[account(mut, has_one = registrar, has_one = mint)]</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code></code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>    pub mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code></code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>    #[account(mut, has_one = bond, seeds = [HOLDER_SEED, mint.key().as_ref(), holder.owner.as_ref()], bump = holder.bump)]</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>    pub holder: Box&lt;Account&lt;&#x27;info, HolderRecord&gt;&gt;,</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code></code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>    #[account(</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>        mut,</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>        associated_token::mint = mint,</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>        associated_token::authority = holder.owner,</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>        associated_token::token_program = token_program,</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>    )]</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>    pub holder_bonds: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code></code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>    pub token_program: Program&lt;&#x27;info, Token2022&gt;,</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>}</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code></code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>pub fn handle_place(ctx: Context&lt;Place&gt;, amount: u64) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>    let bond = &amp;ctx.accounts.bond;</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>    require!(bond.now()? &lt; bond.record_time(0)?, BondError::PlacementClosed);</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>    let new_supply = bond.supply.quantity.checked_add(amount).ok_or(BondError::IssueTooLarge)?;</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>    require!(new_supply &lt;= bond.max_supply, BondError::ExceedsIssueSize);</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    bond.check_serviceable(new_supply)?;</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>    let mint_key = bond.mint;</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>    let seeds: &amp;[&amp;[u8]] = &amp;[BOND_SEED, mint_key.as_ref(), &amp;[bond.bump]];</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>    token_2022::mint_to(</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code>        CpiContext::new_with_signer(</code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>            ctx.accounts.token_program.key(),</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>            MintTo {</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>                mint: ctx.accounts.mint.to_account_info(),</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>                to: ctx.accounts.holder_bonds.to_account_info(),</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>                authority: ctx.accounts.bond.to_account_info(),</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>            },</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>            &amp;[seeds],</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>        ),</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>        amount,</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>    )?;</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code></code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>    // Before the first record moment no history needs saving.</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>    let holder = &amp;mut ctx.accounts.holder;</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>    holder.position.quantity = holder.position.quantity.checked_add(amount).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>    let bond = &amp;mut ctx.accounts.bond;</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>    bond.supply.quantity = bond.supply.quantity.checked_add(amount).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>    emit!(BondsPlaced { bond: bond.key(), owner: holder.owner, amount });</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    Ok(())</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>}</code></span></pre></html>

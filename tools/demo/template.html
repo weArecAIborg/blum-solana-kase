@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The 09:00 Rule</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one evidence column (max 70rem). Each section = one claim, its chart, the transactions behind it. */
+:root {
+  --bg: #f4f5f2;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6f6d68;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --accent: #1c5cab;
+  --h1: #2a78d6; --h2: #eb6834; --h3: #1baf7a; --h4: #eda100; --h5: #e87ba4; --h6: #008300;
+  --div-neg: #e34948; --div-mid: #f0efec; --div-pos: #2a78d6;
+  --good-text: #006300;
+  --critical: #d03b3b;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1011; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #6da7ec;
+    --h1: #3987e5; --h2: #d95926; --h3: #199e70; --h4: #c98500; --h5: #d55181; --h6: #008300;
+    --div-neg: #e66767; --div-mid: #383835; --div-pos: #3987e5;
+    --good-text: #0ca30c; --critical: #e66767;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1011; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #6da7ec;
+  --h1: #3987e5; --h2: #d95926; --h3: #199e70; --h4: #c98500; --h5: #d55181; --h6: #008300;
+  --div-neg: #e66767; --div-mid: #383835; --div-pos: #3987e5;
+  --good-text: #0ca30c; --critical: #e66767;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1rem/1.55 var(--font-body); }
+.page { max-width: 70rem; margin: 0 auto; padding-inline: max(16px, 3vw); padding-block: 2.5rem 4rem; display: grid; gap: 3.25rem; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2 { font-family: var(--font-display); font-stretch: 85%; letter-spacing: -0.01em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; line-height: 1.02; }
+h2 { font-size: clamp(1.35rem, 2.6vw, 1.75rem); font-weight: 700; line-height: 1.15; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font: 500 0.75rem/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.1rem; color: var(--ink-2); }
+header { display: grid; gap: 1rem; }
+.psr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.psr > div { background: var(--surface); padding: 1rem 1.1rem; display: grid; gap: 0.35rem; align-content: start; min-width: 0; }
+.psr b { font: 600 0.72rem/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.psr span { font-size: 0.95rem; }
+section { display: grid; gap: 1rem; }
+.claim { display: grid; gap: 0.5rem; }
+.figure { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 0.5rem 0.25rem; min-width: 0; }
+.figure .cap { font: 600 0.72rem/1.3 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding: 0 0.5rem; }
+.chart { width: 100%; height: 340px; }
+.chart.grid { height: 300px; }
+.chart.short { height: 260px; }
+.chart.tall { height: 720px; }
+.note { font-size: 0.92rem; color: var(--ink-2); }
+.verdict { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-size: 0.95rem; }
+.verdict strong { font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font: 600 0.72rem/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+.mono { font-family: var(--font-mono); font-size: 0.85rem; }
+.chip { display: inline-flex; align-items: center; gap: 0.35rem; font: 600 0.75rem/1 var(--font-mono); padding: 0.25rem 0.5rem; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.chip.yes { color: var(--good-text); }
+.chip.no { color: var(--critical); }
+.chip::before { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0.4rem 1rem; font-size: 0.88rem; }
+.checks div { display: flex; gap: 0.5rem; align-items: baseline; min-width: 0; }
+.checks span:last-child { min-width: 0; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+footer { display: grid; gap: 0.4rem; font-size: 0.85rem; color: var(--ink-2); border-top: 1px solid var(--grid); padding-top: 1.25rem; }
+footer code { font-family: var(--font-mono); font-size: 0.8rem; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .psr, .two { grid-template-columns: minmax(0, 1fr); }
+  .chart { height: 300px; }
+  .chart.tall { height: 780px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="eyebrow" id="head-eyebrow">bond_servicing / KASE corporate actions</div>
+    <h1>The market stays open on coupon day</h1>
+    <p class="lede">Kazakhstan's central depository takes the list of bondholders at 09:00 on payment day and keeps trading open. On a blockchain a program cannot see every holder at once, and stopping transfers until the holders are counted would close the market on coupon day. This bond keeps trading open and still pays every holder by the 09:00 list. Every number below is read from the ledger, not from our system.</p>
+    <div class="psr">
+      <div><b>Problem</b><span>Know what every holder held at 09:00 while trades keep settling.</span></div>
+      <div><b>Solution</b><span>Let every trade take the photo: the first transfer after 09:00 stamps each side's 09:00 balance into the register.</span></div>
+      <div><b>Result</b><span id="psr-result"></span></div>
+    </div>
+  </header>
+
+  <section id="grid">
+    <div class="claim">
+      <div class="eyebrow">Every coupon, every holder</div>
+      <h2>Paid exactly the 09:00 entitlement in every cell; paying whoever holds at payment time would not</h2>
+      <p class="note" id="grid-note"></p>
+    </div>
+    <div class="verdict" id="grid-verdict"></div>
+    <div class="two">
+      <div class="figure"><div class="cap">bond_servicing, measured: paid minus 09:00 entitlement</div><div id="chart-grid-ours" class="chart grid" role="img" aria-label="Paid minus entitlement per holder and coupon, measured"></div></div>
+      <div class="figure"><div class="cap">Pay whoever holds at payment time: paid minus 09:00 entitlement</div><div id="chart-grid-naive" class="chart grid" role="img" aria-label="Paid minus entitlement per holder and coupon, if paid by balance at payment time"></div></div>
+    </div>
+    <p class="note"><b>Trades at record moments:</b> <span id="ours-trades"></span>; the hook saves the 09:00 balance on the way through.</p>
+  </section>
+
+  <section id="holders">
+    <div class="claim">
+      <div class="eyebrow">Every holder, every cutoff</div>
+      <h2>Each dot sits on the holder's line at 09:00, even when the line moves seconds later</h2>
+      <p class="note" id="holders-note"></p>
+    </div>
+    <div class="figure"><div id="chart-holders" class="chart tall" role="img" aria-label="Bonds held per holder over the bond's life, with the number of bonds each coupon was paid on"></div></div>
+  </section>
+
+  <section id="zoom">
+    <div class="claim">
+      <div class="eyebrow">Zoom: the first cutoff, second by second</div>
+      <h2 id="zoom-title">Sales right after 09:00 settle, and the coupon still follows the 09:00 list</h2>
+      <p class="note" id="zoom-note"></p>
+    </div>
+    <div class="figure"><div id="chart-zoom" class="chart" role="img" aria-label="Bonds held per holder around the first record moment"></div></div>
+    <div class="table-wrap"><table id="table-zoom"><thead><tr><th>Chain time (UTC)</th><th>What the ledger recorded</th><th>Transaction</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section id="life">
+    <div class="claim">
+      <div class="eyebrow" id="life-eyebrow">The whole bond</div>
+      <h2>Four coupons and the redemption, every holder paid, supply ends at zero</h2>
+      <p class="note" id="life-note"></p>
+    </div>
+    <div class="two">
+      <div class="figure"><div id="chart-life-cash" class="chart short" role="img" aria-label="Cash received per holder over the bond's life"></div></div>
+      <div class="figure"><div id="chart-life-bonds" class="chart short" role="img" aria-label="Bonds held per holder over the bond's life"></div></div>
+    </div>
+  </section>
+
+  <section id="audit">
+    <div class="claim">
+      <div class="eyebrow">Proof: measured, then compared</div>
+      <h2>Every wallet measured on the ledger equals what the bond terms say</h2>
+      <p class="note" id="audit-note"></p>
+    </div>
+    <div class="figure"><div id="chart-audit" class="chart short" role="img" aria-label="Final cash per holder, measured on the ledger and calculated from the terms"></div></div>
+    <div class="checks" id="checks"></div>
+  </section>
+
+  <footer id="footer"></footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js" integrity="sha512-7H/XbvOmUsf6mawBvmmx9BsPt9ew2NTwQ3QDSzNe6iyacDbCJU+7pBbZY1NdmTpuj7snxSsXasMYMiR2tv906g==" crossorigin="anonymous"></script>
+<script>
+const DATA = /*__DATA__*/null;
+
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const names = DATA.sample;  // holders shown one by one (a fixed random sample; the rest are aggregated)
+const title = (n) => n.charAt(0).toUpperCase() + n.slice(1);
+const color = (n) => css("--h" + (names.indexOf(n) + 1));
+const fmtTime = (t) => new Date(t * 1000).toISOString().slice(11, Number.isInteger(t) ? 19 : 21);
+// Plotly renders Date objects in the browser's zone; naive UTC strings keep every axis in UTC like the tables.
+const utc = (t) => new Date(t * 1000).toISOString().replace("T", " ").replace("Z", "");
+const money = (v) => v.toLocaleString("en-US", { maximumFractionDigits: 6 });
+const signed = (v) => (v > 0 ? "+" : "") + money(v);
+const shortSig = (s) => s.slice(0, 8) + "...";
+const close = (a, b) => Math.abs(a - b) < 1e-6;
+const CONFIG = { displayModeBar: false, responsive: true };
+const trades = DATA.events.filter((e) => e.kind === "trade");
+// Measured lag of each trade behind the latest record moment before it (chain seconds).
+const lags = trades.map((e) => e.t - Math.max(...DATA.records.filter((r) => r.chainTime <= e.t).map((r) => r.chainTime)));
+const lagText = () => `${Math.min(...lags).toFixed(0)} to ${Math.max(...lags).toFixed(0)} s`;  // block times are whole seconds
+const tradeText = (e) => {
+  const from = Object.entries(e.moves).find(([, m]) => m.bonds < 0), to = Object.entries(e.moves).find(([, m]) => m.bonds > 0);
+  return `${title(from[0])} -> ${title(to[0])} ${to[1].bonds}`;
+};
+
+function axis(extra) {
+  return Object.assign({ gridcolor: css("--grid"), linecolor: css("--axis"), zeroline: false, tickfont: { color: css("--muted") } }, extra);
+}
+function layout(extra) {
+  return Object.assign({
+    paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
+    font: { family: css("--font-body"), color: css("--ink-2"), size: 12 },
+    margin: { l: 48, r: 16, t: 36, b: 40 },
+    legend: { orientation: "h", x: 0, y: 1.12, font: { color: css("--ink") } },
+    hoverlabel: { bgcolor: css("--surface"), bordercolor: css("--axis"), font: { color: css("--ink"), family: css("--font-body") } },
+    xaxis: axis({}), yaxis: axis({ rangemode: "tozero" }),
+  }, extra);
+}
+function stateAt(t) {
+  let s = { bonds: Object.fromEntries(names.map((n) => [n, 0])), cash: Object.fromEntries(names.map((n) => [n, 0])) };
+  for (const p of DATA.timeline) { if (p.t <= t) s = p; else break; }
+  return s;
+}
+function steps(key, n, t0, t1) {
+  const xs = [utc(t0)], ys = [stateAt(t0)[key][n]];
+  for (const p of DATA.timeline.filter((p) => p.t > t0 && p.t <= t1)) { xs.push(utc(p.t)); ys.push(p[key][n]); }
+  xs.push(utc(t1)); ys.push(ys[ys.length - 1]);
+  return { x: xs, y: ys };
+}
+const cutLines = () => DATA.records.map((r) => ({ type: "line", x0: utc(r.chainTime), x1: utc(r.chainTime), xref: "x",
+  yref: "paper", y0: 0, y1: 1, line: { color: css("--axis"), width: 1, dash: "dot" } }));
+
+// ---------- 1. every coupon x every holder ----------
+function renderGrid() {
+  const G = DATA.grid;
+  const cols = G.map((g) => `Coupon ${g.coupon + 1}<br>${g.payDate}`);
+  const ours = names.map((n) => G.map((g) => g.paid[n] - g.expected[n]));
+  const naive = names.map((n) => G.map((g) => g.naive[n] - g.expected[n]));
+  const m = Math.max(1, ...naive.flat().map(Math.abs), ...ours.flat().map(Math.abs));
+  const scale = [[0, css("--div-neg")], [0.5, css("--div-mid")], [1, css("--div-pos")]];
+  const cell = (z, label) => ({
+    type: "heatmap", z, x: cols, y: names.map(title), zmin: -m, zmax: m, colorscale: scale, showscale: false, xgap: 2, ygap: 2,
+    text: z.map((row) => row.map((v) => (close(v, 0) ? "0" : signed(v)))), texttemplate: "%{text}",
+    textfont: { color: css("--ink"), size: 12 },
+    hovertemplate: `%{y}, %{x}<br>${label}: %{text}<extra></extra>`,
+  });
+  const lay = layout({ margin: { l: 72, r: 8, t: 8, b: 48 }, yaxis: axis({ autorange: "reversed", showgrid: false }), xaxis: axis({ showgrid: false }) });
+  Plotly.react("chart-grid-ours", [cell(ours, "paid minus entitlement")], lay, CONFIG);
+  Plotly.react("chart-grid-naive", [cell(naive, "naive minus entitlement")], lay, CONFIG);
+  const cells = names.length * G.length;
+  const exact = ours.flat().filter((v) => close(v, 0)).length;
+  const wrong = naive.flat().filter((v) => !close(v, 0)).length;
+  const over = naive.flat().filter((v) => v > 1e-6).reduce((a, v) => a + v, 0);
+  const under = -naive.flat().filter((v) => v < -1e-6).reduce((a, v) => a + v, 0);
+  document.getElementById("grid-verdict").innerHTML =
+    `<span><span class="chip yes">exact</span> bond_servicing: <strong>${exact} of ${cells}</strong> holder-coupon payments equal the 09:00 entitlement</span>` +
+    `<span><span class="chip no">wrong</span> paying at payment time: <strong>${wrong} of ${cells}</strong> would be wrong (${money(over)} overpaid, ${money(under)} underpaid)</span>`;
+  document.getElementById("grid-note").textContent =
+    `Each cell is one holder at one coupon: what the holder was paid minus what the depository's 09:00 list entitles them to ` +
+    `(${DATA.comparison.perBond} per bond held at 09:00). Gray means exact. Every input is measured on ${DATA.cluster}: balances at the record moment, ` +
+    `balances just before payment, and cash received. ${trades.length} trades happened right after record moments; on the right, each of them ` +
+    `turns into wrong payments if the coupon goes to whoever holds the bond when it is paid.`;
+  document.getElementById("ours-trades").textContent = `${trades.length} trades settled ${lagText()} after a record moment`;
+}
+
+// ---------- 2. every holder, every cutoff (small multiples) ----------
+function renderHolders() {
+  const t0 = DATA.creationTime, t1 = DATA.timeline[DATA.timeline.length - 1].t + 10;
+  const k = names.length, gap = 0.03, h = (1 - gap * (k - 1)) / k;
+  const per = DATA.comparison.perBond;
+  const traces = [];
+  const lay = layout({ showlegend: false, hovermode: "closest", margin: { l: 64, r: 16, t: 10, b: 48 } });
+  names.forEach((n, i) => {
+    const ax = i === 0 ? "" : String(i + 1);
+    const top = 1 - i * (h + gap), bottom = top - h;
+    lay["yaxis" + ax] = axis({ domain: [bottom, top], rangemode: "tozero", nticks: 3, title: { text: title(n), font: { color: css("--ink"), size: 12 } } });
+    const s = steps("bonds", n, t0, t1);
+    traces.push({ x: s.x, y: s.y, xaxis: "x", yaxis: "y" + ax, type: "scatter", mode: "lines", line: { shape: "hv", width: 2, color: color(n) },
+                  hovertemplate: `${title(n)} holds %{y}<extra></extra>` });
+    traces.push({
+      x: DATA.grid.map((g) => utc(g.recordTime)), y: DATA.grid.map((g) => g.paid[n] / per), xaxis: "x", yaxis: "y" + ax,
+      type: "scatter", mode: "markers", marker: { size: 9, color: css("--ink"), line: { color: css("--surface"), width: 2 } },
+      customdata: DATA.grid.map((g) => [g.coupon + 1, g.atRecord[n], g.paid[n]]),
+      hovertemplate: `${title(n)}, coupon %{customdata[0]}: paid %{customdata[2]} = paid on %{y} bonds; held %{customdata[1]} at 09:00<extra></extra>`,
+    });
+  });
+  lay.xaxis = axis({ anchor: "y" + names.length, tickformat: "%H:%M", title: { text: "chain time (UTC); dotted lines = 09:00 record moments", font: { color: css("--muted") } } });
+  lay.shapes = cutLines();
+  Plotly.react("chart-holders", traces, lay, CONFIG);
+  const onLine = DATA.grid.every((g) => names.every((n) => close(g.paid[n] / per, g.atRecord[n])));
+  document.getElementById("holders-note").textContent =
+    `One panel per holder: the colored line is the holder's bond balance measured on the ledger; each black dot is a coupon, placed at its 09:00 ` +
+    `record moment at the number of bonds it was actually paid on (cash received / ${per}). ` +
+    (onLine ? "Every dot lies on its holder's line at 09:00: each coupon followed the 09:00 balance, whatever happened seconds later. "
+            : "Some dots are off the line: those coupons did not follow the 09:00 balance. ") +
+    `Hover a dot for the numbers.`;
+}
+
+// ---------- 3. zoom on the first cutoff ----------
+function renderZoom() {
+  const g = DATA.grid[0], rec = g.recordTime;
+  const pays = DATA.events.filter((e) => e.kind === "coupon" && e.coupon === 0);
+  const t0 = rec - 10, t1 = Math.max(...pays.map((e) => e.t)) + 5;
+  const traces = names.map((n) => {
+    const s = steps("bonds", n, t0, t1);
+    return { x: s.x, y: s.y, name: title(n), type: "scatter", mode: "lines", line: { shape: "hv", width: 2, color: color(n) },
+             hovertemplate: `${title(n)}: %{y}<extra></extra>` };
+  });
+  const ann = [{ x: utc(rec), yref: "paper", y: 1, text: "record moment<br>09:00 bond time", showarrow: false, xanchor: "right",
+                 yanchor: "top", align: "right", font: { color: css("--ink"), size: 11 } }];
+  trades.filter((e) => e.t >= t0 && e.t <= t1).forEach((e, i) => {
+    const to = Object.entries(e.moves).find(([, m]) => m.bonds > 0)[0];
+    ann.push({ x: utc(e.t), y: stateAt(e.t).bonds[to], text: tradeText(e), showarrow: true, arrowcolor: css("--muted"),
+               ax: 50, ay: -24 - i * 22, font: { color: css("--ink"), size: 11 } });
+  });
+  Plotly.react("chart-zoom", traces, layout({
+    shapes: [{ type: "line", x0: utc(rec), x1: utc(rec), yref: "paper", y0: 0, y1: 1, line: { color: css("--ink"), width: 1.5, dash: "dot" } }],
+    annotations: ann, hovermode: "x unified",
+    yaxis: axis({ rangemode: "tozero", title: { text: "bonds held", font: { color: css("--muted") } } }),
+    xaxis: axis({ tickformat: "%H:%M:%S", title: { text: "chain time (UTC)", font: { color: css("--muted") } } }),
+  }), CONFIG);
+  const held = (o) => names.map((n) => `${title(n)} ${o[n]}`).join(", ");
+  const rows = [`<tr><td class="mono">${fmtTime(rec)}</td><td>Record moment passes (09:00 bond time on ${g.payDate}). Balances: ${held(g.atRecord)}</td><td></td></tr>`];
+  for (const e of DATA.events.filter((e) => e.t >= t0 && e.t <= t1)) {
+    let what = e.kind;
+    if (e.kind === "trade") what = `Sale settles: ${tradeText(e)} bonds`;
+    if (e.kind === "coupon") what = Object.entries(e.moves).map(([n, m]) => `${title(n)} receives ${money(m.cash)} (holds ${stateAt(e.t).bonds[n]}, held ${g.atRecord[n]} at 09:00)`).join(", ");
+    if (e.kind === "funding") what = "Issuer funds the payment vault";
+    rows.push(`<tr><td class="mono">${fmtTime(e.t)}</td><td>${what}</td><td class="mono"><a href="${e.link}">${shortSig(e.signature)}</a></td></tr>`);
+  }
+  document.querySelector("#table-zoom tbody").innerHTML = rows.join("");
+  const first = trades.find((e) => e.t >= rec);
+  document.getElementById("zoom-note").textContent =
+    `The dotted line is the first record moment. ${first ? "The first sale settles " + (first.t - rec).toFixed(0) + " s later (block times are whole seconds). " : ""}` +
+    `Payments then follow the balances at the dotted line, not the balances at payment time. Every row below links to its ${DATA.cluster} transaction.`;
+  document.getElementById("zoom-title").textContent = first
+    ? `A sale ${(first.t - rec).toFixed(0)} s after 09:00 settles, and the coupon still follows the 09:00 list`
+    : "The coupon follows the 09:00 list";
+}
+
+// ---------- 4. the whole bond ----------
+function renderLife() {
+  const t0 = DATA.creationTime, t1 = DATA.timeline[DATA.timeline.length - 1].t + 10;
+  const mk = (key) => names.map((n) => {
+    const s = steps(key, n, t0, t1);
+    return { x: s.x, y: s.y, name: title(n), type: "scatter", mode: "lines", line: { shape: "hv", width: 2, color: color(n) },
+             hovertemplate: `${title(n)}: %{y}<extra></extra>` };
+  });
+  const common = (label) => layout({ hovermode: "x unified", shapes: cutLines(), margin: { l: 52, r: 12, t: 16, b: 80 },
+    legend: { orientation: "h", x: 0, y: -0.32, font: { color: css("--ink") } },
+    xaxis: axis({ tickformat: "%H:%M" }), yaxis: axis({ rangemode: "tozero", title: { text: label, font: { color: css("--muted") } } }) });
+  Plotly.react("chart-life-cash", mk("cash"), common("cash received"), CONFIG);
+  Plotly.react("chart-life-bonds", mk("bonds"), common("bonds held"), CONFIG);
+  const f = DATA.finalCash.measured;
+  document.getElementById("life-note").textContent =
+    `Devnet compresses time: 1 bond day = ${DATA.scale} s, so the two-year bond ran in about ${Math.round((t1 - t0) / 60)} minutes. ` +
+    `Dotted lines are the four 09:00 record moments. Final cash: ${names.map((n) => `${title(n)} ${money(f[n])}`).join(", ")}. Every bond was burned at redemption.`;
+}
+
+// ---------- 5. audit ----------
+function renderAudit() {
+  const f = DATA.finalCash;
+  const bar = (key, name, extra) => Object.assign({ type: "bar", name, x: names.map(title), y: names.map((n) => f[key][n]),
+    text: names.map((n) => money(f[key][n])), textposition: "outside", textfont: { color: css("--ink") }, cliponaxis: false,
+    hovertemplate: `%{x} ${key}: %{y}<extra></extra>` }, extra);
+  Plotly.react("chart-audit", [
+    bar("measured", "Measured on the ledger", { marker: { color: names.map(color), line: { color: css("--surface"), width: 2 } } }),
+    bar("calculated", "Calculated from the terms", { marker: { color: names.map(color), opacity: 0.55, pattern: { shape: "/", fgcolor: css("--surface"), size: 6 }, line: { color: css("--surface"), width: 2 } } }),
+  ], layout({ barmode: "group", bargap: 0.3, yaxis: axis({ rangemode: "tozero", title: { text: "final cash", font: { color: css("--muted") } } }) }), CONFIG);
+  const a = DATA.audit, passed = a.checks.filter((c) => c.ok).length;
+  document.getElementById("audit-note").textContent =
+    `An independent auditor read every token account and every transaction of this bond from public ${DATA.cluster} RPC (${a.transactions} transactions), ` +
+    `without reading our program's accounts or our reports, and compared them with the bond terms: ${passed} of ${a.checks.length} checks passed. ` +
+    `Solid bars are measured, hatched bars are calculated.`;
+  document.getElementById("checks").innerHTML = a.checks.map((c) =>
+    `<div><span class="chip ${c.ok ? "yes" : "no"}">${c.ok ? "pass" : "fail"}</span><span><span class="mono">${c.id}</span> ${c.label}</span></div>`).join("");
+}
+
+function renderSummary() {
+  const G = DATA.grid, cells = names.length * G.length;
+  const exact = G.reduce((a, g) => a + names.filter((n) => close(g.paid[n], g.expected[n])).length, 0);
+  const a = DATA.audit, passed = a.checks.filter((c) => c.ok).length;
+  document.getElementById("psr-result").textContent =
+    `${trades.length} trades settled ${lagText()} after record moments; ${exact} of ${cells} holder-coupon payments equal the 09:00 entitlement; ` +
+    `the ledger audit passed ${passed} of ${a.checks.length} checks.`;
+  const h = DATA.holders.filter((x) => names.includes(x.name)).map((x) => `<a href="${x.link}">${title(x.name)}</a>`).join(", ");
+  document.getElementById("footer").innerHTML =
+    `<div>Scenario: ${DATA.scenario}. Cluster: ${DATA.cluster}, read through <code>${DATA.rpc}</code>. Page generated ${DATA.generated}.</div>` +
+    `<div>Accounts: <a href="${DATA.programLink}">program</a>, <a href="${DATA.bondMintLink}">bond token</a>, holders ${h}.</div>` +
+    `<div>Reproduce the audit: <code>.venv/bin/python3 tools/audit/audit.py ${DATA.scenarioFile} ${DATA.rpc} history-accounts</code></div>`;
+}
+
+function renderHeader() {
+  document.getElementById("head-eyebrow").textContent = `bond_servicing / KASE corporate actions / measured on Solana ${DATA.cluster}`;
+  document.getElementById("life-eyebrow").textContent = `The whole bond on ${DATA.cluster}`;
+}
+
+function renderAll() { renderHeader(); renderGrid(); renderHolders(); renderZoom(); renderLife(); renderAudit(); renderSummary(); }
+renderAll();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
+</body>
+</html>

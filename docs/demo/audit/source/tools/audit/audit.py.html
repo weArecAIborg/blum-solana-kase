@@ -1,0 +1,580 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tools/audit/audit.py · audit source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../stages.html">← Bond stages</a><h1>tools/audit/audit.py</h1>
+<p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 767ba59fbf6bf68d1fdeb3fd2eae5580bb5412e04f5e9d144a533be42a4747b4</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>&quot;&quot;&quot;Independent ledger audit: measure every wallet&#x27;s balances on the ledger and compare with the bond terms.</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code></code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>Method and rules: expertise/independent-ledger-audit.md.</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>  Measured side: Python standard library + standard Solana RPC only. It never reads the bond program&#x27;s accounts,</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>                 its IDL, or the operator&#x27;s report.</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>  Calculated side: the scenario input (scenarios/*.json) + reference math (QuantLib, FinancePy).</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code></code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>Usage: .venv/bin/python3 tools/audit/audit.py &lt;scenarios/NAME.json&gt; &lt;rpc url&gt; &lt;program-accounts|largest-accounts|history-accounts&gt;</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>Exit code 1 if any check fails.</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>&quot;&quot;&quot;</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code></code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>import json</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>import sys</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>import time</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>import urllib.error</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>import urllib.parse</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>import urllib.request</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>from collections import defaultdict</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>from datetime import datetime, timedelta, timezone</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>from decimal import ROUND_FLOOR, Decimal</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>from pathlib import Path</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code></code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>ROOT = Path(__file__).resolve().parents[2]</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>TOKEN = &quot;TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA&quot;</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>TOKEN_2022 = &quot;TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb&quot;</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>B58 = &quot;123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz&quot;</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code></code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>results = []</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>last_audit = {}  # what the last audit measured (read by tools/demo/build_demo.py)</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code></code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code></code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>def check(cid, label, ok, detail=&quot;&quot;):</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>    results.append((cid, label, ok))</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>    print(f&quot;  [{&#x27;PASS&#x27; if ok else &#x27;FAIL&#x27;}] {cid} {label}{(&#x27; - &#x27; + detail) if detail else &#x27;&#x27;}&quot;)</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code></code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code></code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code># ---------------------------------------------------------------- measurement side (stdlib only)</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code></code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>def b58encode(raw: bytes) -&gt; str:</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>    n = int.from_bytes(raw, &quot;big&quot;)</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>    out = &quot;&quot;</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    while n:</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>        n, r = divmod(n, 58)</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>        out = B58[r] + out</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>    return &quot;1&quot; * (len(raw) - len(raw.lstrip(b&quot;\0&quot;))) + out</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code></code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code></code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>def b58decode(text: str) -&gt; bytes:</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>    n = 0</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>    for ch in text:</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>        n = n * 58 + B58.index(ch)</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>    raw = n.to_bytes((n.bit_length() + 7) // 8, &quot;big&quot;)</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>    return b&quot;\0&quot; * (len(text) - len(text.lstrip(&quot;1&quot;))) + raw</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code></code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code></code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code># Token-2022 PermissionedBurn (instruction 46, sub-instructions Burn = 1, BurnChecked = 2), from the</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code># solana-program/token-2022 source. A node may not parse it yet; then it is read from the raw instruction.</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>PERMISSIONED_BURN = 46</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code></code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code></code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>def pubkey_of(keypair_file: str) -&gt; str:</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>    &quot;&quot;&quot;A Solana keypair file is 64 bytes: secret seed, then public key.&quot;&quot;&quot;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>    data = json.loads((ROOT / keypair_file).read_text())</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    return b58encode(bytes(data[32:64]))</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code></code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code></code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>class Rpc:</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>    &quot;&quot;&quot;Raw JSON-RPC client. Confirmed transactions do not change, so `getTransaction` replies are kept on disk</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>    (ops/out/rpc-cache/&lt;host&gt;/), and measuring the same history again does not download it again.</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>    A cached reply is used only if its slot is the slot the ledger reports now for that signature: fresh local</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>    networks at the same URL replay identical transactions with identical signatures in other slots (measured</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>    2026-10-08: 186 of 243 cached Surfpool replies carried the previous network&#x27;s slot and block time).&quot;&quot;&quot;</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code></code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    def __init__(self, url):</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>        self.url = url</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>        host = urllib.parse.urlparse(url).netloc.replace(&quot;:&quot;, &quot;_&quot;)</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>        self.cache = ROOT / &quot;ops/out/rpc-cache&quot; / host</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code></code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>    def call(self, method, params, slot=None):</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>        if method == &quot;getTransaction&quot;:</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>            path = self.cache / f&quot;{params[0]}.json&quot;</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>            if path.exists():</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>                cached = json.loads(path.read_text())</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>                if cached[&quot;slot&quot;] == slot:</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>                    return cached</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>            result = self._call(method, params)</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>            if result is not None:</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>                self.cache.mkdir(parents=True, exist_ok=True)</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>                path.write_text(json.dumps(result))</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>            return result</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code>        return self._call(method, params)</code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code></code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>    def _call(self, method, params):</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>        &quot;&quot;&quot;JSON-RPC call. Public RPC nodes rate-limit (HTTP 429) and sometimes time out: wait and retry the same</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>        request, up to 8 times.&quot;&quot;&quot;</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>        body = json.dumps({&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: method, &quot;params&quot;: params}).encode()</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>        for attempt in range(8):</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code>            req = urllib.request.Request(self.url, body, {&quot;Content-Type&quot;: &quot;application/json&quot;})</code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>            try:</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>                with urllib.request.urlopen(req, timeout=60) as resp:</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>                    reply = json.loads(resp.read())</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>            except urllib.error.HTTPError as e:</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>                if e.code != 429:</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>                    raise</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>                time.sleep(2 ** attempt)</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code>                continue</code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>            except (urllib.error.URLError, TimeoutError) as e:</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>                if not isinstance(getattr(e, &quot;reason&quot;, e), TimeoutError) and not isinstance(e, TimeoutError):</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>                    raise</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code>                time.sleep(2 ** attempt)</code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>                continue</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code>            if &quot;error&quot; in reply and reply[&quot;error&quot;].get(&quot;code&quot;) == 429:</code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code>                time.sleep(2 ** attempt)</code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>                continue</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>            if &quot;error&quot; in reply:</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>                raise RuntimeError(f&quot;{method}: {reply[&#x27;error&#x27;]}&quot;)</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code>            return reply[&quot;result&quot;]</code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>        raise RuntimeError(f&quot;{method}: still rate-limited or timing out after 8 attempts&quot;)</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code></code></span>
+<span class="line" id="L120"><a href="#L120" aria-label="Line 120">120</a><code></code></span>
+<span class="line" id="L121"><a href="#L121" aria-label="Line 121">121</a><code>def measure_state(rpc, mint, program, source, history_accounts=()):</code></span>
+<span class="line" id="L122"><a href="#L122" aria-label="Line 122">122</a><code>    &quot;&quot;&quot;Channel S: every token account of the mint (owner, amount) as parsed by the node, and the supply.</code></span>
+<span class="line" id="L123"><a href="#L123" aria-label="Line 123">123</a><code></code></span>
+<span class="line" id="L124"><a href="#L124" aria-label="Line 124">124</a><code>    source = &quot;program-accounts&quot;: getProgramAccounts filtered by mint (complete; local nodes allow it).</code></span>
+<span class="line" id="L125"><a href="#L125" aria-label="Line 125">125</a><code>    source = &quot;history-accounts&quot;: getMultipleAccounts over every token account seen in channel H (public devnet RPC</code></span>
+<span class="line" id="L126"><a href="#L126" aria-label="Line 126">126</a><code>    rate-limits getTokenLargestAccounts persistently). Completeness again rests on M1 and M3.</code></span>
+<span class="line" id="L127"><a href="#L127" aria-label="Line 127">127</a><code>    source = &quot;largest-accounts&quot;: getTokenLargestAccounts + getMultipleAccounts (public devnet RPC refuses the</code></span>
+<span class="line" id="L128"><a href="#L128" aria-label="Line 128">128</a><code>    program-wide scan). It returns at most 20 accounts and may omit zero balances; M1 (sum = supply) and M3 (history</code></span>
+<span class="line" id="L129"><a href="#L129" aria-label="Line 129">129</a><code>    of every account seen) prove nothing with a balance was missed.</code></span>
+<span class="line" id="L130"><a href="#L130" aria-label="Line 130">130</a><code>    &quot;&quot;&quot;</code></span>
+<span class="line" id="L131"><a href="#L131" aria-label="Line 131">131</a><code>    state = {}</code></span>
+<span class="line" id="L132"><a href="#L132" aria-label="Line 132">132</a><code>    if source == &quot;program-accounts&quot;:</code></span>
+<span class="line" id="L133"><a href="#L133" aria-label="Line 133">133</a><code>        accounts = rpc.call(&quot;getProgramAccounts&quot;, [program, {&quot;encoding&quot;: &quot;jsonParsed&quot;,</code></span>
+<span class="line" id="L134"><a href="#L134" aria-label="Line 134">134</a><code>                                                            &quot;filters&quot;: [{&quot;memcmp&quot;: {&quot;offset&quot;: 0, &quot;bytes&quot;: mint}}]}])</code></span>
+<span class="line" id="L135"><a href="#L135" aria-label="Line 135">135</a><code>        parsed_list = [(a[&quot;pubkey&quot;], a[&quot;account&quot;][&quot;data&quot;][&quot;parsed&quot;]) for a in accounts]</code></span>
+<span class="line" id="L136"><a href="#L136" aria-label="Line 136">136</a><code>    elif source == &quot;largest-accounts&quot;:</code></span>
+<span class="line" id="L137"><a href="#L137" aria-label="Line 137">137</a><code>        addresses = [a[&quot;address&quot;] for a in rpc.call(&quot;getTokenLargestAccounts&quot;, [mint])[&quot;value&quot;]]</code></span>
+<span class="line" id="L138"><a href="#L138" aria-label="Line 138">138</a><code>        infos = rpc.call(&quot;getMultipleAccounts&quot;, [addresses, {&quot;encoding&quot;: &quot;jsonParsed&quot;}])[&quot;value&quot;] if addresses else []</code></span>
+<span class="line" id="L139"><a href="#L139" aria-label="Line 139">139</a><code>        parsed_list = [(addr, info[&quot;data&quot;][&quot;parsed&quot;]) for addr, info in zip(addresses, infos) if info]</code></span>
+<span class="line" id="L140"><a href="#L140" aria-label="Line 140">140</a><code>    elif source == &quot;history-accounts&quot;:</code></span>
+<span class="line" id="L141"><a href="#L141" aria-label="Line 141">141</a><code>        # Every token account the runtime recorded in channel H, read now. Tokens held anywhere else would make</code></span>
+<span class="line" id="L142"><a href="#L142" aria-label="Line 142">142</a><code>        # M1 (sum = supply) fail; a change history missed would make M3 fail.</code></span>
+<span class="line" id="L143"><a href="#L143" aria-label="Line 143">143</a><code>        addresses = sorted(history_accounts)</code></span>
+<span class="line" id="L144"><a href="#L144" aria-label="Line 144">144</a><code>        parsed_list = []</code></span>
+<span class="line" id="L145"><a href="#L145" aria-label="Line 145">145</a><code>        for i in range(0, len(addresses), 100):</code></span>
+<span class="line" id="L146"><a href="#L146" aria-label="Line 146">146</a><code>            batch = addresses[i:i + 100]</code></span>
+<span class="line" id="L147"><a href="#L147" aria-label="Line 147">147</a><code>            infos = rpc.call(&quot;getMultipleAccounts&quot;, [batch, {&quot;encoding&quot;: &quot;jsonParsed&quot;}])[&quot;value&quot;]</code></span>
+<span class="line" id="L148"><a href="#L148" aria-label="Line 148">148</a><code>            parsed_list += [(addr, info[&quot;data&quot;][&quot;parsed&quot;]) for addr, info in zip(batch, infos) if info]</code></span>
+<span class="line" id="L149"><a href="#L149" aria-label="Line 149">149</a><code>    else:</code></span>
+<span class="line" id="L150"><a href="#L150" aria-label="Line 150">150</a><code>        raise ValueError(f&quot;unknown state source {source}&quot;)</code></span>
+<span class="line" id="L151"><a href="#L151" aria-label="Line 151">151</a><code>    for pubkey, parsed in parsed_list:</code></span>
+<span class="line" id="L152"><a href="#L152" aria-label="Line 152">152</a><code>        if parsed[&quot;type&quot;] != &quot;account&quot; or parsed[&quot;info&quot;][&quot;mint&quot;] != mint:</code></span>
+<span class="line" id="L153"><a href="#L153" aria-label="Line 153">153</a><code>            continue</code></span>
+<span class="line" id="L154"><a href="#L154" aria-label="Line 154">154</a><code>        state[pubkey] = {&quot;owner&quot;: parsed[&quot;info&quot;][&quot;owner&quot;], &quot;amount&quot;: int(parsed[&quot;info&quot;][&quot;tokenAmount&quot;][&quot;amount&quot;])}</code></span>
+<span class="line" id="L155"><a href="#L155" aria-label="Line 155">155</a><code>    supply = int(rpc.call(&quot;getTokenSupply&quot;, [mint])[&quot;value&quot;][&quot;amount&quot;])</code></span>
+<span class="line" id="L156"><a href="#L156" aria-label="Line 156">156</a><code>    return state, supply</code></span>
+<span class="line" id="L157"><a href="#L157" aria-label="Line 157">157</a><code></code></span>
+<span class="line" id="L158"><a href="#L158" aria-label="Line 158">158</a><code></code></span>
+<span class="line" id="L159"><a href="#L159" aria-label="Line 159">159</a><code>def signatures(rpc, address):</code></span>
+<span class="line" id="L160"><a href="#L160" aria-label="Line 160">160</a><code>    sigs, before = [], None</code></span>
+<span class="line" id="L161"><a href="#L161" aria-label="Line 161">161</a><code>    while True:</code></span>
+<span class="line" id="L162"><a href="#L162" aria-label="Line 162">162</a><code>        opts = {&quot;limit&quot;: 1000, &quot;commitment&quot;: &quot;confirmed&quot;}</code></span>
+<span class="line" id="L163"><a href="#L163" aria-label="Line 163">163</a><code>        if before:</code></span>
+<span class="line" id="L164"><a href="#L164" aria-label="Line 164">164</a><code>            opts[&quot;before&quot;] = before</code></span>
+<span class="line" id="L165"><a href="#L165" aria-label="Line 165">165</a><code>        page = rpc.call(&quot;getSignaturesForAddress&quot;, [address, opts])</code></span>
+<span class="line" id="L166"><a href="#L166" aria-label="Line 166">166</a><code>        sigs += page</code></span>
+<span class="line" id="L167"><a href="#L167" aria-label="Line 167">167</a><code>        if len(page) &lt; 1000:</code></span>
+<span class="line" id="L168"><a href="#L168" aria-label="Line 168">168</a><code>            return sigs</code></span>
+<span class="line" id="L169"><a href="#L169" aria-label="Line 169">169</a><code>        before = page[-1][&quot;signature&quot;]</code></span>
+<span class="line" id="L170"><a href="#L170" aria-label="Line 170">170</a><code></code></span>
+<span class="line" id="L171"><a href="#L171" aria-label="Line 171">171</a><code></code></span>
+<span class="line" id="L172"><a href="#L172" aria-label="Line 172">172</a><code>def measure_history(rpc, addresses):</code></span>
+<span class="line" id="L173"><a href="#L173" aria-label="Line 173">173</a><code>    &quot;&quot;&quot;Channel H: every transaction touching the addresses, with runtime-recorded token balances before/after.</code></span>
+<span class="line" id="L174"><a href="#L174" aria-label="Line 174">174</a><code></code></span>
+<span class="line" id="L175"><a href="#L175" aria-label="Line 175">175</a><code>    The addresses are the two mints plus the bond&#x27;s authority and its vaults (all public). The union matters: on</code></span>
+<span class="line" id="L176"><a href="#L176" aria-label="Line 176">176</a><code>    2026-10-08 public devnet RPC returned the mints&#x27; histories with a contiguous block of 60 finalized transactions</code></span>
+<span class="line" id="L177"><a href="#L177" aria-label="Line 177">177</a><code>    missing, while the vault&#x27;s history returned them. A transaction no address lists would still be caught by M3.&quot;&quot;&quot;</code></span>
+<span class="line" id="L178"><a href="#L178" aria-label="Line 178">178</a><code>    seen = {}</code></span>
+<span class="line" id="L179"><a href="#L179" aria-label="Line 179">179</a><code>    for address in addresses:</code></span>
+<span class="line" id="L180"><a href="#L180" aria-label="Line 180">180</a><code>        for s in signatures(rpc, address):</code></span>
+<span class="line" id="L181"><a href="#L181" aria-label="Line 181">181</a><code>            seen[s[&quot;signature&quot;]] = s</code></span>
+<span class="line" id="L182"><a href="#L182" aria-label="Line 182">182</a><code>    txs = []</code></span>
+<span class="line" id="L183"><a href="#L183" aria-label="Line 183">183</a><code>    for sig in seen:</code></span>
+<span class="line" id="L184"><a href="#L184" aria-label="Line 184">184</a><code>        tx = rpc.call(&quot;getTransaction&quot;, [sig, {&quot;encoding&quot;: &quot;jsonParsed&quot;, &quot;maxSupportedTransactionVersion&quot;: 0,</code></span>
+<span class="line" id="L185"><a href="#L185" aria-label="Line 185">185</a><code>                                               &quot;commitment&quot;: &quot;confirmed&quot;}], seen[sig][&quot;slot&quot;])</code></span>
+<span class="line" id="L186"><a href="#L186" aria-label="Line 186">186</a><code>        keys = [k[&quot;pubkey&quot;] for k in tx[&quot;transaction&quot;][&quot;message&quot;][&quot;accountKeys&quot;]]</code></span>
+<span class="line" id="L187"><a href="#L187" aria-label="Line 187">187</a><code>        meta = tx[&quot;meta&quot;]</code></span>
+<span class="line" id="L188"><a href="#L188" aria-label="Line 188">188</a><code>        balances = defaultdict(lambda: {&quot;pre&quot;: 0, &quot;post&quot;: 0, &quot;owner&quot;: None, &quot;mint&quot;: None})</code></span>
+<span class="line" id="L189"><a href="#L189" aria-label="Line 189">189</a><code>        for side in (&quot;pre&quot;, &quot;post&quot;):</code></span>
+<span class="line" id="L190"><a href="#L190" aria-label="Line 190">190</a><code>            for b in meta[f&quot;{side}TokenBalances&quot;]:</code></span>
+<span class="line" id="L191"><a href="#L191" aria-label="Line 191">191</a><code>                entry = balances[keys[b[&quot;accountIndex&quot;]]]</code></span>
+<span class="line" id="L192"><a href="#L192" aria-label="Line 192">192</a><code>                entry[side] = int(b[&quot;uiTokenAmount&quot;][&quot;amount&quot;])</code></span>
+<span class="line" id="L193"><a href="#L193" aria-label="Line 193">193</a><code>                entry[&quot;owner&quot;], entry[&quot;mint&quot;] = b.get(&quot;owner&quot;), b[&quot;mint&quot;]</code></span>
+<span class="line" id="L194"><a href="#L194" aria-label="Line 194">194</a><code>        minted, burned = defaultdict(int), defaultdict(int)</code></span>
+<span class="line" id="L195"><a href="#L195" aria-label="Line 195">195</a><code>        instructions = list(tx[&quot;transaction&quot;][&quot;message&quot;][&quot;instructions&quot;])</code></span>
+<span class="line" id="L196"><a href="#L196" aria-label="Line 196">196</a><code>        for inner in meta.get(&quot;innerInstructions&quot;) or []:</code></span>
+<span class="line" id="L197"><a href="#L197" aria-label="Line 197">197</a><code>            instructions += inner[&quot;instructions&quot;]</code></span>
+<span class="line" id="L198"><a href="#L198" aria-label="Line 198">198</a><code>        for ix in instructions:</code></span>
+<span class="line" id="L199"><a href="#L199" aria-label="Line 199">199</a><code>            parsed = ix.get(&quot;parsed&quot;)</code></span>
+<span class="line" id="L200"><a href="#L200" aria-label="Line 200">200</a><code>            if ix.get(&quot;programId&quot;) == TOKEN_2022 and &quot;data&quot; in ix and not parsed:</code></span>
+<span class="line" id="L201"><a href="#L201" aria-label="Line 201">201</a><code>                raw = b58decode(ix[&quot;data&quot;])</code></span>
+<span class="line" id="L202"><a href="#L202" aria-label="Line 202">202</a><code>                if len(raw) &gt;= 10 and raw[0] == PERMISSIONED_BURN and raw[1] in (1, 2):</code></span>
+<span class="line" id="L203"><a href="#L203" aria-label="Line 203">203</a><code>                    burned[ix[&quot;accounts&quot;][1]] += int.from_bytes(raw[2:10], &quot;little&quot;)</code></span>
+<span class="line" id="L204"><a href="#L204" aria-label="Line 204">204</a><code>                continue</code></span>
+<span class="line" id="L205"><a href="#L205" aria-label="Line 205">205</a><code>            if not isinstance(parsed, dict) or ix.get(&quot;program&quot;) not in (&quot;spl-token&quot;, &quot;spl-token-2022&quot;):</code></span>
+<span class="line" id="L206"><a href="#L206" aria-label="Line 206">206</a><code>                continue</code></span>
+<span class="line" id="L207"><a href="#L207" aria-label="Line 207">207</a><code>            info = parsed.get(&quot;info&quot;, {})</code></span>
+<span class="line" id="L208"><a href="#L208" aria-label="Line 208">208</a><code>            amount = info.get(&quot;amount&quot;) or (info.get(&quot;tokenAmount&quot;) or {}).get(&quot;amount&quot;)</code></span>
+<span class="line" id="L209"><a href="#L209" aria-label="Line 209">209</a><code>            kind = parsed[&quot;type&quot;].lower()</code></span>
+<span class="line" id="L210"><a href="#L210" aria-label="Line 210">210</a><code>            if kind in (&quot;mintto&quot;, &quot;minttochecked&quot;):</code></span>
+<span class="line" id="L211"><a href="#L211" aria-label="Line 211">211</a><code>                minted[info[&quot;mint&quot;]] += int(amount)</code></span>
+<span class="line" id="L212"><a href="#L212" aria-label="Line 212">212</a><code>            elif &quot;burn&quot; in kind and &quot;mint&quot; in info and amount is not None:</code></span>
+<span class="line" id="L213"><a href="#L213" aria-label="Line 213">213</a><code>                burned[info[&quot;mint&quot;]] += int(amount)</code></span>
+<span class="line" id="L214"><a href="#L214" aria-label="Line 214">214</a><code>        txs.append({</code></span>
+<span class="line" id="L215"><a href="#L215" aria-label="Line 215">215</a><code>            &quot;signature&quot;: sig, &quot;slot&quot;: tx[&quot;slot&quot;], &quot;blockTime&quot;: tx[&quot;blockTime&quot;], &quot;failed&quot;: meta[&quot;err&quot;] is not None,</code></span>
+<span class="line" id="L216"><a href="#L216" aria-label="Line 216">216</a><code>            &quot;deltas&quot;: {acct: {&quot;owner&quot;: b[&quot;owner&quot;], &quot;mint&quot;: b[&quot;mint&quot;], &quot;delta&quot;: b[&quot;post&quot;] - b[&quot;pre&quot;]}</code></span>
+<span class="line" id="L217"><a href="#L217" aria-label="Line 217">217</a><code>                       for acct, b in balances.items()},</code></span>
+<span class="line" id="L218"><a href="#L218" aria-label="Line 218">218</a><code>            &quot;minted&quot;: dict(minted), &quot;burned&quot;: dict(burned),</code></span>
+<span class="line" id="L219"><a href="#L219" aria-label="Line 219">219</a><code>        })</code></span>
+<span class="line" id="L220"><a href="#L220" aria-label="Line 220">220</a><code>    txs.sort(key=lambda t: (t[&quot;slot&quot;], t[&quot;blockTime&quot;] or 0))</code></span>
+<span class="line" id="L221"><a href="#L221" aria-label="Line 221">221</a><code>    return txs</code></span>
+<span class="line" id="L222"><a href="#L222" aria-label="Line 222">222</a><code></code></span>
+<span class="line" id="L223"><a href="#L223" aria-label="Line 223">223</a><code></code></span>
+<span class="line" id="L224"><a href="#L224" aria-label="Line 224">224</a><code># ---------------------------------------------------------------- calculated side (scenario + reference math)</code></span>
+<span class="line" id="L225"><a href="#L225" aria-label="Line 225">225</a><code></code></span>
+<span class="line" id="L226"><a href="#L226" aria-label="Line 226">226</a><code>def record_moment_unix(date_iso, local_hhmm, utc_offset_hours):</code></span>
+<span class="line" id="L227"><a href="#L227" aria-label="Line 227">227</a><code>    y, m, d = map(int, date_iso.split(&quot;-&quot;))</code></span>
+<span class="line" id="L228"><a href="#L228" aria-label="Line 228">228</a><code>    h, mi = map(int, local_hhmm.split(&quot;:&quot;))</code></span>
+<span class="line" id="L229"><a href="#L229" aria-label="Line 229">229</a><code>    return int(datetime(y, m, d, h, mi, tzinfo=timezone(timedelta(hours=utc_offset_hours))).timestamp())</code></span>
+<span class="line" id="L230"><a href="#L230" aria-label="Line 230">230</a><code></code></span>
+<span class="line" id="L231"><a href="#L231" aria-label="Line 231">231</a><code></code></span>
+<span class="line" id="L232"><a href="#L232" aria-label="Line 232">232</a><code>def timeline(placements, trades, offers, record_times):</code></span>
+<span class="line" id="L233"><a href="#L233" aria-label="Line 233">233</a><code>    &quot;&quot;&quot;Positions over the bond&#x27;s life from the scenario alone, in the operator&#x27;s order. After each record moment k:</code></span>
+<span class="line" id="L234"><a href="#L234" aria-label="Line 234">234</a><code>    the trades of phase k, then the offer actions of phase k (buyback sales retire bonds at once; tenders and</code></span>
+<span class="line" id="L235"><a href="#L235" aria-label="Line 235">235</a><code>    withdrawals only count). A tender offer is settled in the first phase whose next record moment comes after the</code></span>
+<span class="line" id="L236"><a href="#L236" aria-label="Line 236">236</a><code>    offer&#x27;s close: everything tendered if the offer is not oversubscribed, else, in tender order, each tender&#x27;s</code></span>
+<span class="line" id="L237"><a href="#L237" aria-label="Line 237">237</a><code>    running-total pro-rata share minus that of the tenders before it.</code></span>
+<span class="line" id="L238"><a href="#L238" aria-label="Line 238">238</a><code>    Returns the positions at each record moment, the final positions, each holder&#x27;s bond movements and retirements</code></span>
+<span class="line" id="L239"><a href="#L239" aria-label="Line 239">239</a><code>    (burned, cash) in ledger order, and the offers&#x27; total budget.&quot;&quot;&quot;</code></span>
+<span class="line" id="L240"><a href="#L240" aria-label="Line 240">240</a><code>    pos = defaultdict(int, placements)</code></span>
+<span class="line" id="L241"><a href="#L241" aria-label="Line 241">241</a><code>    moves = defaultdict(list)</code></span>
+<span class="line" id="L242"><a href="#L242" aria-label="Line 242">242</a><code>    for h, n in placements.items():</code></span>
+<span class="line" id="L243"><a href="#L243" aria-label="Line 243">243</a><code>        moves[h].append(n)</code></span>
+<span class="line" id="L244"><a href="#L244" aria-label="Line 244">244</a><code>    retire = defaultdict(list)</code></span>
+<span class="line" id="L245"><a href="#L245" aria-label="Line 245">245</a><code>    at_record = []</code></span>
+<span class="line" id="L246"><a href="#L246" aria-label="Line 246">246</a><code>    tendered = {o[&quot;id&quot;]: {} for o in offers}</code></span>
+<span class="line" id="L247"><a href="#L247" aria-label="Line 247">247</a><code>    settled = set()</code></span>
+<span class="line" id="L248"><a href="#L248" aria-label="Line 248">248</a><code></code></span>
+<span class="line" id="L249"><a href="#L249" aria-label="Line 249">249</a><code>    def close_time(o):</code></span>
+<span class="line" id="L250"><a href="#L250" aria-label="Line 250">250</a><code>        return record_times[o[&quot;close&quot;][&quot;recordMoment&quot;]] + o[&quot;close&quot;][&quot;plusDays&quot;] * 86_400</code></span>
+<span class="line" id="L251"><a href="#L251" aria-label="Line 251">251</a><code></code></span>
+<span class="line" id="L252"><a href="#L252" aria-label="Line 252">252</a><code>    def retire_now(h, q, price):</code></span>
+<span class="line" id="L253"><a href="#L253" aria-label="Line 253">253</a><code>        pos[h] -= q</code></span>
+<span class="line" id="L254"><a href="#L254" aria-label="Line 254">254</a><code>        moves[h].append(-q)</code></span>
+<span class="line" id="L255"><a href="#L255" aria-label="Line 255">255</a><code>        retire[h].append((q, q * price))</code></span>
+<span class="line" id="L256"><a href="#L256" aria-label="Line 256">256</a><code></code></span>
+<span class="line" id="L257"><a href="#L257" aria-label="Line 257">257</a><code>    for k in range(len(record_times)):</code></span>
+<span class="line" id="L258"><a href="#L258" aria-label="Line 258">258</a><code>        at_record.append(dict(pos))</code></span>
+<span class="line" id="L259"><a href="#L259" aria-label="Line 259">259</a><code>        for tr in [x for x in trades if x[&quot;afterRecordMoment&quot;] == k]:</code></span>
+<span class="line" id="L260"><a href="#L260" aria-label="Line 260">260</a><code>            pos[tr[&quot;from&quot;]] -= tr[&quot;amount&quot;]</code></span>
+<span class="line" id="L261"><a href="#L261" aria-label="Line 261">261</a><code>            pos[tr[&quot;to&quot;]] += tr[&quot;amount&quot;]</code></span>
+<span class="line" id="L262"><a href="#L262" aria-label="Line 262">262</a><code>            moves[tr[&quot;from&quot;]].append(-tr[&quot;amount&quot;])</code></span>
+<span class="line" id="L263"><a href="#L263" aria-label="Line 263">263</a><code>            moves[tr[&quot;to&quot;]].append(tr[&quot;amount&quot;])</code></span>
+<span class="line" id="L264"><a href="#L264" aria-label="Line 264">264</a><code>        for o in offers:</code></span>
+<span class="line" id="L265"><a href="#L265" aria-label="Line 265">265</a><code>            for a in [x for x in o[&quot;actions&quot;] if x[&quot;afterRecordMoment&quot;] == k]:</code></span>
+<span class="line" id="L266"><a href="#L266" aria-label="Line 266">266</a><code>                if &quot;sell&quot; in a:</code></span>
+<span class="line" id="L267"><a href="#L267" aria-label="Line 267">267</a><code>                    retire_now(a[&quot;holder&quot;], a[&quot;sell&quot;], int(o[&quot;priceUnits&quot;]))</code></span>
+<span class="line" id="L268"><a href="#L268" aria-label="Line 268">268</a><code>                else:</code></span>
+<span class="line" id="L269"><a href="#L269" aria-label="Line 269">269</a><code>                    t = tendered[o[&quot;id&quot;]]</code></span>
+<span class="line" id="L270"><a href="#L270" aria-label="Line 270">270</a><code>                    t[a[&quot;holder&quot;]] = t.get(a[&quot;holder&quot;], 0) + a.get(&quot;tender&quot;, 0) - a.get(&quot;withdraw&quot;, 0)</code></span>
+<span class="line" id="L271"><a href="#L271" aria-label="Line 271">271</a><code>        nxt = record_times[k + 1] if k + 1 &lt; len(record_times) else float(&quot;inf&quot;)</code></span>
+<span class="line" id="L272"><a href="#L272" aria-label="Line 272">272</a><code>        for o in offers:</code></span>
+<span class="line" id="L273"><a href="#L273" aria-label="Line 273">273</a><code>            if o[&quot;kind&quot;] != &quot;tender&quot; or o[&quot;id&quot;] in settled or close_time(o) &gt;= nxt:</code></span>
+<span class="line" id="L274"><a href="#L274" aria-label="Line 274">274</a><code>                continue</code></span>
+<span class="line" id="L275"><a href="#L275" aria-label="Line 275">275</a><code>            t = tendered[o[&quot;id&quot;]]</code></span>
+<span class="line" id="L276"><a href="#L276" aria-label="Line 276">276</a><code>            total, mx = sum(t.values()), o[&quot;maxQuantity&quot;]</code></span>
+<span class="line" id="L277"><a href="#L277" aria-label="Line 277">277</a><code>            # The program resolves tenders in the order they were made (each holder&#x27;s first tender) and gives each the</code></span>
+<span class="line" id="L278"><a href="#L278" aria-label="Line 278">278</a><code>            # running-total pro-rata share minus what the earlier ones received, so the offer buys exactly its maximum.</code></span>
+<span class="line" id="L279"><a href="#L279" aria-label="Line 279">279</a><code>            before = 0</code></span>
+<span class="line" id="L280"><a href="#L280" aria-label="Line 280">280</a><code>            for h, q in t.items():</code></span>
+<span class="line" id="L281"><a href="#L281" aria-label="Line 281">281</a><code>                accepted = q if total &lt;= mx else (before + q) * mx // total - before * mx // total</code></span>
+<span class="line" id="L282"><a href="#L282" aria-label="Line 282">282</a><code>                before += q</code></span>
+<span class="line" id="L283"><a href="#L283" aria-label="Line 283">283</a><code>                if q &gt; 0 and accepted &gt; 0:</code></span>
+<span class="line" id="L284"><a href="#L284" aria-label="Line 284">284</a><code>                    retire_now(h, accepted, int(o[&quot;priceUnits&quot;]))</code></span>
+<span class="line" id="L285"><a href="#L285" aria-label="Line 285">285</a><code>            settled.add(o[&quot;id&quot;])</code></span>
+<span class="line" id="L286"><a href="#L286" aria-label="Line 286">286</a><code>    budgets = sum(int(o[&quot;priceUnits&quot;]) * o[&quot;maxQuantity&quot;] for o in offers)</code></span>
+<span class="line" id="L287"><a href="#L287" aria-label="Line 287">287</a><code>    return {&quot;at_record&quot;: at_record, &quot;final&quot;: dict(pos), &quot;moves&quot;: moves, &quot;retire&quot;: retire, &quot;offer_budgets&quot;: budgets}</code></span>
+<span class="line" id="L288"><a href="#L288" aria-label="Line 288">288</a><code></code></span>
+<span class="line" id="L289"><a href="#L289" aria-label="Line 289">289</a><code></code></span>
+<span class="line" id="L290"><a href="#L290" aria-label="Line 290">290</a><code>def calculate(scn):</code></span>
+<span class="line" id="L291"><a href="#L291" aria-label="Line 291">291</a><code>    import QuantLib as ql</code></span>
+<span class="line" id="L292"><a href="#L292" aria-label="Line 292">292</a><code>    from financepy.products.bonds.bond import Bond as FpBond, CouponType</code></span>
+<span class="line" id="L293"><a href="#L293" aria-label="Line 293">293</a><code>    from financepy.utils.date import Date as FpDate</code></span>
+<span class="line" id="L294"><a href="#L294" aria-label="Line 294">294</a><code>    from financepy.utils.day_count import DayCountTypes</code></span>
+<span class="line" id="L295"><a href="#L295" aria-label="Line 295">295</a><code>    from financepy.utils.frequency import FrequencyTypes</code></span>
+<span class="line" id="L296"><a href="#L296" aria-label="Line 296">296</a><code></code></span>
+<span class="line" id="L297"><a href="#L297" aria-label="Line 297">297</a><code>    t = scn[&quot;terms&quot;]</code></span>
+<span class="line" id="L298"><a href="#L298" aria-label="Line 298">298</a><code>    face_units = int(t[&quot;faceUnits&quot;])</code></span>
+<span class="line" id="L299"><a href="#L299" aria-label="Line 299">299</a><code></code></span>
+<span class="line" id="L300"><a href="#L300" aria-label="Line 300">300</a><code>    def qd(s):</code></span>
+<span class="line" id="L301"><a href="#L301" aria-label="Line 301">301</a><code>        y, m, d = map(int, s.split(&quot;-&quot;))</code></span>
+<span class="line" id="L302"><a href="#L302" aria-label="Line 302">302</a><code>        return ql.Date(d, m, y)</code></span>
+<span class="line" id="L303"><a href="#L303" aria-label="Line 303">303</a><code></code></span>
+<span class="line" id="L304"><a href="#L304" aria-label="Line 304">304</a><code>    cal = ql.BespokeCalendar(&quot;bond&quot;)</code></span>
+<span class="line" id="L305"><a href="#L305" aria-label="Line 305">305</a><code>    for day in scn[&quot;weekend&quot;]:</code></span>
+<span class="line" id="L306"><a href="#L306" aria-label="Line 306">306</a><code>        cal.addWeekend(getattr(ql, day))</code></span>
+<span class="line" id="L307"><a href="#L307" aria-label="Line 307">307</a><code>    for line in (ROOT / scn[&quot;calendar&quot;]).read_text().splitlines():</code></span>
+<span class="line" id="L308"><a href="#L308" aria-label="Line 308">308</a><code>        if line and not line.startswith(&quot;#&quot;):</code></span>
+<span class="line" id="L309"><a href="#L309" aria-label="Line 309">309</a><code>            cal.addHoliday(qd(line))</code></span>
+<span class="line" id="L310"><a href="#L310" aria-label="Line 310">310</a><code>    sched = ql.Schedule(qd(t[&quot;issue&quot;]), qd(t[&quot;maturity&quot;]), ql.Period(t[&quot;monthsPerPeriod&quot;], ql.Months), cal,</code></span>
+<span class="line" id="L311"><a href="#L311" aria-label="Line 311">311</a><code>                        ql.Unadjusted, ql.Unadjusted, ql.DateGeneration.Backward, False)</code></span>
+<span class="line" id="L312"><a href="#L312" aria-label="Line 312">312</a><code>    pay_dates = [cal.adjust(sched[i], ql.Following) for i in range(1, len(sched))]</code></span>
+<span class="line" id="L313"><a href="#L313" aria-label="Line 313">313</a><code>    lag = t[&quot;recordBusinessDaysBeforePayment&quot;]</code></span>
+<span class="line" id="L314"><a href="#L314" aria-label="Line 314">314</a><code>    record_dates = [cal.advance(d, -lag, ql.Days) if lag else d for d in pay_dates]</code></span>
+<span class="line" id="L315"><a href="#L315" aria-label="Line 315">315</a><code>    pay_dates = [f&quot;{d.year():04d}-{d.month():02d}-{d.dayOfMonth():02d}&quot; for d in pay_dates]</code></span>
+<span class="line" id="L316"><a href="#L316" aria-label="Line 316">316</a><code>    record_dates = [f&quot;{d.year():04d}-{d.month():02d}-{d.dayOfMonth():02d}&quot; for d in record_dates]</code></span>
+<span class="line" id="L317"><a href="#L317" aria-label="Line 317">317</a><code></code></span>
+<span class="line" id="L318"><a href="#L318" aria-label="Line 318">318</a><code>    freq = {1: FrequencyTypes.ANNUAL, 2: FrequencyTypes.SEMI_ANNUAL}[t[&quot;periodsPerYear&quot;]]</code></span>
+<span class="line" id="L319"><a href="#L319" aria-label="Line 319">319</a><code>    y, m, d = map(int, t[&quot;issue&quot;].split(&quot;-&quot;))</code></span>
+<span class="line" id="L320"><a href="#L320" aria-label="Line 320">320</a><code>    y2, m2, d2 = map(int, t[&quot;maturity&quot;].split(&quot;-&quot;))</code></span>
+<span class="line" id="L321"><a href="#L321" aria-label="Line 321">321</a><code>    fp = FpBond(FpDate(d, m, y), FpDate(d2, m2, y2), t[&quot;rateBps&quot;] / 10_000, freq, DayCountTypes.THIRTY_360_BOND,</code></span>
+<span class="line" id="L322"><a href="#L322" aria-label="Line 322">322</a><code>                cpn_type=CouponType.FIXED)</code></span>
+<span class="line" id="L323"><a href="#L323" aria-label="Line 323">323</a><code>    per_bond = [Decimal(str(f)) * face_units for f in fp.flow_amounts[1:]]</code></span>
+<span class="line" id="L324"><a href="#L324" aria-label="Line 324">324</a><code></code></span>
+<span class="line" id="L325"><a href="#L325" aria-label="Line 325">325</a><code>    record_times = [record_moment_unix(d, t[&quot;recordTimeLocal&quot;], t[&quot;utcOffsetHours&quot;]) for d in record_dates]</code></span>
+<span class="line" id="L326"><a href="#L326" aria-label="Line 326">326</a><code>    tl = timeline(scn[&quot;placements&quot;], scn[&quot;trades&quot;], scn[&quot;offers&quot;], record_times)</code></span>
+<span class="line" id="L327"><a href="#L327" aria-label="Line 327">327</a><code>    coupons = {h: [] for h in scn[&quot;wallets&quot;]}  # (coupon index, amount)</code></span>
+<span class="line" id="L328"><a href="#L328" aria-label="Line 328">328</a><code>    budgets_total = tl[&quot;offer_budgets&quot;]  # each event&#x27;s budget: the amount for the whole supply, rounded down once</code></span>
+<span class="line" id="L329"><a href="#L329" aria-label="Line 329">329</a><code>    for k, amount_per_bond in enumerate(per_bond):</code></span>
+<span class="line" id="L330"><a href="#L330" aria-label="Line 330">330</a><code>        held = tl[&quot;at_record&quot;][k]</code></span>
+<span class="line" id="L331"><a href="#L331" aria-label="Line 331">331</a><code>        budgets_total += int((Decimal(sum(held.values())) * amount_per_bond).to_integral_value(rounding=ROUND_FLOOR))</code></span>
+<span class="line" id="L332"><a href="#L332" aria-label="Line 332">332</a><code>        for h in scn[&quot;wallets&quot;]:</code></span>
+<span class="line" id="L333"><a href="#L333" aria-label="Line 333">333</a><code>            if held.get(h, 0) &gt; 0:</code></span>
+<span class="line" id="L334"><a href="#L334" aria-label="Line 334">334</a><code>                coupons[h].append((k, int((Decimal(held[h]) * amount_per_bond).to_integral_value(rounding=ROUND_FLOOR))))</code></span>
+<span class="line" id="L335"><a href="#L335" aria-label="Line 335">335</a><code>    price = Decimal(t[&quot;redemptionPriceBps&quot;]) / 10_000</code></span>
+<span class="line" id="L336"><a href="#L336" aria-label="Line 336">336</a><code>    final = tl[&quot;final&quot;]</code></span>
+<span class="line" id="L337"><a href="#L337" aria-label="Line 337">337</a><code>    budgets_total += int((Decimal(sum(final.values())) * face_units * price).to_integral_value(rounding=ROUND_FLOOR))</code></span>
+<span class="line" id="L338"><a href="#L338" aria-label="Line 338">338</a><code>    bond_moves = {h: list(tl[&quot;moves&quot;][h]) for h in scn[&quot;wallets&quot;]}</code></span>
+<span class="line" id="L339"><a href="#L339" aria-label="Line 339">339</a><code>    retirements = {h: list(tl[&quot;retire&quot;][h]) for h in scn[&quot;wallets&quot;]}</code></span>
+<span class="line" id="L340"><a href="#L340" aria-label="Line 340">340</a><code>    principal = {}</code></span>
+<span class="line" id="L341"><a href="#L341" aria-label="Line 341">341</a><code>    for h, pos in final.items():</code></span>
+<span class="line" id="L342"><a href="#L342" aria-label="Line 342">342</a><code>        if pos &gt; 0:</code></span>
+<span class="line" id="L343"><a href="#L343" aria-label="Line 343">343</a><code>            principal[h] = int((Decimal(pos) * face_units * price).to_integral_value(rounding=ROUND_FLOOR))</code></span>
+<span class="line" id="L344"><a href="#L344" aria-label="Line 344">344</a><code>            bond_moves[h].append(-pos)</code></span>
+<span class="line" id="L345"><a href="#L345" aria-label="Line 345">345</a><code>            retirements[h].append((pos, principal[h]))</code></span>
+<span class="line" id="L346"><a href="#L346" aria-label="Line 346">346</a><code>    return {&quot;pay_dates&quot;: pay_dates, &quot;record_dates&quot;: record_dates, &quot;budgets_total&quot;: budgets_total,</code></span>
+<span class="line" id="L347"><a href="#L347" aria-label="Line 347">347</a><code>            &quot;coupons&quot;: coupons, &quot;bond_moves&quot;: bond_moves, &quot;principal&quot;: principal, &quot;retirements&quot;: retirements,</code></span>
+<span class="line" id="L348"><a href="#L348" aria-label="Line 348">348</a><code>            &quot;face_units&quot;: face_units}</code></span>
+<span class="line" id="L349"><a href="#L349" aria-label="Line 349">349</a><code></code></span>
+<span class="line" id="L350"><a href="#L350" aria-label="Line 350">350</a><code></code></span>
+<span class="line" id="L351"><a href="#L351" aria-label="Line 351">351</a><code>def bond_vaults(rpc, bond_mint, cash_mint):</code></span>
+<span class="line" id="L352"><a href="#L352" aria-label="Line 352">352</a><code>    &quot;&quot;&quot;The bond&#x27;s vaults (one per event), identified from public token data only: the cash accounts owned by the</code></span>
+<span class="line" id="L353"><a href="#L353" aria-label="Line 353">353</a><code>    bond token&#x27;s mint authority. Returns (authority, [vault addresses]).&quot;&quot;&quot;</code></span>
+<span class="line" id="L354"><a href="#L354" aria-label="Line 354">354</a><code>    info = rpc.call(&quot;getAccountInfo&quot;, [bond_mint, {&quot;encoding&quot;: &quot;jsonParsed&quot;}])[&quot;value&quot;][&quot;data&quot;][&quot;parsed&quot;][&quot;info&quot;]</code></span>
+<span class="line" id="L355"><a href="#L355" aria-label="Line 355">355</a><code>    owned = rpc.call(&quot;getTokenAccountsByOwner&quot;, [info[&quot;mintAuthority&quot;], {&quot;mint&quot;: cash_mint}, {&quot;encoding&quot;: &quot;jsonParsed&quot;}])</code></span>
+<span class="line" id="L356"><a href="#L356" aria-label="Line 356">356</a><code>    return info[&quot;mintAuthority&quot;], [a[&quot;pubkey&quot;] for a in owned[&quot;value&quot;]]</code></span>
+<span class="line" id="L357"><a href="#L357" aria-label="Line 357">357</a><code></code></span>
+<span class="line" id="L358"><a href="#L358" aria-label="Line 358">358</a><code></code></span>
+<span class="line" id="L359"><a href="#L359" aria-label="Line 359">359</a><code># ---------------------------------------------------------------- audit</code></span>
+<span class="line" id="L360"><a href="#L360" aria-label="Line 360">360</a><code></code></span>
+<span class="line" id="L361"><a href="#L361" aria-label="Line 361">361</a><code>def main(scenario_path, rpc_url, state_source):</code></span>
+<span class="line" id="L362"><a href="#L362" aria-label="Line 362">362</a><code>    scn = json.loads(Path(scenario_path).read_text())</code></span>
+<span class="line" id="L363"><a href="#L363" aria-label="Line 363">363</a><code>    rpc = Rpc(rpc_url)</code></span>
+<span class="line" id="L364"><a href="#L364" aria-label="Line 364">364</a><code>    unit = 10 ** scn[&quot;terms&quot;][&quot;cashDecimals&quot;]</code></span>
+<span class="line" id="L365"><a href="#L365" aria-label="Line 365">365</a><code>    wallets = {pubkey_of(f): name for name, f in scn[&quot;wallets&quot;].items()}</code></span>
+<span class="line" id="L366"><a href="#L366" aria-label="Line 366">366</a><code>    bond_mint, cash_mint = pubkey_of(scn[&quot;keys&quot;][&quot;bondMint&quot;]), pubkey_of(scn[&quot;keys&quot;][&quot;cashMint&quot;])</code></span>
+<span class="line" id="L367"><a href="#L367" aria-label="Line 367">367</a><code>    print(f&quot;{scn[&#x27;name&#x27;]}\nbond mint {bond_mint}\ncash mint {cash_mint}\nRPC {rpc_url}  (state source: {state_source})&quot;)</code></span>
+<span class="line" id="L368"><a href="#L368" aria-label="Line 368">368</a><code></code></span>
+<span class="line" id="L369"><a href="#L369" aria-label="Line 369">369</a><code>    print(&quot;\nMeasure: channel S (state of all token accounts) and channel H (transaction history)&quot;)</code></span>
+<span class="line" id="L370"><a href="#L370" aria-label="Line 370">370</a><code>    authority, vaults = bond_vaults(rpc, bond_mint, cash_mint)</code></span>
+<span class="line" id="L371"><a href="#L371" aria-label="Line 371">371</a><code>    txs = measure_history(rpc, [bond_mint, cash_mint, authority, *vaults])</code></span>
+<span class="line" id="L372"><a href="#L372" aria-label="Line 372">372</a><code>    # Public devnet&#x27;s address indexes can miss transactions (2026-10-09: the cash mint&#x27;s index lacked transactions of</code></span>
+<span class="line" id="L373"><a href="#L373" aria-label="Line 373">373</a><code>    # an earlier bond paid in the same cash token, while the holders&#x27; own accounts listed them). Where the two</code></span>
+<span class="line" id="L374"><a href="#L374" aria-label="Line 374">374</a><code>    # channels disagree on an account, read that account&#x27;s own index and add what the others did not list; repeat</code></span>
+<span class="line" id="L375"><a href="#L375" aria-label="Line 375">375</a><code>    # until no account is left to consult. What still disagrees afterwards fails M1/M3 below.</code></span>
+<span class="line" id="L376"><a href="#L376" aria-label="Line 376">376</a><code>    consulted, added = set(), 0</code></span>
+<span class="line" id="L377"><a href="#L377" aria-label="Line 377">377</a><code>    while True:</code></span>
+<span class="line" id="L378"><a href="#L378" aria-label="Line 378">378</a><code>        seen = {mint: {a for t in txs for a, d in t[&quot;deltas&quot;].items() if d[&quot;mint&quot;] == mint} for mint in (bond_mint, cash_mint)}</code></span>
+<span class="line" id="L379"><a href="#L379" aria-label="Line 379">379</a><code>        bond_state, bond_supply = measure_state(rpc, bond_mint, TOKEN_2022, state_source, seen[bond_mint])</code></span>
+<span class="line" id="L380"><a href="#L380" aria-label="Line 380">380</a><code>        cash_state, cash_supply = measure_state(rpc, cash_mint, TOKEN, state_source, seen[cash_mint])</code></span>
+<span class="line" id="L381"><a href="#L381" aria-label="Line 381">381</a><code>        summed = defaultdict(int)</code></span>
+<span class="line" id="L382"><a href="#L382" aria-label="Line 382">382</a><code>        for t in txs:</code></span>
+<span class="line" id="L383"><a href="#L383" aria-label="Line 383">383</a><code>            for acct, d in t[&quot;deltas&quot;].items():</code></span>
+<span class="line" id="L384"><a href="#L384" aria-label="Line 384">384</a><code>                summed[(acct, d[&quot;mint&quot;])] += d[&quot;delta&quot;]</code></span>
+<span class="line" id="L385"><a href="#L385" aria-label="Line 385">385</a><code>        disagree = {acct for state, mint in ((bond_state, bond_mint), (cash_state, cash_mint))</code></span>
+<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>                    for acct in set(state) | {a for a, m in summed if m == mint}</code></span>
+<span class="line" id="L387"><a href="#L387" aria-label="Line 387">387</a><code>                    if summed[(acct, mint)] != state.get(acct, {&quot;amount&quot;: 0})[&quot;amount&quot;]} - consulted</code></span>
+<span class="line" id="L388"><a href="#L388" aria-label="Line 388">388</a><code>        if not disagree:</code></span>
+<span class="line" id="L389"><a href="#L389" aria-label="Line 389">389</a><code>            break</code></span>
+<span class="line" id="L390"><a href="#L390" aria-label="Line 390">390</a><code>        known = {t[&quot;signature&quot;] for t in txs}</code></span>
+<span class="line" id="L391"><a href="#L391" aria-label="Line 391">391</a><code>        extra = [t for t in measure_history(rpc, sorted(disagree)) if t[&quot;signature&quot;] not in known]</code></span>
+<span class="line" id="L392"><a href="#L392" aria-label="Line 392">392</a><code>        consulted |= disagree</code></span>
+<span class="line" id="L393"><a href="#L393" aria-label="Line 393">393</a><code>        added += len(extra)</code></span>
+<span class="line" id="L394"><a href="#L394" aria-label="Line 394">394</a><code>        txs = sorted(txs + extra, key=lambda t: (t[&quot;slot&quot;], t[&quot;blockTime&quot;] or 0))</code></span>
+<span class="line" id="L395"><a href="#L395" aria-label="Line 395">395</a><code>    print(f&quot;  {len(bond_state)} bond accounts, {len(cash_state)} cash accounts, {len(txs)} transactions&quot;</code></span>
+<span class="line" id="L396"><a href="#L396" aria-label="Line 396">396</a><code>          + (f&quot; ({added} listed only by the own indexes of {len(consulted)} accounts where the channels disagreed)&quot;</code></span>
+<span class="line" id="L397"><a href="#L397" aria-label="Line 397">397</a><code>             if consulted else &quot;&quot;))</code></span>
+<span class="line" id="L398"><a href="#L398" aria-label="Line 398">398</a><code>    bond_txs = [t for t in txs if any(d[&quot;mint&quot;] == bond_mint for d in t[&quot;deltas&quot;].values()) or bond_mint in t[&quot;minted&quot;]</code></span>
+<span class="line" id="L399"><a href="#L399" aria-label="Line 399">399</a><code>                or bond_mint in t[&quot;burned&quot;]]</code></span>
+<span class="line" id="L400"><a href="#L400" aria-label="Line 400">400</a><code>    creation = signatures(rpc, bond_mint)[-1]  # oldest transaction of the bond mint = its creation</code></span>
+<span class="line" id="L401"><a href="#L401" aria-label="Line 401">401</a><code>    creation_time = creation[&quot;blockTime&quot;]</code></span>
+<span class="line" id="L402"><a href="#L402" aria-label="Line 402">402</a><code></code></span>
+<span class="line" id="L403"><a href="#L403" aria-label="Line 403">403</a><code>    print(&quot;\nModel-free invariants&quot;)</code></span>
+<span class="line" id="L404"><a href="#L404" aria-label="Line 404">404</a><code>    for label, state, supply in ((&quot;bond&quot;, bond_state, bond_supply), (&quot;cash&quot;, cash_state, cash_supply)):</code></span>
+<span class="line" id="L405"><a href="#L405" aria-label="Line 405">405</a><code>        total = sum(a[&quot;amount&quot;] for a in state.values())</code></span>
+<span class="line" id="L406"><a href="#L406" aria-label="Line 406">406</a><code>        check(&quot;M1&quot;, f&quot;{label}: sum of all account balances = supply&quot;, total == supply, f&quot;{total} vs {supply}&quot;)</code></span>
+<span class="line" id="L407"><a href="#L407" aria-label="Line 407">407</a><code>    bad = []</code></span>
+<span class="line" id="L408"><a href="#L408" aria-label="Line 408">408</a><code>    for t in txs:</code></span>
+<span class="line" id="L409"><a href="#L409" aria-label="Line 409">409</a><code>        for mint in (bond_mint, cash_mint):</code></span>
+<span class="line" id="L410"><a href="#L410" aria-label="Line 410">410</a><code>            net = sum(d[&quot;delta&quot;] for d in t[&quot;deltas&quot;].values() if d[&quot;mint&quot;] == mint)</code></span>
+<span class="line" id="L411"><a href="#L411" aria-label="Line 411">411</a><code>            # A failed transaction changes no balance, whatever mint or burn instructions it carried (refused attacks).</code></span>
+<span class="line" id="L412"><a href="#L412" aria-label="Line 412">412</a><code>            expected = 0 if t[&quot;failed&quot;] else t[&quot;minted&quot;].get(mint, 0) - t[&quot;burned&quot;].get(mint, 0)</code></span>
+<span class="line" id="L413"><a href="#L413" aria-label="Line 413">413</a><code>            if net != expected:</code></span>
+<span class="line" id="L414"><a href="#L414" aria-label="Line 414">414</a><code>                bad.append(f&quot;{t[&#x27;signature&#x27;][:12]} {mint[:6]} net {net} vs mint-burn {expected}&quot;)</code></span>
+<span class="line" id="L415"><a href="#L415" aria-label="Line 415">415</a><code>    check(&quot;M2&quot;, &quot;every transaction: balance changes = minted - burned&quot;, not bad, &quot;; &quot;.join(bad[:3]))</code></span>
+<span class="line" id="L416"><a href="#L416" aria-label="Line 416">416</a><code>    history_balance = defaultdict(int)</code></span>
+<span class="line" id="L417"><a href="#L417" aria-label="Line 417">417</a><code>    for t in txs:</code></span>
+<span class="line" id="L418"><a href="#L418" aria-label="Line 418">418</a><code>        for acct, d in t[&quot;deltas&quot;].items():</code></span>
+<span class="line" id="L419"><a href="#L419" aria-label="Line 419">419</a><code>            history_balance[(acct, d[&quot;mint&quot;])] += d[&quot;delta&quot;]</code></span>
+<span class="line" id="L420"><a href="#L420" aria-label="Line 420">420</a><code>    # Every account seen in either channel: its history sum must equal its measured balance (0 if absent from S).</code></span>
+<span class="line" id="L421"><a href="#L421" aria-label="Line 421">421</a><code>    mismatched = [acct for state, mint in ((bond_state, bond_mint), (cash_state, cash_mint))</code></span>
+<span class="line" id="L422"><a href="#L422" aria-label="Line 422">422</a><code>                  for acct in set(state) | {a for a, m in history_balance if m == mint}</code></span>
+<span class="line" id="L423"><a href="#L423" aria-label="Line 423">423</a><code>                  if history_balance[(acct, mint)] != state.get(acct, {&quot;amount&quot;: 0})[&quot;amount&quot;]]</code></span>
+<span class="line" id="L424"><a href="#L424" aria-label="Line 424">424</a><code>    check(&quot;M3&quot;, &quot;history sums = current balances (both channels agree)&quot;, not mismatched, &quot;, &quot;.join(mismatched[:3]))</code></span>
+<span class="line" id="L425"><a href="#L425" aria-label="Line 425">425</a><code>    # Many bonds may be paid in the same cash token and investors may hold several bonds, so every servicing check</code></span>
+<span class="line" id="L426"><a href="#L426" aria-label="Line 426">426</a><code>    # below is scoped to this bond&#x27;s vaults (found above); M1-M3 above stay global over both mints.</code></span>
+<span class="line" id="L427"><a href="#L427" aria-label="Line 427">427</a><code>    vault_set = set(vaults)</code></span>
+<span class="line" id="L428"><a href="#L428" aria-label="Line 428">428</a><code>    check(&quot;M4&quot;, f&quot;the bond&#x27;s vaults = cash accounts owned by the bond token&#x27;s mint authority ({authority[:8]}...)&quot;,</code></span>
+<span class="line" id="L429"><a href="#L429" aria-label="Line 429">429</a><code>          bool(vaults), f&quot;{len(vaults)} vaults&quot;)</code></span>
+<span class="line" id="L430"><a href="#L430" aria-label="Line 430">430</a><code>    vault_delta = lambda t: sum(t[&quot;deltas&quot;][v][&quot;delta&quot;] for v in vault_set if v in t[&quot;deltas&quot;])</code></span>
+<span class="line" id="L431"><a href="#L431" aria-label="Line 431">431</a><code>    vault_txs = [t for t in txs if any(v in t[&quot;deltas&quot;] and t[&quot;deltas&quot;][v][&quot;delta&quot;] for v in vault_set)]</code></span>
+<span class="line" id="L432"><a href="#L432" aria-label="Line 432">432</a><code>    bad_in = [t[&quot;signature&quot;][:12] for t in vault_txs</code></span>
+<span class="line" id="L433"><a href="#L433" aria-label="Line 433">433</a><code>              if any(t[&quot;deltas&quot;][v][&quot;delta&quot;] &gt; 0 for v in vault_set if v in t[&quot;deltas&quot;]) and not t[&quot;minted&quot;].get(cash_mint)]</code></span>
+<span class="line" id="L434"><a href="#L434" aria-label="Line 434">434</a><code>    check(&quot;M4&quot;, &quot;cash enters the vaults only from the bank&#x27;s mints&quot;, bool(vaults) and not bad_in, &quot;, &quot;.join(bad_in[:3]))</code></span>
+<span class="line" id="L435"><a href="#L435" aria-label="Line 435">435</a><code>    leaks = [f&quot;{a} (owner {d[&#x27;owner&#x27;]})&quot; for t in vault_txs if vault_delta(t) &lt; 0</code></span>
+<span class="line" id="L436"><a href="#L436" aria-label="Line 436">436</a><code>             for a, d in t[&quot;deltas&quot;].items() if d[&quot;mint&quot;] == cash_mint and d[&quot;delta&quot;] &gt; 0 and a not in vault_set</code></span>
+<span class="line" id="L437"><a href="#L437" aria-label="Line 437">437</a><code>             and d[&quot;owner&quot;] not in wallets]</code></span>
+<span class="line" id="L438"><a href="#L438" aria-label="Line 438">438</a><code>    check(&quot;M4&quot;, &quot;cash leaves the vaults only to scenario wallets&quot;, bool(vaults) and not leaks, &quot;; &quot;.join(leaks[:3]))</code></span>
+<span class="line" id="L439"><a href="#L439" aria-label="Line 439">439</a><code>    bond_strangers = [f&quot;{a} (owner {d[&#x27;owner&#x27;]})&quot; for t in txs for a, d in t[&quot;deltas&quot;].items()</code></span>
+<span class="line" id="L440"><a href="#L440" aria-label="Line 440">440</a><code>                      if d[&quot;mint&quot;] == bond_mint and d[&quot;delta&quot;] != 0 and d[&quot;owner&quot;] not in wallets]</code></span>
+<span class="line" id="L441"><a href="#L441" aria-label="Line 441">441</a><code>    check(&quot;M4&quot;, &quot;no account outside the scenario wallets moved bonds&quot;, not bond_strangers, &quot;; &quot;.join(bond_strangers[:3]))</code></span>
+<span class="line" id="L442"><a href="#L442" aria-label="Line 442">442</a><code></code></span>
+<span class="line" id="L443"><a href="#L443" aria-label="Line 443">443</a><code>    print(&quot;\nMeasured vs calculated (exact integers, base units)&quot;)</code></span>
+<span class="line" id="L444"><a href="#L444" aria-label="Line 444">444</a><code>    calc = calculate(scn)</code></span>
+<span class="line" id="L445"><a href="#L445" aria-label="Line 445">445</a><code>    # Measured per holder, in ledger order.</code></span>
+<span class="line" id="L446"><a href="#L446" aria-label="Line 446">446</a><code>    cash_in = defaultdict(list)    # (tx, amount) coupon arrivals from this bond&#x27;s vault</code></span>
+<span class="line" id="L447"><a href="#L447" aria-label="Line 447">447</a><code>    bond_moves = defaultdict(list)</code></span>
+<span class="line" id="L448"><a href="#L448" aria-label="Line 448">448</a><code>    retirements = defaultdict(list)  # holder -&gt; [(burned, cash received in the same transaction)], ledger order</code></span>
+<span class="line" id="L449"><a href="#L449" aria-label="Line 449">449</a><code>    outside = defaultdict(list)    # holder cash movements in transactions that do not involve this bond&#x27;s vault</code></span>
+<span class="line" id="L450"><a href="#L450" aria-label="Line 450">450</a><code>    vault_in = vault_out = 0</code></span>
+<span class="line" id="L451"><a href="#L451" aria-label="Line 451">451</a><code>    for t in txs:</code></span>
+<span class="line" id="L452"><a href="#L452" aria-label="Line 452">452</a><code>        touches_vault = any(v in t[&quot;deltas&quot;] for v in vault_set)</code></span>
+<span class="line" id="L453"><a href="#L453" aria-label="Line 453">453</a><code>        from_vault = vault_delta(t) &lt; 0</code></span>
+<span class="line" id="L454"><a href="#L454" aria-label="Line 454">454</a><code>        for acct, d in t[&quot;deltas&quot;].items():</code></span>
+<span class="line" id="L455"><a href="#L455" aria-label="Line 455">455</a><code>            if d[&quot;delta&quot;] == 0:</code></span>
+<span class="line" id="L456"><a href="#L456" aria-label="Line 456">456</a><code>                continue</code></span>
+<span class="line" id="L457"><a href="#L457" aria-label="Line 457">457</a><code>            holder = wallets.get(d[&quot;owner&quot;])</code></span>
+<span class="line" id="L458"><a href="#L458" aria-label="Line 458">458</a><code>            if d[&quot;mint&quot;] == bond_mint and holder:</code></span>
+<span class="line" id="L459"><a href="#L459" aria-label="Line 459">459</a><code>                bond_moves[holder].append(d[&quot;delta&quot;])</code></span>
+<span class="line" id="L460"><a href="#L460" aria-label="Line 460">460</a><code>            if d[&quot;mint&quot;] == cash_mint and acct in vault_set:</code></span>
+<span class="line" id="L461"><a href="#L461" aria-label="Line 461">461</a><code>                vault_in += max(d[&quot;delta&quot;], 0)</code></span>
+<span class="line" id="L462"><a href="#L462" aria-label="Line 462">462</a><code>                vault_out += max(-d[&quot;delta&quot;], 0)</code></span>
+<span class="line" id="L463"><a href="#L463" aria-label="Line 463">463</a><code>            if d[&quot;mint&quot;] == cash_mint and holder and not touches_vault:</code></span>
+<span class="line" id="L464"><a href="#L464" aria-label="Line 464">464</a><code>                outside[holder].append(d[&quot;delta&quot;])</code></span>
+<span class="line" id="L465"><a href="#L465" aria-label="Line 465">465</a><code>        if not from_vault:</code></span>
+<span class="line" id="L466"><a href="#L466" aria-label="Line 466">466</a><code>            continue</code></span>
+<span class="line" id="L467"><a href="#L467" aria-label="Line 467">467</a><code>        burned_by = {wallets[d[&quot;owner&quot;]]: -d[&quot;delta&quot;] for d in t[&quot;deltas&quot;].values()</code></span>
+<span class="line" id="L468"><a href="#L468" aria-label="Line 468">468</a><code>                     if d[&quot;mint&quot;] == bond_mint and d[&quot;delta&quot;] &lt; 0 and t[&quot;burned&quot;].get(bond_mint) and d[&quot;owner&quot;] in wallets}</code></span>
+<span class="line" id="L469"><a href="#L469" aria-label="Line 469">469</a><code>        for d in t[&quot;deltas&quot;].values():</code></span>
+<span class="line" id="L470"><a href="#L470" aria-label="Line 470">470</a><code>            holder = wallets.get(d[&quot;owner&quot;])</code></span>
+<span class="line" id="L471"><a href="#L471" aria-label="Line 471">471</a><code>            if d[&quot;mint&quot;] == cash_mint and holder and d[&quot;delta&quot;] &gt; 0:</code></span>
+<span class="line" id="L472"><a href="#L472" aria-label="Line 472">472</a><code>                if holder in burned_by:</code></span>
+<span class="line" id="L473"><a href="#L473" aria-label="Line 473">473</a><code>                    retirements[holder].append((burned_by[holder], d[&quot;delta&quot;]))</code></span>
+<span class="line" id="L474"><a href="#L474" aria-label="Line 474">474</a><code>                else:</code></span>
+<span class="line" id="L475"><a href="#L475" aria-label="Line 475">475</a><code>                    cash_in[holder].append((t, d[&quot;delta&quot;]))</code></span>
+<span class="line" id="L476"><a href="#L476" aria-label="Line 476">476</a><code></code></span>
+<span class="line" id="L477"><a href="#L477" aria-label="Line 477">477</a><code>    for h in scn[&quot;wallets&quot;]:</code></span>
+<span class="line" id="L478"><a href="#L478" aria-label="Line 478">478</a><code>        expected = [amount for _, amount in calc[&quot;coupons&quot;][h]]</code></span>
+<span class="line" id="L479"><a href="#L479" aria-label="Line 479">479</a><code>        measured = [amount for _, amount in cash_in[h]]</code></span>
+<span class="line" id="L480"><a href="#L480" aria-label="Line 480">480</a><code>        check(&quot;C1&quot;, f&quot;{h}: coupon arrivals from the vault&quot;, measured == expected,</code></span>
+<span class="line" id="L481"><a href="#L481" aria-label="Line 481">481</a><code>              f&quot;measured {[x / unit for x in measured]} vs calculated {[x / unit for x in expected]}&quot;)</code></span>
+<span class="line" id="L482"><a href="#L482" aria-label="Line 482">482</a><code>        check(&quot;C2&quot;, f&quot;{h}: bond movements&quot;, bond_moves[h] == calc[&quot;bond_moves&quot;][h],</code></span>
+<span class="line" id="L483"><a href="#L483" aria-label="Line 483">483</a><code>              f&quot;measured {bond_moves[h]} vs calculated {calc[&#x27;bond_moves&#x27;][h]}&quot;)</code></span>
+<span class="line" id="L484"><a href="#L484" aria-label="Line 484">484</a><code>        if calc[&quot;retirements&quot;][h] or retirements[h]:</code></span>
+<span class="line" id="L485"><a href="#L485" aria-label="Line 485">485</a><code>            got = [(b, c / unit) for b, c in retirements[h]]</code></span>
+<span class="line" id="L486"><a href="#L486" aria-label="Line 486">486</a><code>            exp = [(b, c / unit) for b, c in calc[&quot;retirements&quot;][h]]</code></span>
+<span class="line" id="L487"><a href="#L487" aria-label="Line 487">487</a><code>            check(&quot;C3&quot;, f&quot;{h}: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated&quot;,</code></span>
+<span class="line" id="L488"><a href="#L488" aria-label="Line 488">488</a><code>                  got == exp, f&quot;measured (burned, cash) {got} vs calculated {exp}&quot;)</code></span>
+<span class="line" id="L489"><a href="#L489" aria-label="Line 489">489</a><code>    total_out = (sum(a for h in calc[&quot;coupons&quot;] for _, a in calc[&quot;coupons&quot;][h])</code></span>
+<span class="line" id="L490"><a href="#L490" aria-label="Line 490">490</a><code>                 + sum(c for h in calc[&quot;retirements&quot;] for _, c in calc[&quot;retirements&quot;][h]))</code></span>
+<span class="line" id="L491"><a href="#L491" aria-label="Line 491">491</a><code>    final_vaults = sum(cash_state.get(v, {&quot;amount&quot;: 0})[&quot;amount&quot;] for v in vault_set)</code></span>
+<span class="line" id="L492"><a href="#L492" aria-label="Line 492">492</a><code>    # Each event is funded with its budget: the amount for the whole supply, rounded down once; each offer with price x</code></span>
+<span class="line" id="L493"><a href="#L493" aria-label="Line 493">493</a><code>    # maximum. Holders are rounded down one by one and offers may not fill, so what stays in the vaults is the rounding</code></span>
+<span class="line" id="L494"><a href="#L494" aria-label="Line 494">494</a><code>    # difference plus unfilled offer cash, and nothing else.</code></span>
+<span class="line" id="L495"><a href="#L495" aria-label="Line 495">495</a><code>    leftover = calc[&quot;budgets_total&quot;] - total_out</code></span>
+<span class="line" id="L496"><a href="#L496" aria-label="Line 496">496</a><code>    check(&quot;C4&quot;, &quot;vaults: inflow = outflow + final balance; outflow = calculated payments; final = calculated leftover&quot;,</code></span>
+<span class="line" id="L497"><a href="#L497" aria-label="Line 497">497</a><code>          bool(vaults) and vault_in == vault_out + final_vaults and vault_out == total_out and final_vaults == leftover,</code></span>
+<span class="line" id="L498"><a href="#L498" aria-label="Line 498">498</a><code>          f&quot;in {vault_in / unit}, out {vault_out / unit}, final {final_vaults / unit}, calculated out {total_out / unit}, &quot;</code></span>
+<span class="line" id="L499"><a href="#L499" aria-label="Line 499">499</a><code>          f&quot;calculated leftover {leftover / unit}&quot;)</code></span>
+<span class="line" id="L500"><a href="#L500" aria-label="Line 500">500</a><code></code></span>
+<span class="line" id="L501"><a href="#L501" aria-label="Line 501">501</a><code>    # C7: per holder, what this bond measurably delivered (cash from its vault, bonds held now) against the terms.</code></span>
+<span class="line" id="L502"><a href="#L502" aria-label="Line 502">502</a><code>    # Holder cash moved outside this bond (other bonds paid in the same cash token, the holder&#x27;s own transfers) is</code></span>
+<span class="line" id="L503"><a href="#L503" aria-label="Line 503">503</a><code>    # the holder&#x27;s own business; it is shown, not judged.</code></span>
+<span class="line" id="L504"><a href="#L504" aria-label="Line 504">504</a><code>    owner_bonds = defaultdict(int)</code></span>
+<span class="line" id="L505"><a href="#L505" aria-label="Line 505">505</a><code>    for a in bond_state.values():</code></span>
+<span class="line" id="L506"><a href="#L506" aria-label="Line 506">506</a><code>        owner_bonds[a[&quot;owner&quot;]] += a[&quot;amount&quot;]</code></span>
+<span class="line" id="L507"><a href="#L507" aria-label="Line 507">507</a><code>    for pk, h in wallets.items():</code></span>
+<span class="line" id="L508"><a href="#L508" aria-label="Line 508">508</a><code>        expected_cash = sum(a for _, a in calc[&quot;coupons&quot;][h]) + sum(c for _, c in calc[&quot;retirements&quot;][h])</code></span>
+<span class="line" id="L509"><a href="#L509" aria-label="Line 509">509</a><code>        received = sum(a for _, a in cash_in[h]) + sum(c for _, c in retirements[h])</code></span>
+<span class="line" id="L510"><a href="#L510" aria-label="Line 510">510</a><code>        expected_bonds = sum(calc[&quot;bond_moves&quot;][h])</code></span>
+<span class="line" id="L511"><a href="#L511" aria-label="Line 511">511</a><code>        check(&quot;C7&quot;, f&quot;{h}: cash from this bond and bonds held now = calculated&quot;,</code></span>
+<span class="line" id="L512"><a href="#L512" aria-label="Line 512">512</a><code>              received == expected_cash and owner_bonds[pk] == expected_bonds,</code></span>
+<span class="line" id="L513"><a href="#L513" aria-label="Line 513">513</a><code>              f&quot;cash {received / unit} vs {expected_cash / unit}, bonds {owner_bonds[pk]} vs {expected_bonds}&quot;</code></span>
+<span class="line" id="L514"><a href="#L514" aria-label="Line 514">514</a><code>              + (f&quot;; outside this bond: {len(outside[h])} cash movements, net {sum(outside[h]) / unit:+,.6f}&quot;</code></span>
+<span class="line" id="L515"><a href="#L515" aria-label="Line 515">515</a><code>                 if outside[h] else &quot;&quot;))</code></span>
+<span class="line" id="L516"><a href="#L516" aria-label="Line 516">516</a><code></code></span>
+<span class="line" id="L517"><a href="#L517" aria-label="Line 517">517</a><code>    # C5 timing. Bond time of a transaction = bond time at creation + elapsed chain time scaled by the scenario&#x27;s</code></span>
+<span class="line" id="L518"><a href="#L518" aria-label="Line 518">518</a><code>    # compression (chain seconds per bond day), measured from the bond mint&#x27;s creation transaction.</code></span>
+<span class="line" id="L519"><a href="#L519" aria-label="Line 519">519</a><code>    almaty = timezone(timedelta(hours=scn[&quot;terms&quot;][&quot;utcOffsetHours&quot;]))</code></span>
+<span class="line" id="L520"><a href="#L520" aria-label="Line 520">520</a><code>    bond_origin = datetime.fromisoformat(scn[&quot;bondTimeAtCreation&quot;]).timestamp()</code></span>
+<span class="line" id="L521"><a href="#L521" aria-label="Line 521">521</a><code>    scale = scn[&quot;chainSecondsPerBondDay&quot;]</code></span>
+<span class="line" id="L522"><a href="#L522" aria-label="Line 522">522</a><code>    rec_h, rec_m = map(int, scn[&quot;terms&quot;][&quot;recordTimeLocal&quot;].split(&quot;:&quot;))</code></span>
+<span class="line" id="L523"><a href="#L523" aria-label="Line 523">523</a><code>    dl_h, dl_m = map(int, scn[&quot;terms&quot;][&quot;paymentDeadlineLocal&quot;].split(&quot;:&quot;))</code></span>
+<span class="line" id="L524"><a href="#L524" aria-label="Line 524">524</a><code></code></span>
+<span class="line" id="L525"><a href="#L525" aria-label="Line 525">525</a><code>    def record_moment(k):</code></span>
+<span class="line" id="L526"><a href="#L526" aria-label="Line 526">526</a><code>        y, m, d = map(int, calc[&quot;record_dates&quot;][k].split(&quot;-&quot;))</code></span>
+<span class="line" id="L527"><a href="#L527" aria-label="Line 527">527</a><code>        return datetime(y, m, d, rec_h, rec_m, tzinfo=almaty).timestamp()</code></span>
+<span class="line" id="L528"><a href="#L528" aria-label="Line 528">528</a><code></code></span>
+<span class="line" id="L529"><a href="#L529" aria-label="Line 529">529</a><code>    late = []</code></span>
+<span class="line" id="L530"><a href="#L530" aria-label="Line 530">530</a><code>    handover = scn[&quot;handover&quot;]</code></span>
+<span class="line" id="L531"><a href="#L531" aria-label="Line 531">531</a><code>    for h in scn[&quot;wallets&quot;]:</code></span>
+<span class="line" id="L532"><a href="#L532" aria-label="Line 532">532</a><code>        for (k, _), (t, _) in zip(calc[&quot;coupons&quot;][h], cash_in[h]):</code></span>
+<span class="line" id="L533"><a href="#L533" aria-label="Line 533">533</a><code>            bond_ts = bond_origin + (t[&quot;blockTime&quot;] - creation_time) * 86_400 / scale</code></span>
+<span class="line" id="L534"><a href="#L534" aria-label="Line 534">534</a><code>            bond_time = datetime.fromtimestamp(bond_ts, almaty)</code></span>
+<span class="line" id="L535"><a href="#L535" aria-label="Line 535">535</a><code>            if scale == 86_400:</code></span>
+<span class="line" id="L536"><a href="#L536" aria-label="Line 536">536</a><code>                local = bond_time.hour * 60 + bond_time.minute</code></span>
+<span class="line" id="L537"><a href="#L537" aria-label="Line 537">537</a><code>                ok = bond_time.date().isoformat() == calc[&quot;pay_dates&quot;][k] and rec_h * 60 + rec_m &lt;= local &lt; dl_h * 60 + dl_m</code></span>
+<span class="line" id="L538"><a href="#L538" aria-label="Line 538">538</a><code>            elif handover is not None and k &gt; handover[&quot;operatorStopsAfterCoupon&quot;]:</code></span>
+<span class="line" id="L539"><a href="#L539" aria-label="Line 539">539</a><code>                # Declared operator failure: these coupons are paid late, after the final record moment.</code></span>
+<span class="line" id="L540"><a href="#L540" aria-label="Line 540">540</a><code>                ok = bond_ts &gt;= record_moment(len(calc[&quot;pay_dates&quot;]) - 1)</code></span>
+<span class="line" id="L541"><a href="#L541" aria-label="Line 541">541</a><code>            else:</code></span>
+<span class="line" id="L542"><a href="#L542" aria-label="Line 542">542</a><code>                nxt = record_moment(k + 1) if k + 1 &lt; len(calc[&quot;pay_dates&quot;]) else float(&quot;inf&quot;)</code></span>
+<span class="line" id="L543"><a href="#L543" aria-label="Line 543">543</a><code>                ok = record_moment(k) &lt;= bond_ts &lt; nxt</code></span>
+<span class="line" id="L544"><a href="#L544" aria-label="Line 544">544</a><code>            if not ok:</code></span>
+<span class="line" id="L545"><a href="#L545" aria-label="Line 545">545</a><code>                late.append(f&quot;{h} coupon {k} at bond time {bond_time.isoformat()} (due {calc[&#x27;pay_dates&#x27;][k]})&quot;)</code></span>
+<span class="line" id="L546"><a href="#L546" aria-label="Line 546">546</a><code>    if scale == 86_400:</code></span>
+<span class="line" id="L547"><a href="#L547" aria-label="Line 547">547</a><code>        check(&quot;C5&quot;, &quot;every coupon paid on its payment date between 09:00 and 17:00 Almaty&quot;, not late, &quot;; &quot;.join(late[:3]))</code></span>
+<span class="line" id="L548"><a href="#L548" aria-label="Line 548">548</a><code>    else:</code></span>
+<span class="line" id="L549"><a href="#L549" aria-label="Line 549">549</a><code>        rule = (&quot;before the next one&quot; if handover is None else</code></span>
+<span class="line" id="L550"><a href="#L550" aria-label="Line 550">550</a><code>                f&quot;before the next one; coupons after {handover[&#x27;operatorStopsAfterCoupon&#x27;]} after the final record moment &quot;</code></span>
+<span class="line" id="L551"><a href="#L551" aria-label="Line 551">551</a><code>                f&quot;(declared operator failure)&quot;)</code></span>
+<span class="line" id="L552"><a href="#L552" aria-label="Line 552">552</a><code>        check(&quot;C5&quot;, f&quot;every coupon paid after its record moment and {rule} (compressed time: 1 bond day = &quot;</code></span>
+<span class="line" id="L553"><a href="#L553" aria-label="Line 553">553</a><code>                    f&quot;{scale} s, so the 8-hour 09:00-17:00 window is {scale / 3:.1f} s and is not checked)&quot;,</code></span>
+<span class="line" id="L554"><a href="#L554" aria-label="Line 554">554</a><code>              not late, &quot;; &quot;.join(late[:3]))</code></span>
+<span class="line" id="L555"><a href="#L555" aria-label="Line 555">555</a><code></code></span>
+<span class="line" id="L556"><a href="#L556" aria-label="Line 556">556</a><code>    if 10 in scn[&quot;placements&quot;].values():</code></span>
+<span class="line" id="L557"><a href="#L557" aria-label="Line 557">557</a><code>        h = next(name for name, n in scn[&quot;placements&quot;].items() if n == 10)</code></span>
+<span class="line" id="L558"><a href="#L558" aria-label="Line 558">558</a><code>        first = cash_in[h][0][1] if cash_in[h] else None</code></span>
+<span class="line" id="L559"><a href="#L559" aria-label="Line 559">559</a><code>        check(&quot;C6&quot;, f&quot;listing example: {h} held 10 bonds at the first record moment, measured first coupon = 500&quot;,</code></span>
+<span class="line" id="L560"><a href="#L560" aria-label="Line 560">560</a><code>              first == 500 * unit, f&quot;{first / unit if first is not None else None}&quot;)</code></span>
+<span class="line" id="L561"><a href="#L561" aria-label="Line 561">561</a><code></code></span>
+<span class="line" id="L562"><a href="#L562" aria-label="Line 562">562</a><code>    failed = [r for r in results if not r[2]]</code></span>
+<span class="line" id="L563"><a href="#L563" aria-label="Line 563">563</a><code>    last_audit[&quot;transactions&quot;] = len(txs)</code></span>
+<span class="line" id="L564"><a href="#L564" aria-label="Line 564">564</a><code>    print(f&quot;\n{&#x27;AUDIT PASSED&#x27; if not failed else f&#x27;AUDIT FAILED: {len(failed)} checks&#x27;}  &quot;</code></span>
+<span class="line" id="L565"><a href="#L565" aria-label="Line 565">565</a><code>          f&quot;({len(results)} checks, {len(txs)} transactions measured)&quot;)</code></span>
+<span class="line" id="L566"><a href="#L566" aria-label="Line 566">566</a><code>    return 0 if not failed else 1</code></span>
+<span class="line" id="L567"><a href="#L567" aria-label="Line 567">567</a><code></code></span>
+<span class="line" id="L568"><a href="#L568" aria-label="Line 568">568</a><code></code></span>
+<span class="line" id="L569"><a href="#L569" aria-label="Line 569">569</a><code>if __name__ == &quot;__main__&quot;:</code></span>
+<span class="line" id="L570"><a href="#L570" aria-label="Line 570">570</a><code>    if len(sys.argv) != 4:</code></span>
+<span class="line" id="L571"><a href="#L571" aria-label="Line 571">571</a><code>        print(&quot;usage: audit.py &lt;scenarios/NAME.json&gt; &lt;rpc url&gt; &lt;program-accounts|largest-accounts|history-accounts&gt;&quot;, file=sys.stderr)</code></span>
+<span class="line" id="L572"><a href="#L572" aria-label="Line 572">572</a><code>        sys.exit(2)</code></span>
+<span class="line" id="L573"><a href="#L573" aria-label="Line 573">573</a><code>    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3]))</code></span></pre></html>

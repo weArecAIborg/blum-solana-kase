@@ -1,0 +1,65 @@
+{
+  "name": "DEVNET KEEPER: B1 terms, 3 holders; our operator stops after coupon 0, an outside wallet with no role services coupons 1-3 and the redemption after the final record moment (1 bond day = 1 chain second)",
+  "terms": {
+    "issue": "2026-03-06",
+    "maturity": "2028-03-06",
+    "monthsPerPeriod": 6,
+    "periodsPerYear": 2,
+    "faceUnits": "1000000000",
+    "cashDecimals": 6,
+    "rateBps": 1000,
+    "redemptionPriceBps": 10000,
+    "recordTimeLocal": "09:00",
+    "paymentDeadlineLocal": "17:00",
+    "utcOffsetHours": 5,
+    "paymentOpensLocal": "09:00",
+    "recordBusinessDaysBeforePayment": 0,
+    "maxSupply": 15
+  },
+  "calendar": "data/calendars/kz-holidays.txt",
+  "weekend": [
+    "Saturday",
+    "Sunday"
+  ],
+  "bondTimeAtCreation": "2026-03-03T12:00:00+05:00",
+  "chainSecondsPerBondDay": 1,
+  "keys": {
+    "bondMint": "keys/devnet/bond-mint-keeper-3.json",
+    "cashMint": "keys/devnet/cash-mint-keeper-3.json",
+    "cashAuthority": "keys/devnet/cash-authority.json"
+  },
+  "wallets": {
+    "BH#1": "keys/devnet/holders/bh1.json",
+    "BH#2": "keys/devnet/holders/bh2.json",
+    "BH#3": "keys/devnet/holders/bh3.json"
+  },
+  "placements": {
+    "BH#1": 10,
+    "BH#2": 5
+  },
+  "trades": [
+    {
+      "afterRecordMoment": 0,
+      "from": "BH#1",
+      "to": "BH#3",
+      "amount": 3
+    },
+    {
+      "afterRecordMoment": 1,
+      "from": "BH#2",
+      "to": "BH#1",
+      "amount": 2
+    },
+    {
+      "afterRecordMoment": 2,
+      "from": "BH#3",
+      "to": "BH#2",
+      "amount": 1
+    }
+  ],
+  "offers": [],
+  "handover": {
+    "operatorStopsAfterCoupon": 0,
+    "keeper": "keys/devnet/keeper.json"
+  }
+}

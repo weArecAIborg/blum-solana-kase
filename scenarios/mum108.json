@@ -1,0 +1,50 @@
+{
+  "name": "MUM108_0015 (MEUKAM): 1,000 KZT face, 14.50%, annual, 2025-2034",
+  "terms": {
+    "issue": "2025-03-06",
+    "maturity": "2034-03-06",
+    "monthsPerPeriod": 12,
+    "periodsPerYear": 1,
+    "faceUnits": "1000000000",
+    "cashDecimals": 6,
+    "rateBps": 1450,
+    "redemptionPriceBps": 10000,
+    "recordTimeLocal": "09:00",
+    "paymentDeadlineLocal": "17:00",
+    "utcOffsetHours": 5,
+    "paymentOpensLocal": "09:00",
+    "recordBusinessDaysBeforePayment": 0,
+    "maxSupply": 140
+  },
+  "calendar": "data/calendars/kz-holidays.txt",
+  "weekend": [
+    "Saturday",
+    "Sunday"
+  ],
+  "bondTimeAtCreation": "2025-03-03T12:00:00+05:00",
+  "chainSecondsPerBondDay": 86400,
+  "keys": {
+    "bondMint": "keys/localnet/bond-mint-mum108.json",
+    "cashMint": "keys/localnet/cash-mint.json",
+    "cashAuthority": "keys/localnet/cash-authority.json"
+  },
+  "wallets": {
+    "BH#1": "keys/localnet/holders/bh1.json",
+    "BH#2": "keys/localnet/holders/bh2.json",
+    "BH#3": "keys/localnet/holders/bh3.json"
+  },
+  "placements": {
+    "BH#1": 100,
+    "BH#2": 40
+  },
+  "trades": [
+    {
+      "afterRecordMoment": 4,
+      "from": "BH#2",
+      "to": "BH#3",
+      "amount": 10
+    }
+  ],
+  "offers": [],
+  "handover": null
+}

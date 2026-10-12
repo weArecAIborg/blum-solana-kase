@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Program logic</title>
+<meta name="description" content="Flowcharts of the bond_servicing program as its code runs: the account checks, each check of each instruction with the error it refuses with, the calculations, the calls into Token-2022 and SPL Token, the writes and the events, each box linked to its line of source.">
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Program flowcharts: one chart per function, boxes top to bottom in the order the code runs. */
+.pf-legend { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; font-size: 0.82rem; color: var(--ink-2); }
+.pf-legend .pf-n { display: inline-grid; padding: 0.35rem 1.3rem; min-width: 0; }
+.pf-legend .pf-n b { font: 600 0.74rem/1.2 var(--font-mono); color: var(--ink); white-space: nowrap; }
+.pf-jumps { display: grid; gap: 0.4rem; }
+.pf-jrow { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.pf-jg { font: var(--label); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); min-width: 11rem; }
+.pf-jrow .bs-btn { font-weight: 500; font-size: 0.74rem; padding: 0.35rem 0.55rem; }
+.pf-group { display: grid; gap: var(--space-5); }
+.pf-gh { padding-top: var(--space-4); border-top: 2px solid var(--amber); }
+.pf-chart { display: grid; gap: var(--space-3); scroll-margin-top: 4rem; padding-top: var(--space-3); border-top: 1px solid var(--grid); min-width: 0; }
+.pf-chart .fl-head { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: baseline; }
+.pf-chart .bs-h2 { font-family: var(--font-mono); font-size: 1.2rem; }
+.pf-chart .who { font: 500 0.8rem/1.2 var(--font-mono); color: var(--muted); }
+.pf-chart .who b { color: var(--amber); }
+.fl-plain { max-width: 80ch; text-wrap: pretty; margin: 0; color: var(--ink-2); }
+
+.pf-head, .pf-row { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.55fr) minmax(0, 0.9fr); gap: 0 1rem; }
+.pf-head span { font: var(--label); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.pf-flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.1rem; }
+.pf-row { align-items: start; }
+.pf-c { position: relative; min-width: 0; }
+/* The arrow from the box above. */
+.pf-row + .pf-row > .pf-c::before { content: ""; position: absolute; left: 50%; top: -1.1rem; height: 1.1rem; border-left: 2px solid var(--muted); }
+.pf-row + .pf-row > .pf-c::after { content: ""; position: absolute; left: calc(50% - 5px); top: -7px; border-inline: 6px solid transparent; border-top: 7px solid var(--muted); }
+.pf-phase + .pf-row > .pf-c::before, .pf-phase + .pf-row > .pf-c::after { display: none; }
+.pf-phase { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; align-items: baseline; padding: 0.35rem 0 0.15rem; border-bottom: 1px dashed var(--border); }
+.pf-phase span { font: var(--label); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); }
+.pf-phase code { font: 400 0.76rem/1.2 var(--font-mono); color: var(--ink-2); }
+
+.pf-n { position: relative; display: grid; gap: 0.3rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); background: var(--surface); min-width: 0; }
+.pf-top { display: flex; flex-wrap: wrap; gap: 0.1rem 0.6rem; align-items: baseline; justify-content: space-between; }
+.pf-d { margin: 0; font-size: 0.86rem; color: var(--ink); text-wrap: pretty; }
+.pf-line { flex: none; font: 400 0.7rem/1.2 var(--font-mono); color: var(--muted); text-decoration: none; white-space: nowrap; }
+.pf-line:hover { color: var(--accent); }
+.pf-code { margin: 0; padding: 0.35rem 0.5rem; background: var(--bg); font: 400 0.72rem/1.45 var(--font-mono); color: var(--ink-2); overflow-x: auto; white-space: pre; }
+.pf-to { justify-self: start; font: 600 0.72rem/1.2 var(--font-mono); color: var(--kept); text-decoration: none; }
+.pf-to::before { content: "\2192  "; }
+.pf-to:hover { text-decoration: underline; }
+/* Flowchart shapes: terminator, decision, process, call into another program, call into a chart of this program, output. */
+.pf-n.start, .pf-n.end { border-radius: 999px; padding-inline: 1.2rem; border-color: var(--amber); }
+.pf-n.end { background: var(--bg); }
+.pf-n.end .pf-d { color: var(--amber); font-weight: 600; }
+.pf-n.check, .pf-n.guard, .pf-n.leave, .pf-n.split { border: 0; padding-inline: 1.5rem; clip-path: polygon(0.9rem 0, calc(100% - 0.9rem) 0, 100% 50%, calc(100% - 0.9rem) 100%, 0.9rem 100%, 0 50%); }
+.pf-n.check { background: var(--amber-soft); }
+.pf-n.guard { background: var(--chip); }
+.pf-n.leave { background: var(--chip); }
+.pf-n.split { background: var(--amber-soft); clip-path: polygon(0.9rem 0, calc(100% - 0.9rem) 0, 100% 1.4rem, 100% 100%, 0 100%, 0 1.4rem); }
+.pf-n.check .pf-code, .pf-n.guard .pf-code, .pf-n.leave .pf-code, .pf-n.split .pf-code { background: var(--surface); }
+.pf-n.cpi { border-left: 6px double var(--accent); border-right: 6px double var(--accent); }
+.pf-n.sub { border-left: 6px double var(--kept); border-right: 6px double var(--kept); }
+.pf-n.emit { border: 0; background: var(--kept-bg); padding-inline: 1.4rem; clip-path: polygon(0.8rem 0, 100% 0, calc(100% - 0.8rem) 100%, 0 100%); }
+.pf-n.emit .pf-d { font: 600 0.8rem/1.3 var(--font-mono); color: var(--kept); }
+.pf-n.emit .pf-code { background: var(--surface); }
+
+.pf-cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.6rem; margin-top: 0.2rem; }
+.pf-case { display: grid; gap: 0.4rem; align-content: start; padding: 0.45rem; border: 1px dashed var(--border); background: var(--surface); min-width: 0; }
+.pf-case > b { font: 600 0.72rem/1.2 var(--font-mono); color: var(--amber); }
+.pf-flow.inner { gap: 0.6rem; }
+.pf-flow.inner .pf-row { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
+.pf-flow.inner .pf-row + .pf-row > .pf-c::before { top: -0.6rem; height: 0.6rem; }
+.pf-flow.inner .pf-row + .pf-row > .pf-c::after { top: -6px; }
+.pf-flow.inner .pf-w { font-size: 0.76rem; }
+.pf-flow.inner .pf-n.check, .pf-flow.inner .pf-n.guard { padding-inline: 1rem; clip-path: polygon(0.55rem 0, calc(100% - 0.55rem) 0, 100% 50%, calc(100% - 0.55rem) 100%, 0.55rem 100%, 0 50%); }
+.pf-none { margin: 0; font-size: 0.8rem; color: var(--muted); }
+
+.pf-x { display: flex; flex-wrap: wrap; gap: 0.25rem 0.35rem; align-items: baseline; align-self: center; min-width: 0; }
+.pf-x .pf-arrow { font: 600 0.7rem/1.2 var(--font-mono); color: var(--muted); white-space: nowrap; }
+.pf-x .pf-arrow::after { content: " \2192"; }
+.pf-x.err code { font: 600 0.74rem/1.3 var(--font-mono); color: var(--refused); background: var(--refused-bg); padding: 0.1rem 0.3rem; overflow-wrap: anywhere; }
+.pf-x.out span:last-child { font-size: 0.8rem; color: var(--ink-2); }
+.pf-w { margin: 0; align-self: center; font-size: 0.82rem; color: var(--ink-2); text-wrap: pretty; }
+
+@media (max-width: 900px) {
+  .pf-head { display: none; }
+  .pf-row { grid-template-columns: minmax(0, 1fr); gap: 0.3rem; }
+  .pf-x, .pf-w { padding-left: 1rem; }
+  .pf-jg { min-width: 0; width: 100%; }
+}
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Program</b><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html" aria-current="true">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header">
+    <p class="bs-eyebrow"><!--__EYEBROW__--></p>
+    <h1 class="bs-h1">How the program works, as its code runs</h1>
+    <p class="bs-lede">One chart per instruction and per rule the instructions share. Each runs top to bottom in the order of the code: first what Anchor checks on the accounts, then the program's own checks, calculations, calls into other programs, writes and events. Every box shows the code it stands for and links to that line; every check shows the error it refuses with. A refusal anywhere undoes the whole transaction.</p>
+  </header>
+
+  <section class="pf-chart" style="border-top:none;padding-top:0">
+    <div class="pf-legend"><div class="pf-n start"><b>start, end</b></div><div class="pf-n guard"><b>Anchor account check</b></div><div class="pf-n check"><b>program check</b></div><div class="pf-n do"><b>calculation or write</b></div><div class="pf-n sub"><b>calls another chart</b></div><div class="pf-n cpi"><b>calls another program</b></div><div class="pf-n emit"><b>event in the log</b></div></div>
+  </section>
+
+  <div class="pf-jumps"><!--__JUMPS__--></div>
+
+  <!--__CHARTS__-->
+
+  <footer class="bs-footer"><!--__FOOT__--></footer>
+</main>
+</body></html>

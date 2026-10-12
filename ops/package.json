@@ -1,0 +1,25 @@
+{
+  "name": "bond-servicing-ops",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Operator scripts for bond_servicing (registrar, keeper, report)",
+  "private": "true",
+  "type": "module",
+  "dependencies": {
+    "@anchor-lang/core": "^1.1.2",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.99.0",
+    "bn.js": "^5.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

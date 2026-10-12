@@ -1,0 +1,393 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/instructions/offer.rs · source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/offer.rs</h1>
+<p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file 05ce6105656462109d1262465a2845f91077d14382cbb50d79cbf322bfe57296</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Third corporate action: issuer buyback (first come, first served) and tender offer (pro rata).</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! Design: docs/buyback-tender.md.</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>//!   - An offer is fully funded in its own vault before anyone can sell or tender.</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>//!   - Tendered bonds stay in the holder&#x27;s account, locked by the transfer hook, so coupon rights at record</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>//!     moments during the window stay with the holder.</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>//!   - After the window, each tender has two separate outcomes. The rejected part is released by `resolve_tender`,</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>//!     which needs no cash and no token accounts, so a blocked cash leg cannot keep it locked. The accepted part</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>//!     stays committed until `settle_tender` buys it.</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>//!   - Tenders are numbered as they are made and resolved in that order, so an oversubscribed offer allocates by</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>//!     running total (`Offer::accept_next`): it buys exactly its maximum, and no tender can gain by being resolved at</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>//!     a chosen moment.</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>//!   - Bonds bought are burned and paid in one transaction, after saving the holder&#x27;s and the bond&#x27;s histories.</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code></code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>use anchor_spl::associated_token::AssociatedToken;</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>use anchor_spl::token_2022::Token2022;</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code></code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>use crate::constants::*;</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>use crate::error::BondError;</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>use crate::events::{BondsBoughtBack, OfferCreated, OfferFunded, TenderChanged, TenderResolved};</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>use crate::settlement::{burn_bonds, pay_cash, retire_quantity, Cash};</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>use crate::state::{Bond, HolderRecord, Offer, OfferKind, Tender};</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code></code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>// ---------------------------------------------------------------- create and fund</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code></code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>#[instruction(id: u16)]</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>pub struct CreateOffer&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>    pub registrar: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code></code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>    #[account(has_one = registrar, has_one = cash_mint)]</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code></code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>    #[account(</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>        init,</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>        payer = registrar,</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>        space = 8 + Offer::INIT_SPACE,</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>        seeds = [OFFER_SEED, bond.key().as_ref(), &amp;id.to_le_bytes()],</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>        bump,</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    )]</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>    pub offer: Box&lt;Account&lt;&#x27;info, Offer&gt;&gt;,</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code></code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>    pub cash_mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code></code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>    #[account(</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>        init,</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>        payer = registrar,</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>        seeds = [VAULT_SEED, offer.key().as_ref()],</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>        bump,</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>        token::mint = cash_mint,</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>        token::authority = bond,</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>        token::token_program = cash_token_program,</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>    )]</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>    pub vault: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code></code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>    pub cash_token_program: Interface&lt;&#x27;info, TokenInterface&gt;,</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>    pub system_program: Program&lt;&#x27;info, System&gt;,</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>}</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code></code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>pub fn handle_create_offer(</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>    ctx: Context&lt;CreateOffer&gt;,</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    id: u16,</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>    pro_rata: bool,</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>    price_units: u64,</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    max_quantity: u64,</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>    open_time: i64,</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>    close_time: i64,</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>    let bond = &amp;ctx.accounts.bond;</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>    require!(</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>        price_units &gt; 0</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>            &amp;&amp; max_quantity &gt; 0</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>            &amp;&amp; open_time &lt; close_time</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>            &amp;&amp; close_time &lt;= bond.final_record_time()?</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>            &amp;&amp; price_units.checked_mul(max_quantity).is_some(),</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>        BondError::InvalidOffer</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>    );</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>    let offer = &amp;mut ctx.accounts.offer;</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>    offer.bond = bond.key();</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>    offer.id = id;</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>    offer.kind = if pro_rata { OfferKind::ProRata } else { OfferKind::FirstCome };</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>    offer.price_units = price_units;</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>    offer.max_quantity = max_quantity;</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>    offer.open_time = open_time;</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>    offer.close_time = close_time;</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>    offer.total = 0;</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>    offer.vault = ctx.accounts.vault.key();</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>    offer.funded = false;</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code>    offer.tenders = 0;</code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>    offer.resolved = 0;</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>    offer.resolved_quantity = 0;</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>    offer.bump = ctx.bumps.offer;</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>    emit!(OfferCreated { bond: bond.key(), offer: id, pro_rata, price_units, max_quantity, open_time, close_time });</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>    Ok(())</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>}</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code></code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>pub struct ConfirmOfferFunding&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>    #[account(mut, has_one = vault, seeds = [OFFER_SEED, offer.bond.as_ref(), &amp;offer.id.to_le_bytes()], bump = offer.bump)]</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>    pub offer: Box&lt;Account&lt;&#x27;info, Offer&gt;&gt;,</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code></code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>    pub vault: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>}</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code></code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>pub fn handle_confirm_offer_funding(ctx: Context&lt;ConfirmOfferFunding&gt;) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>    let offer = &amp;mut ctx.accounts.offer;</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>    require!(!offer.funded, BondError::AlreadyFunded);</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code>    let budget = offer.budget().ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>    let vault_balance = ctx.accounts.vault.amount;</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code>    require!(vault_balance &gt;= budget, BondError::InsufficientFunding);</code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code>    offer.funded = true;</code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>    emit!(OfferFunded { bond: offer.bond, offer: offer.id, vault_balance, budget });</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>    Ok(())</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>}</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code></code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>// ---------------------------------------------------------------- shared accounts for retiring bonds against cash</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code></code></span>
+<span class="line" id="L120"><a href="#L120" aria-label="Line 120">120</a><code>/// Accounts to burn a holder&#x27;s bonds and pay from a vault. The offer is a separate account in each instruction, so</code></span>
+<span class="line" id="L121"><a href="#L121" aria-label="Line 121">121</a><code>/// each instruction takes it writable only if it changes it.</code></span>
+<span class="line" id="L122"><a href="#L122" aria-label="Line 122">122</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L123"><a href="#L123" aria-label="Line 123">123</a><code>pub struct Retirement&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L124"><a href="#L124" aria-label="Line 124">124</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L125"><a href="#L125" aria-label="Line 125">125</a><code>    pub payer: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L126"><a href="#L126" aria-label="Line 126">126</a><code></code></span>
+<span class="line" id="L127"><a href="#L127" aria-label="Line 127">127</a><code>    #[account(mut, has_one = mint, has_one = cash_mint)]</code></span>
+<span class="line" id="L128"><a href="#L128" aria-label="Line 128">128</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L129"><a href="#L129" aria-label="Line 129">129</a><code></code></span>
+<span class="line" id="L130"><a href="#L130" aria-label="Line 130">130</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L131"><a href="#L131" aria-label="Line 131">131</a><code>    pub mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L132"><a href="#L132" aria-label="Line 132">132</a><code></code></span>
+<span class="line" id="L133"><a href="#L133" aria-label="Line 133">133</a><code>    #[account(mut, has_one = bond, has_one = owner, seeds = [HOLDER_SEED, mint.key().as_ref(), owner.key().as_ref()], bump = holder.bump)]</code></span>
+<span class="line" id="L134"><a href="#L134" aria-label="Line 134">134</a><code>    pub holder: Box&lt;Account&lt;&#x27;info, HolderRecord&gt;&gt;,</code></span>
+<span class="line" id="L135"><a href="#L135" aria-label="Line 135">135</a><code></code></span>
+<span class="line" id="L136"><a href="#L136" aria-label="Line 136">136</a><code>    /// CHECK: the holder&#x27;s wallet, checked by `has_one = owner` on the holder record.</code></span>
+<span class="line" id="L137"><a href="#L137" aria-label="Line 137">137</a><code>    pub owner: UncheckedAccount&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L138"><a href="#L138" aria-label="Line 138">138</a><code></code></span>
+<span class="line" id="L139"><a href="#L139" aria-label="Line 139">139</a><code>    #[account(</code></span>
+<span class="line" id="L140"><a href="#L140" aria-label="Line 140">140</a><code>        mut,</code></span>
+<span class="line" id="L141"><a href="#L141" aria-label="Line 141">141</a><code>        associated_token::mint = mint,</code></span>
+<span class="line" id="L142"><a href="#L142" aria-label="Line 142">142</a><code>        associated_token::authority = owner,</code></span>
+<span class="line" id="L143"><a href="#L143" aria-label="Line 143">143</a><code>        associated_token::token_program = token_program,</code></span>
+<span class="line" id="L144"><a href="#L144" aria-label="Line 144">144</a><code>    )]</code></span>
+<span class="line" id="L145"><a href="#L145" aria-label="Line 145">145</a><code>    pub holder_bonds: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L146"><a href="#L146" aria-label="Line 146">146</a><code></code></span>
+<span class="line" id="L147"><a href="#L147" aria-label="Line 147">147</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L148"><a href="#L148" aria-label="Line 148">148</a><code>    pub vault: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L149"><a href="#L149" aria-label="Line 149">149</a><code></code></span>
+<span class="line" id="L150"><a href="#L150" aria-label="Line 150">150</a><code>    pub cash_mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L151"><a href="#L151" aria-label="Line 151">151</a><code></code></span>
+<span class="line" id="L152"><a href="#L152" aria-label="Line 152">152</a><code>    #[account(</code></span>
+<span class="line" id="L153"><a href="#L153" aria-label="Line 153">153</a><code>        init_if_needed,</code></span>
+<span class="line" id="L154"><a href="#L154" aria-label="Line 154">154</a><code>        payer = payer,</code></span>
+<span class="line" id="L155"><a href="#L155" aria-label="Line 155">155</a><code>        associated_token::mint = cash_mint,</code></span>
+<span class="line" id="L156"><a href="#L156" aria-label="Line 156">156</a><code>        associated_token::authority = owner,</code></span>
+<span class="line" id="L157"><a href="#L157" aria-label="Line 157">157</a><code>        associated_token::token_program = cash_token_program,</code></span>
+<span class="line" id="L158"><a href="#L158" aria-label="Line 158">158</a><code>    )]</code></span>
+<span class="line" id="L159"><a href="#L159" aria-label="Line 159">159</a><code>    pub holder_cash: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L160"><a href="#L160" aria-label="Line 160">160</a><code></code></span>
+<span class="line" id="L161"><a href="#L161" aria-label="Line 161">161</a><code>    /// CHECK: SPL Memo program; needed only when the holder&#x27;s cash account requires memos (checked when used).</code></span>
+<span class="line" id="L162"><a href="#L162" aria-label="Line 162">162</a><code>    pub memo_program: Option&lt;UncheckedAccount&lt;&#x27;info&gt;&gt;,</code></span>
+<span class="line" id="L163"><a href="#L163" aria-label="Line 163">163</a><code></code></span>
+<span class="line" id="L164"><a href="#L164" aria-label="Line 164">164</a><code>    pub token_program: Program&lt;&#x27;info, Token2022&gt;,</code></span>
+<span class="line" id="L165"><a href="#L165" aria-label="Line 165">165</a><code>    pub cash_token_program: Interface&lt;&#x27;info, TokenInterface&gt;,</code></span>
+<span class="line" id="L166"><a href="#L166" aria-label="Line 166">166</a><code>    pub associated_token_program: Program&lt;&#x27;info, AssociatedToken&gt;,</code></span>
+<span class="line" id="L167"><a href="#L167" aria-label="Line 167">167</a><code>    pub system_program: Program&lt;&#x27;info, System&gt;,</code></span>
+<span class="line" id="L168"><a href="#L168" aria-label="Line 168">168</a><code>}</code></span>
+<span class="line" id="L169"><a href="#L169" aria-label="Line 169">169</a><code></code></span>
+<span class="line" id="L170"><a href="#L170" aria-label="Line 170">170</a><code>/// Burn `quantity` of the holder&#x27;s bonds, pay quantity x price from the offer&#x27;s vault, save histories and update</code></span>
+<span class="line" id="L171"><a href="#L171" aria-label="Line 171">171</a><code>/// quantities.</code></span>
+<span class="line" id="L172"><a href="#L172" aria-label="Line 172">172</a><code>fn buy_back(r: &amp;mut Retirement, offer_id: u16, price_units: u64, quantity: u64) -&gt; Result&lt;u64&gt; {</code></span>
+<span class="line" id="L173"><a href="#L173" aria-label="Line 173">173</a><code>    require!(r.holder_bonds.amount == r.holder.position.quantity, BondError::PositionMismatch);</code></span>
+<span class="line" id="L174"><a href="#L174" aria-label="Line 174">174</a><code>    let paid = quantity.checked_mul(price_units).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L175"><a href="#L175" aria-label="Line 175">175</a><code>    let passed = r.bond.passed_record_moments(r.bond.now()?)?;</code></span>
+<span class="line" id="L176"><a href="#L176" aria-label="Line 176">176</a><code>    let mint_key = r.bond.mint;</code></span>
+<span class="line" id="L177"><a href="#L177" aria-label="Line 177">177</a><code>    let bond_key = r.bond.key();</code></span>
+<span class="line" id="L178"><a href="#L178" aria-label="Line 178">178</a><code>    let bump = r.bond.bump;</code></span>
+<span class="line" id="L179"><a href="#L179" aria-label="Line 179">179</a><code>    let seeds: &amp;[&amp;[u8]] = &amp;[BOND_SEED, mint_key.as_ref(), &amp;[bump]];</code></span>
+<span class="line" id="L180"><a href="#L180" aria-label="Line 180">180</a><code>    let bond_info = r.bond.to_account_info();</code></span>
+<span class="line" id="L181"><a href="#L181" aria-label="Line 181">181</a><code>    burn_bonds(</code></span>
+<span class="line" id="L182"><a href="#L182" aria-label="Line 182">182</a><code>        &amp;r.token_program.to_account_info(),</code></span>
+<span class="line" id="L183"><a href="#L183" aria-label="Line 183">183</a><code>        &amp;r.holder_bonds.to_account_info(),</code></span>
+<span class="line" id="L184"><a href="#L184" aria-label="Line 184">184</a><code>        &amp;r.mint.to_account_info(),</code></span>
+<span class="line" id="L185"><a href="#L185" aria-label="Line 185">185</a><code>        &amp;bond_info,</code></span>
+<span class="line" id="L186"><a href="#L186" aria-label="Line 186">186</a><code>        quantity,</code></span>
+<span class="line" id="L187"><a href="#L187" aria-label="Line 187">187</a><code>        seeds,</code></span>
+<span class="line" id="L188"><a href="#L188" aria-label="Line 188">188</a><code>    )?;</code></span>
+<span class="line" id="L189"><a href="#L189" aria-label="Line 189">189</a><code>    let memo_info = r.memo_program.as_ref().map(|m| m.to_account_info());</code></span>
+<span class="line" id="L190"><a href="#L190" aria-label="Line 190">190</a><code>    pay_cash(</code></span>
+<span class="line" id="L191"><a href="#L191" aria-label="Line 191">191</a><code>        &amp;Cash {</code></span>
+<span class="line" id="L192"><a href="#L192" aria-label="Line 192">192</a><code>            cash_token_program: &amp;r.cash_token_program.to_account_info(),</code></span>
+<span class="line" id="L193"><a href="#L193" aria-label="Line 193">193</a><code>            vault: &amp;r.vault.to_account_info(),</code></span>
+<span class="line" id="L194"><a href="#L194" aria-label="Line 194">194</a><code>            cash_mint: &amp;r.cash_mint.to_account_info(),</code></span>
+<span class="line" id="L195"><a href="#L195" aria-label="Line 195">195</a><code>            holder_cash: &amp;r.holder_cash.to_account_info(),</code></span>
+<span class="line" id="L196"><a href="#L196" aria-label="Line 196">196</a><code>            bond: &amp;bond_info,</code></span>
+<span class="line" id="L197"><a href="#L197" aria-label="Line 197">197</a><code>            memo_program: memo_info.as_ref(),</code></span>
+<span class="line" id="L198"><a href="#L198" aria-label="Line 198">198</a><code>        },</code></span>
+<span class="line" id="L199"><a href="#L199" aria-label="Line 199">199</a><code>        paid,</code></span>
+<span class="line" id="L200"><a href="#L200" aria-label="Line 200">200</a><code>        r.cash_mint.decimals,</code></span>
+<span class="line" id="L201"><a href="#L201" aria-label="Line 201">201</a><code>        &amp;format!(&quot;bond_servicing: offer {offer_id}&quot;),</code></span>
+<span class="line" id="L202"><a href="#L202" aria-label="Line 202">202</a><code>        seeds,</code></span>
+<span class="line" id="L203"><a href="#L203" aria-label="Line 203">203</a><code>    )?;</code></span>
+<span class="line" id="L204"><a href="#L204" aria-label="Line 204">204</a><code>    retire_quantity(&amp;mut r.holder, &amp;mut r.bond, bond_key, passed, quantity)?;</code></span>
+<span class="line" id="L205"><a href="#L205" aria-label="Line 205">205</a><code>    emit!(BondsBoughtBack { bond: bond_key, offer: offer_id, owner: r.holder.owner, burned: quantity, paid });</code></span>
+<span class="line" id="L206"><a href="#L206" aria-label="Line 206">206</a><code>    Ok(paid)</code></span>
+<span class="line" id="L207"><a href="#L207" aria-label="Line 207">207</a><code>}</code></span>
+<span class="line" id="L208"><a href="#L208" aria-label="Line 208">208</a><code></code></span>
+<span class="line" id="L209"><a href="#L209" aria-label="Line 209">209</a><code>// ---------------------------------------------------------------- buyback: sell at once</code></span>
+<span class="line" id="L210"><a href="#L210" aria-label="Line 210">210</a><code></code></span>
+<span class="line" id="L211"><a href="#L211" aria-label="Line 211">211</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L212"><a href="#L212" aria-label="Line 212">212</a><code>pub struct SellToOffer&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L213"><a href="#L213" aria-label="Line 213">213</a><code>    pub retirement: Retirement&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L214"><a href="#L214" aria-label="Line 214">214</a><code></code></span>
+<span class="line" id="L215"><a href="#L215" aria-label="Line 215">215</a><code>    #[account(constraint = seller.key() == retirement.owner.key())]</code></span>
+<span class="line" id="L216"><a href="#L216" aria-label="Line 216">216</a><code>    pub seller: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L217"><a href="#L217" aria-label="Line 217">217</a><code></code></span>
+<span class="line" id="L218"><a href="#L218" aria-label="Line 218">218</a><code>    #[account(</code></span>
+<span class="line" id="L219"><a href="#L219" aria-label="Line 219">219</a><code>        mut,</code></span>
+<span class="line" id="L220"><a href="#L220" aria-label="Line 220">220</a><code>        constraint = offer.bond == retirement.bond.key() &amp;&amp; offer.vault == retirement.vault.key(),</code></span>
+<span class="line" id="L221"><a href="#L221" aria-label="Line 221">221</a><code>        seeds = [OFFER_SEED, retirement.bond.key().as_ref(), &amp;offer.id.to_le_bytes()],</code></span>
+<span class="line" id="L222"><a href="#L222" aria-label="Line 222">222</a><code>        bump = offer.bump,</code></span>
+<span class="line" id="L223"><a href="#L223" aria-label="Line 223">223</a><code>    )]</code></span>
+<span class="line" id="L224"><a href="#L224" aria-label="Line 224">224</a><code>    pub offer: Box&lt;Account&lt;&#x27;info, Offer&gt;&gt;,</code></span>
+<span class="line" id="L225"><a href="#L225" aria-label="Line 225">225</a><code>}</code></span>
+<span class="line" id="L226"><a href="#L226" aria-label="Line 226">226</a><code></code></span>
+<span class="line" id="L227"><a href="#L227" aria-label="Line 227">227</a><code>pub fn handle_sell_to_offer(ctx: Context&lt;SellToOffer&gt;, quantity: u64) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L228"><a href="#L228" aria-label="Line 228">228</a><code>    let a = &amp;mut *ctx.accounts;</code></span>
+<span class="line" id="L229"><a href="#L229" aria-label="Line 229">229</a><code>    let now = a.retirement.bond.now()?;</code></span>
+<span class="line" id="L230"><a href="#L230" aria-label="Line 230">230</a><code>    require!(a.offer.kind == OfferKind::FirstCome, BondError::WrongOfferKind);</code></span>
+<span class="line" id="L231"><a href="#L231" aria-label="Line 231">231</a><code>    require!(a.offer.funded, BondError::OfferNotFunded);</code></span>
+<span class="line" id="L232"><a href="#L232" aria-label="Line 232">232</a><code>    require!(a.offer.open_time &lt;= now &amp;&amp; now &lt; a.offer.close_time, BondError::OfferNotOpen);</code></span>
+<span class="line" id="L233"><a href="#L233" aria-label="Line 233">233</a><code>    let total = a.offer.total.checked_add(quantity).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L234"><a href="#L234" aria-label="Line 234">234</a><code>    require!(quantity &gt; 0 &amp;&amp; total &lt;= a.offer.max_quantity, BondError::ExceedsOffer);</code></span>
+<span class="line" id="L235"><a href="#L235" aria-label="Line 235">235</a><code>    require!(quantity &lt;= a.retirement.holder.unlocked(), BondError::InsufficientUnlocked);</code></span>
+<span class="line" id="L236"><a href="#L236" aria-label="Line 236">236</a><code>    a.offer.total = total;</code></span>
+<span class="line" id="L237"><a href="#L237" aria-label="Line 237">237</a><code>    buy_back(&amp;mut a.retirement, a.offer.id, a.offer.price_units, quantity)?;</code></span>
+<span class="line" id="L238"><a href="#L238" aria-label="Line 238">238</a><code>    Ok(())</code></span>
+<span class="line" id="L239"><a href="#L239" aria-label="Line 239">239</a><code>}</code></span>
+<span class="line" id="L240"><a href="#L240" aria-label="Line 240">240</a><code></code></span>
+<span class="line" id="L241"><a href="#L241" aria-label="Line 241">241</a><code>// ---------------------------------------------------------------- tender offer: tender, withdraw, resolve, settle</code></span>
+<span class="line" id="L242"><a href="#L242" aria-label="Line 242">242</a><code></code></span>
+<span class="line" id="L243"><a href="#L243" aria-label="Line 243">243</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L244"><a href="#L244" aria-label="Line 244">244</a><code>pub struct ChangeTender&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L245"><a href="#L245" aria-label="Line 245">245</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L246"><a href="#L246" aria-label="Line 246">246</a><code>    pub owner: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L247"><a href="#L247" aria-label="Line 247">247</a><code></code></span>
+<span class="line" id="L248"><a href="#L248" aria-label="Line 248">248</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L249"><a href="#L249" aria-label="Line 249">249</a><code></code></span>
+<span class="line" id="L250"><a href="#L250" aria-label="Line 250">250</a><code>    #[account(mut, has_one = bond, seeds = [OFFER_SEED, bond.key().as_ref(), &amp;offer.id.to_le_bytes()], bump = offer.bump)]</code></span>
+<span class="line" id="L251"><a href="#L251" aria-label="Line 251">251</a><code>    pub offer: Box&lt;Account&lt;&#x27;info, Offer&gt;&gt;,</code></span>
+<span class="line" id="L252"><a href="#L252" aria-label="Line 252">252</a><code></code></span>
+<span class="line" id="L253"><a href="#L253" aria-label="Line 253">253</a><code>    #[account(mut, has_one = bond, has_one = owner, seeds = [HOLDER_SEED, bond.mint.as_ref(), owner.key().as_ref()], bump = holder.bump)]</code></span>
+<span class="line" id="L254"><a href="#L254" aria-label="Line 254">254</a><code>    pub holder: Box&lt;Account&lt;&#x27;info, HolderRecord&gt;&gt;,</code></span>
+<span class="line" id="L255"><a href="#L255" aria-label="Line 255">255</a><code></code></span>
+<span class="line" id="L256"><a href="#L256" aria-label="Line 256">256</a><code>    #[account(</code></span>
+<span class="line" id="L257"><a href="#L257" aria-label="Line 257">257</a><code>        init_if_needed,</code></span>
+<span class="line" id="L258"><a href="#L258" aria-label="Line 258">258</a><code>        payer = owner,</code></span>
+<span class="line" id="L259"><a href="#L259" aria-label="Line 259">259</a><code>        space = 8 + Tender::INIT_SPACE,</code></span>
+<span class="line" id="L260"><a href="#L260" aria-label="Line 260">260</a><code>        seeds = [TENDER_SEED, offer.key().as_ref(), owner.key().as_ref()],</code></span>
+<span class="line" id="L261"><a href="#L261" aria-label="Line 261">261</a><code>        bump,</code></span>
+<span class="line" id="L262"><a href="#L262" aria-label="Line 262">262</a><code>    )]</code></span>
+<span class="line" id="L263"><a href="#L263" aria-label="Line 263">263</a><code>    pub tender: Box&lt;Account&lt;&#x27;info, Tender&gt;&gt;,</code></span>
+<span class="line" id="L264"><a href="#L264" aria-label="Line 264">264</a><code></code></span>
+<span class="line" id="L265"><a href="#L265" aria-label="Line 265">265</a><code>    pub system_program: Program&lt;&#x27;info, System&gt;,</code></span>
+<span class="line" id="L266"><a href="#L266" aria-label="Line 266">266</a><code>}</code></span>
+<span class="line" id="L267"><a href="#L267" aria-label="Line 267">267</a><code></code></span>
+<span class="line" id="L268"><a href="#L268" aria-label="Line 268">268</a><code>/// Tender `quantity` more bonds (`withdraw` = false) or withdraw `quantity` (`withdraw` = true), while the window</code></span>
+<span class="line" id="L269"><a href="#L269" aria-label="Line 269">269</a><code>/// is open. Tendered bonds are locked in the holder&#x27;s account.</code></span>
+<span class="line" id="L270"><a href="#L270" aria-label="Line 270">270</a><code>pub fn handle_change_tender(ctx: Context&lt;ChangeTender&gt;, quantity: u64, withdraw: bool) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L271"><a href="#L271" aria-label="Line 271">271</a><code>    let a = &amp;mut *ctx.accounts;</code></span>
+<span class="line" id="L272"><a href="#L272" aria-label="Line 272">272</a><code>    let now = a.bond.now()?;</code></span>
+<span class="line" id="L273"><a href="#L273" aria-label="Line 273">273</a><code>    require!(a.offer.kind == OfferKind::ProRata, BondError::WrongOfferKind);</code></span>
+<span class="line" id="L274"><a href="#L274" aria-label="Line 274">274</a><code>    require!(a.offer.funded, BondError::OfferNotFunded);</code></span>
+<span class="line" id="L275"><a href="#L275" aria-label="Line 275">275</a><code>    require!(a.offer.open_time &lt;= now &amp;&amp; now &lt; a.offer.close_time, BondError::OfferNotOpen);</code></span>
+<span class="line" id="L276"><a href="#L276" aria-label="Line 276">276</a><code>    require!(quantity &gt; 0, BondError::ExceedsOffer);</code></span>
+<span class="line" id="L277"><a href="#L277" aria-label="Line 277">277</a><code>    let tender = &amp;mut a.tender;</code></span>
+<span class="line" id="L278"><a href="#L278" aria-label="Line 278">278</a><code>    if tender.offer == Pubkey::default() {</code></span>
+<span class="line" id="L279"><a href="#L279" aria-label="Line 279">279</a><code>        tender.offer = a.offer.key();</code></span>
+<span class="line" id="L280"><a href="#L280" aria-label="Line 280">280</a><code>        tender.owner = a.owner.key();</code></span>
+<span class="line" id="L281"><a href="#L281" aria-label="Line 281">281</a><code>        tender.number = a.offer.tenders;</code></span>
+<span class="line" id="L282"><a href="#L282" aria-label="Line 282">282</a><code>        a.offer.tenders = a.offer.tenders.checked_add(1).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L283"><a href="#L283" aria-label="Line 283">283</a><code>        tender.quantity = 0;</code></span>
+<span class="line" id="L284"><a href="#L284" aria-label="Line 284">284</a><code>        tender.resolved = false;</code></span>
+<span class="line" id="L285"><a href="#L285" aria-label="Line 285">285</a><code>        tender.accepted = 0;</code></span>
+<span class="line" id="L286"><a href="#L286" aria-label="Line 286">286</a><code>        tender.settled = false;</code></span>
+<span class="line" id="L287"><a href="#L287" aria-label="Line 287">287</a><code>        tender.bump = ctx.bumps.tender;</code></span>
+<span class="line" id="L288"><a href="#L288" aria-label="Line 288">288</a><code>    }</code></span>
+<span class="line" id="L289"><a href="#L289" aria-label="Line 289">289</a><code>    if withdraw {</code></span>
+<span class="line" id="L290"><a href="#L290" aria-label="Line 290">290</a><code>        require!(quantity &lt;= tender.quantity, BondError::ExceedsOffer);</code></span>
+<span class="line" id="L291"><a href="#L291" aria-label="Line 291">291</a><code>        tender.quantity -= quantity;</code></span>
+<span class="line" id="L292"><a href="#L292" aria-label="Line 292">292</a><code>        a.holder.locked -= quantity;</code></span>
+<span class="line" id="L293"><a href="#L293" aria-label="Line 293">293</a><code>        a.offer.total -= quantity;</code></span>
+<span class="line" id="L294"><a href="#L294" aria-label="Line 294">294</a><code>    } else {</code></span>
+<span class="line" id="L295"><a href="#L295" aria-label="Line 295">295</a><code>        require!(quantity &lt;= a.holder.unlocked(), BondError::InsufficientUnlocked);</code></span>
+<span class="line" id="L296"><a href="#L296" aria-label="Line 296">296</a><code>        tender.quantity = tender.quantity.checked_add(quantity).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L297"><a href="#L297" aria-label="Line 297">297</a><code>        a.holder.locked = a.holder.locked.checked_add(quantity).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L298"><a href="#L298" aria-label="Line 298">298</a><code>        a.offer.total = a.offer.total.checked_add(quantity).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L299"><a href="#L299" aria-label="Line 299">299</a><code>    }</code></span>
+<span class="line" id="L300"><a href="#L300" aria-label="Line 300">300</a><code>    emit!(TenderChanged {</code></span>
+<span class="line" id="L301"><a href="#L301" aria-label="Line 301">301</a><code>        bond: a.bond.key(),</code></span>
+<span class="line" id="L302"><a href="#L302" aria-label="Line 302">302</a><code>        offer: a.offer.id,</code></span>
+<span class="line" id="L303"><a href="#L303" aria-label="Line 303">303</a><code>        owner: a.owner.key(),</code></span>
+<span class="line" id="L304"><a href="#L304" aria-label="Line 304">304</a><code>        tendered: tender.quantity,</code></span>
+<span class="line" id="L305"><a href="#L305" aria-label="Line 305">305</a><code>        offer_total: a.offer.total,</code></span>
+<span class="line" id="L306"><a href="#L306" aria-label="Line 306">306</a><code>    });</code></span>
+<span class="line" id="L307"><a href="#L307" aria-label="Line 307">307</a><code>    Ok(())</code></span>
+<span class="line" id="L308"><a href="#L308" aria-label="Line 308">308</a><code>}</code></span>
+<span class="line" id="L309"><a href="#L309" aria-label="Line 309">309</a><code></code></span>
+<span class="line" id="L310"><a href="#L310" aria-label="Line 310">310</a><code>/// After the window: fix the accepted part (everything if the offer is not oversubscribed, else the running-total</code></span>
+<span class="line" id="L311"><a href="#L311" aria-label="Line 311">311</a><code>/// pro-rata share, `Offer::accept_next`) and release the rejected part. Tenders are resolved in the order they were</code></span>
+<span class="line" id="L312"><a href="#L312" aria-label="Line 312">312</a><code>/// made. Idempotent; a resolved tender is left as it is.</code></span>
+<span class="line" id="L313"><a href="#L313" aria-label="Line 313">313</a><code>fn resolve(bond_key: Pubkey, offer: &amp;mut Offer, tender: &amp;mut Tender, holder: &amp;mut HolderRecord) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L314"><a href="#L314" aria-label="Line 314">314</a><code>    if tender.resolved {</code></span>
+<span class="line" id="L315"><a href="#L315" aria-label="Line 315">315</a><code>        return Ok(());</code></span>
+<span class="line" id="L316"><a href="#L316" aria-label="Line 316">316</a><code>    }</code></span>
+<span class="line" id="L317"><a href="#L317" aria-label="Line 317">317</a><code>    require!(tender.number == offer.resolved, BondError::TenderOutOfOrder);</code></span>
+<span class="line" id="L318"><a href="#L318" aria-label="Line 318">318</a><code>    let accepted = offer.accept_next(tender.quantity).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L319"><a href="#L319" aria-label="Line 319">319</a><code>    let rejected = tender.quantity - accepted;</code></span>
+<span class="line" id="L320"><a href="#L320" aria-label="Line 320">320</a><code>    holder.locked = holder.locked.checked_sub(rejected).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L321"><a href="#L321" aria-label="Line 321">321</a><code>    tender.accepted = accepted;</code></span>
+<span class="line" id="L322"><a href="#L322" aria-label="Line 322">322</a><code>    tender.resolved = true;</code></span>
+<span class="line" id="L323"><a href="#L323" aria-label="Line 323">323</a><code>    emit!(TenderResolved { bond: bond_key, offer: offer.id, owner: holder.owner, accepted, rejected });</code></span>
+<span class="line" id="L324"><a href="#L324" aria-label="Line 324">324</a><code>    Ok(())</code></span>
+<span class="line" id="L325"><a href="#L325" aria-label="Line 325">325</a><code>}</code></span>
+<span class="line" id="L326"><a href="#L326" aria-label="Line 326">326</a><code></code></span>
+<span class="line" id="L327"><a href="#L327" aria-label="Line 327">327</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L328"><a href="#L328" aria-label="Line 328">328</a><code>pub struct ResolveTender&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L329"><a href="#L329" aria-label="Line 329">329</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L330"><a href="#L330" aria-label="Line 330">330</a><code></code></span>
+<span class="line" id="L331"><a href="#L331" aria-label="Line 331">331</a><code>    #[account(mut, has_one = bond, seeds = [OFFER_SEED, bond.key().as_ref(), &amp;offer.id.to_le_bytes()], bump = offer.bump)]</code></span>
+<span class="line" id="L332"><a href="#L332" aria-label="Line 332">332</a><code>    pub offer: Box&lt;Account&lt;&#x27;info, Offer&gt;&gt;,</code></span>
+<span class="line" id="L333"><a href="#L333" aria-label="Line 333">333</a><code></code></span>
+<span class="line" id="L334"><a href="#L334" aria-label="Line 334">334</a><code>    #[account(mut, has_one = bond, seeds = [HOLDER_SEED, bond.mint.as_ref(), holder.owner.as_ref()], bump = holder.bump)]</code></span>
+<span class="line" id="L335"><a href="#L335" aria-label="Line 335">335</a><code>    pub holder: Box&lt;Account&lt;&#x27;info, HolderRecord&gt;&gt;,</code></span>
+<span class="line" id="L336"><a href="#L336" aria-label="Line 336">336</a><code></code></span>
+<span class="line" id="L337"><a href="#L337" aria-label="Line 337">337</a><code>    #[account(mut, seeds = [TENDER_SEED, offer.key().as_ref(), holder.owner.as_ref()], bump = tender.bump)]</code></span>
+<span class="line" id="L338"><a href="#L338" aria-label="Line 338">338</a><code>    pub tender: Box&lt;Account&lt;&#x27;info, Tender&gt;&gt;,</code></span>
+<span class="line" id="L339"><a href="#L339" aria-label="Line 339">339</a><code>}</code></span>
+<span class="line" id="L340"><a href="#L340" aria-label="Line 340">340</a><code></code></span>
+<span class="line" id="L341"><a href="#L341" aria-label="Line 341">341</a><code>/// Anyone, after the window: release the rejected part of one holder&#x27;s tender. Needs no cash and no token</code></span>
+<span class="line" id="L342"><a href="#L342" aria-label="Line 342">342</a><code>/// accounts, so it works even when the offer&#x27;s cash cannot move.</code></span>
+<span class="line" id="L343"><a href="#L343" aria-label="Line 343">343</a><code>pub fn handle_resolve_tender(ctx: Context&lt;ResolveTender&gt;) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L344"><a href="#L344" aria-label="Line 344">344</a><code>    let a = &amp;mut *ctx.accounts;</code></span>
+<span class="line" id="L345"><a href="#L345" aria-label="Line 345">345</a><code>    require!(a.offer.kind == OfferKind::ProRata, BondError::WrongOfferKind);</code></span>
+<span class="line" id="L346"><a href="#L346" aria-label="Line 346">346</a><code>    require!(a.bond.now()? &gt;= a.offer.close_time, BondError::OfferStillOpen);</code></span>
+<span class="line" id="L347"><a href="#L347" aria-label="Line 347">347</a><code>    resolve(a.bond.key(), &amp;mut a.offer, &amp;mut a.tender, &amp;mut a.holder)</code></span>
+<span class="line" id="L348"><a href="#L348" aria-label="Line 348">348</a><code>}</code></span>
+<span class="line" id="L349"><a href="#L349" aria-label="Line 349">349</a><code></code></span>
+<span class="line" id="L350"><a href="#L350" aria-label="Line 350">350</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L351"><a href="#L351" aria-label="Line 351">351</a><code>pub struct SettleTender&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L352"><a href="#L352" aria-label="Line 352">352</a><code>    pub retirement: Retirement&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L353"><a href="#L353" aria-label="Line 353">353</a><code></code></span>
+<span class="line" id="L354"><a href="#L354" aria-label="Line 354">354</a><code>    /// Writable: settling resolves the tender first if nobody has (the offer counts resolutions).</code></span>
+<span class="line" id="L355"><a href="#L355" aria-label="Line 355">355</a><code>    #[account(</code></span>
+<span class="line" id="L356"><a href="#L356" aria-label="Line 356">356</a><code>        mut,</code></span>
+<span class="line" id="L357"><a href="#L357" aria-label="Line 357">357</a><code>        constraint = offer.bond == retirement.bond.key() &amp;&amp; offer.vault == retirement.vault.key(),</code></span>
+<span class="line" id="L358"><a href="#L358" aria-label="Line 358">358</a><code>        seeds = [OFFER_SEED, retirement.bond.key().as_ref(), &amp;offer.id.to_le_bytes()],</code></span>
+<span class="line" id="L359"><a href="#L359" aria-label="Line 359">359</a><code>        bump = offer.bump,</code></span>
+<span class="line" id="L360"><a href="#L360" aria-label="Line 360">360</a><code>    )]</code></span>
+<span class="line" id="L361"><a href="#L361" aria-label="Line 361">361</a><code>    pub offer: Box&lt;Account&lt;&#x27;info, Offer&gt;&gt;,</code></span>
+<span class="line" id="L362"><a href="#L362" aria-label="Line 362">362</a><code></code></span>
+<span class="line" id="L363"><a href="#L363" aria-label="Line 363">363</a><code>    #[account(</code></span>
+<span class="line" id="L364"><a href="#L364" aria-label="Line 364">364</a><code>        mut,</code></span>
+<span class="line" id="L365"><a href="#L365" aria-label="Line 365">365</a><code>        seeds = [TENDER_SEED, offer.key().as_ref(), retirement.owner.key().as_ref()],</code></span>
+<span class="line" id="L366"><a href="#L366" aria-label="Line 366">366</a><code>        bump = tender.bump,</code></span>
+<span class="line" id="L367"><a href="#L367" aria-label="Line 367">367</a><code>    )]</code></span>
+<span class="line" id="L368"><a href="#L368" aria-label="Line 368">368</a><code>    pub tender: Box&lt;Account&lt;&#x27;info, Tender&gt;&gt;,</code></span>
+<span class="line" id="L369"><a href="#L369" aria-label="Line 369">369</a><code>}</code></span>
+<span class="line" id="L370"><a href="#L370" aria-label="Line 370">370</a><code></code></span>
+<span class="line" id="L371"><a href="#L371" aria-label="Line 371">371</a><code>/// Anyone, after the window: buy the accepted part of one holder&#x27;s tender (resolving it first if nobody has), burn</code></span>
+<span class="line" id="L372"><a href="#L372" aria-label="Line 372">372</a><code>/// and pay in one transaction, and release it from the lock.</code></span>
+<span class="line" id="L373"><a href="#L373" aria-label="Line 373">373</a><code>pub fn handle_settle_tender(ctx: Context&lt;SettleTender&gt;) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L374"><a href="#L374" aria-label="Line 374">374</a><code>    let a = &amp;mut *ctx.accounts;</code></span>
+<span class="line" id="L375"><a href="#L375" aria-label="Line 375">375</a><code>    require!(a.offer.kind == OfferKind::ProRata, BondError::WrongOfferKind);</code></span>
+<span class="line" id="L376"><a href="#L376" aria-label="Line 376">376</a><code>    require!(a.retirement.bond.now()? &gt;= a.offer.close_time, BondError::OfferStillOpen);</code></span>
+<span class="line" id="L377"><a href="#L377" aria-label="Line 377">377</a><code>    resolve(a.retirement.bond.key(), &amp;mut a.offer, &amp;mut a.tender, &amp;mut a.retirement.holder)?;</code></span>
+<span class="line" id="L378"><a href="#L378" aria-label="Line 378">378</a><code>    require!(!a.tender.settled, BondError::AlreadySettled);</code></span>
+<span class="line" id="L379"><a href="#L379" aria-label="Line 379">379</a><code>    let accepted = a.tender.accepted;</code></span>
+<span class="line" id="L380"><a href="#L380" aria-label="Line 380">380</a><code>    a.retirement.holder.locked = a.retirement.holder.locked.checked_sub(accepted).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L381"><a href="#L381" aria-label="Line 381">381</a><code>    a.tender.settled = true;</code></span>
+<span class="line" id="L382"><a href="#L382" aria-label="Line 382">382</a><code>    if accepted &gt; 0 {</code></span>
+<span class="line" id="L383"><a href="#L383" aria-label="Line 383">383</a><code>        buy_back(&amp;mut a.retirement, a.offer.id, a.offer.price_units, accepted)?;</code></span>
+<span class="line" id="L384"><a href="#L384" aria-label="Line 384">384</a><code>    }</code></span>
+<span class="line" id="L385"><a href="#L385" aria-label="Line 385">385</a><code>    Ok(())</code></span>
+<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>}</code></span></pre></html>

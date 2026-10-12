@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bond Servicing PSR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* One card per problem: PROBLEM / SOLUTION / RESULT side by side, then the measured evidence. */
+:root {
+  --bg: #f4f5f2; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11, 11, 11, 0.10); --accent: #1c5cab;
+  --problem: #b3261e; --solution: #1c5cab; --result: #006300;
+  --h1: #2a78d6; --h2: #eb6834; --h3: #1baf7a; --h4: #eda100;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1011; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #6da7ec;
+    --problem: #ef7d74; --solution: #6da7ec; --result: #0ca30c;
+    --h1: #3987e5; --h2: #d95926; --h3: #199e70; --h4: #c98500;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1011; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #6da7ec;
+  --problem: #ef7d74; --solution: #6da7ec; --result: #0ca30c;
+  --h1: #3987e5; --h2: #d95926; --h3: #199e70; --h4: #c98500;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1rem/1.55 var(--font-body); }
+.page { max-width: 68rem; margin: 0 auto; padding-inline: max(16px, 3vw); padding-block: 2.5rem 4rem; display: grid; gap: 2.5rem; }
+a { color: var(--accent); text-underline-offset: 2px; }
+h1, h2 { font-family: var(--font-display); font-stretch: 85%; letter-spacing: -0.01em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; line-height: 1.04; }
+h2 { font-size: clamp(1.4rem, 2.8vw, 1.9rem); font-weight: 700; line-height: 1.15; }
+p { margin: 0; }
+.eyebrow { font: 500 0.75rem/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.1rem; color: var(--ink-2); max-width: 62ch; }
+header { display: grid; gap: 0.9rem; }
+.card { display: grid; gap: 1.25rem; }
+.psr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.psr > div { background: var(--surface); border: 1px solid var(--border); border-top: 4px solid; border-radius: 6px; padding: 1rem 1.1rem 1.15rem; display: grid; gap: 0.55rem; align-content: start; min-width: 0; }
+.psr .p { border-top-color: var(--problem); }
+.psr .s { border-top-color: var(--solution); }
+.psr .r { border-top-color: var(--result); }
+.psr b { font: 600 0.75rem/1.2 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.psr .p b { color: var(--problem); }
+.psr .s b { color: var(--solution); }
+.psr .r b { color: var(--result); }
+.psr p { font-size: 0.98rem; }
+.psr .big { font: 700 1.25rem/1.25 var(--font-display); font-stretch: 90%; }
+.figure { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 0.5rem 0.4rem; min-width: 0; }
+.figure .cap { font: 600 0.72rem/1.3 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding: 0 0.5rem; }
+.chart { width: 100%; height: 340px; }
+.links { font-size: 0.9rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; }
+.num { font-variant-numeric: tabular-nums; }
+.chart.tall { height: 400px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.checks { font-size: 0.9rem; color: var(--ink-2); display: grid; gap: 0.3rem; }
+.checks .bad { color: var(--problem); font-weight: 600; }
+@media (max-width: 800px) { .two { grid-template-columns: minmax(0, 1fr); } }
+footer { display: grid; gap: 0.4rem; font-size: 0.85rem; color: var(--ink-2); border-top: 1px solid var(--grid); padding-top: 1.25rem; }
+footer code { font-family: var(--font-mono); font-size: 0.8rem; overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  .psr { grid-template-columns: minmax(0, 1fr); }
+  .chart { height: 300px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="eyebrow" id="eyebrow">bond_servicing on Solana</div>
+    <h1>Problem, solution, result</h1>
+    <p class="lede">Each card takes one thing skeptics say tokenized bonds cannot do, shows how this system does it, and the result measured on the ledger. The bond: the KASE listing's example (1,000 face, 10%, semi-annual, 2 years), run on Solana devnet with its two years compressed into minutes.</p>
+  </header>
+
+  <section class="card" id="life">
+    <div class="eyebrow">Overview &middot; the bond's life</div>
+    <h2 id="life-title">Ten holders followed from issue to redemption</h2>
+    <p class="lede" id="life-lede"></p>
+    <div class="figure">
+      <div class="cap" id="life-cap"></div>
+      <div id="life-chart" class="chart" style="height: 560px" role="img" aria-label="Bonds held and cash received by the sampled holders at a chosen moment"></div>
+    </div>
+    <div class="figure">
+      <div class="cap">Bonds held by each sampled holder over the whole life (dotted lines: record moments)</div>
+      <div id="life-lines" class="chart" role="img" aria-label="Bonds held by each sampled holder over time"></div>
+    </div>
+  </section>
+
+  <article class="card" id="card1">
+    <div class="eyebrow">1 &middot; Coupon day</div>
+    <h2>The market stays open on coupon day</h2>
+    <div class="psr">
+      <div class="p"><b>Problem</b><p id="c1-problem"></p></div>
+      <div class="s"><b>Solution</b><p id="c1-solution"></p></div>
+      <div class="r"><b>Result</b><p class="big" id="c1-result"></p><p id="c1-result-2"></p></div>
+    </div>
+    <div class="figure">
+      <div class="cap" id="c1-cap"></div>
+      <div id="c1-chart" class="chart" role="img" aria-label="Bonds held by the seller and the buyer around the record moment"></div>
+    </div>
+    <div class="links" id="c1-links"></div>
+  </article>
+
+
+  <article class="card" id="card2">
+    <div class="eyebrow">2 &middot; The whole lifecycle</div>
+    <h2>Nothing is mirrored off the ledger</h2>
+    <div class="psr">
+      <div class="p"><b>Problem</b><p id="c2-problem"></p></div>
+      <div class="s"><b>Solution</b><p id="c2-solution"></p></div>
+      <div class="r"><b>Result</b><p class="big" id="c2-result"></p><p id="c2-result-2"></p></div>
+    </div>
+    <div class="figure">
+      <div class="cap" id="c2-cap"></div>
+      <div id="c2-chart" class="chart tall" role="img" aria-label="Every transaction of the bond's life by step"></div>
+    </div>
+    <div class="links" id="c2-links"></div>
+  </article>
+
+  <article class="card" id="card3">
+    <div class="eyebrow">3 &middot; Cost</div>
+    <h2>Paying a holder costs the network's base fee</h2>
+    <div class="psr">
+      <div class="p"><b>Problem</b><p id="c3-problem"></p></div>
+      <div class="s"><b>Solution</b><p id="c3-solution"></p></div>
+      <div class="r"><b>Result</b><p class="big" id="c3-result"></p><p id="c3-result-2"></p></div>
+    </div>
+    <div class="figure">
+      <div class="cap" id="c3-cap"></div>
+      <div id="c3-chart" class="chart" role="img" aria-label="Network cost by step over the bond's life"></div>
+    </div>
+    <div class="links" id="c3-links"></div>
+  </article>
+
+  <article class="card" id="card4">
+    <div class="eyebrow">4 &middot; Operator failure</div>
+    <h2>If the operator disappears, anyone can finish the job</h2>
+    <div class="psr">
+      <div class="p"><b>Problem</b><p id="c4-problem"></p></div>
+      <div class="s"><b>Solution</b><p id="c4-solution"></p></div>
+      <div class="r"><b>Result</b><p class="big" id="c4-result"></p><p id="c4-result-2"></p></div>
+    </div>
+    <div class="figure">
+      <div class="cap" id="c4-cap"></div>
+      <div id="c4-chart" class="chart" role="img" aria-label="Record moments and payments by who sent them"></div>
+    </div>
+    <div class="links" id="c4-links"></div>
+  </article>
+
+  <article class="card" id="card5">
+    <div class="eyebrow">5 &middot; Verification</div>
+    <h2>Anyone can check it from public data</h2>
+    <div class="psr">
+      <div class="p"><b>Problem</b><p id="c5-problem"></p></div>
+      <div class="s"><b>Solution</b><p id="c5-solution"></p></div>
+      <div class="r"><b>Result</b><p class="big" id="c5-result"></p><p id="c5-result-2"></p></div>
+    </div>
+    <div class="two">
+      <div class="figure">
+      <div class="cap" id="c5-cap"></div>
+      <div id="c5-chart" class="chart" role="img" aria-label="Final cash per holder, measured and calculated"></div>
+    </div>
+      <div class="figure"><div class="cap">Tampering probe (local network)</div><div class="checks" id="c5-probe"></div></div>
+    </div>
+    <div class="links" id="c5-links"></div>
+  </article>
+
+  <footer id="footer"></footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js" integrity="sha512-7H/XbvOmUsf6mawBvmmx9BsPt9ew2NTwQ3QDSzNe6iyacDbCJU+7pBbZY1NdmTpuj7snxSsXasMYMiR2tv906g==" crossorigin="anonymous"></script>
+<script>
+const PAGE = /*__PAGE__*/null;
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const money = (v) => Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 });
+const el = (id) => document.getElementById(id);
+const CONFIG = { displayModeBar: false, responsive: true };
+
+function renderCard1() {
+  const c = PAGE.card1;
+  el("c1-problem").innerHTML =
+    `A bond pays its coupon to whoever owned it at the <strong>record moment</strong>. Tokenized bonds change hands any second, ` +
+    `but a program on a blockchain cannot look at every holder at once. <strong>Stopping all transfers</strong> until the ` +
+    `holders are counted would close the always-open market on coupon day.`;
+  el("c1-solution").innerHTML =
+    `<strong>Every trade writes down both holders' bonds at the last record moment</strong> before it moves them. ` +
+    `Nobody has to take a snapshot and nothing is frozen: trading continues, and the coupon still follows the record moment.`;
+  el("c1-result").textContent =
+    `${c.seller} sold ${c.sold} of its ${c.sellerAtRecord} bonds ${c.saleLag} s after the record moment and was paid ${money(c.sellerPaid)}: ` +
+    `the coupon on ${c.sellerAtRecord}. The buyer, ${c.buyer}, was paid ${money(c.buyerPaid)}: the coupon on the ${c.buyerAtRecord} bonds ` +
+    `it held at the record moment, nothing for the ${c.sold} it bought.`;
+  el("c1-result-2").innerHTML =
+    `Whole run: <span class="num">${c.trades}</span> trades <span class="num">${c.lagMin}-${c.lagMax}</span> s after record moments; ` +
+    `<strong class="num">${c.exact} of ${c.cells}</strong> holder-coupon amounts (every holder, every coupon) equal the record-moment ` +
+    `holdings. Paying whoever holds the bond when the money is sent would have got <span class="num">${c.naiveWrong} of ${c.cells}</span> wrong.`;
+  el("c1-cap").textContent = `Bonds held around the first record moment, measured on ${PAGE.cluster} (seconds from the record moment)`;
+  const s = c.series;
+  const line = (d, name, color) => ({
+    x: d.x, y: d.y, name, type: "scatter", mode: "lines", line: { shape: "hv", width: 2.5, color },
+    hovertemplate: `${name}: %{y} bonds at %{x:.0f} s<extra></extra>`,
+  });
+  const sellerColor = css("--h1"), buyerColor = css("--h2");
+  const payY = c.sellerAtRecord - c.sold;
+  Plotly.react("c1-chart", [
+    line(s.seller, `${c.seller} (seller)`, sellerColor),
+    line(s.buyer, `${c.buyer} (buyer)`, buyerColor),
+    { x: [c.payLag], y: [payY], name: "coupon paid", type: "scatter", mode: "markers",
+      marker: { size: 11, color: sellerColor, line: { color: css("--surface"), width: 2 } },
+      hovertemplate: `${c.seller} paid ${money(c.sellerPaid)} at %{x:.0f} s<extra></extra>`, showlegend: false },
+  ], {
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: css("--font-body"), color: css("--ink-2"), size: 12 },
+    margin: { l: 48, r: 16, t: 24, b: 44 },
+    legend: { orientation: "h", x: 0, y: 1.12 },
+    xaxis: { title: { text: "seconds from the record moment" }, gridcolor: css("--grid"), zeroline: false, linecolor: css("--axis") },
+    yaxis: { title: { text: "bonds held" }, gridcolor: css("--grid"), rangemode: "tozero", zeroline: false, linecolor: css("--axis") },
+    shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { color: css("--ink"), width: 1.5, dash: "dot" } }],
+    annotations: [
+      { x: 0, yref: "paper", y: 1, text: "record moment", showarrow: false, xanchor: "left", yanchor: "top", xshift: 4, font: { color: css("--ink") } },
+      { x: c.saleLag, y: c.sellerAtRecord - c.sold, text: `sale: ${c.sold} bonds`, showarrow: true, arrowhead: 0, ax: 40, ay: -30, font: { color: css("--ink-2") } },
+      { x: c.payLag, y: payY, text: `coupon paid: ${money(c.sellerPaid)} (on ${c.sellerAtRecord})`, showarrow: true, arrowhead: 0, ax: -10, ay: -46, font: { color: css("--ink") } },
+    ],
+  }, CONFIG);
+  el("c1-links").innerHTML = `<a href="${c.saleLink}">sale transaction</a><a href="${c.payLink}">coupon payment transaction</a>`;
+}
+
+
+const layoutBase = (extra) => Object.assign({
+  paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+  font: { family: css("--font-body"), color: css("--ink-2"), size: 12 },
+  margin: { l: 120, r: 16, t: 16, b: 44 },
+}, extra);
+const axis = (extra) => Object.assign({ gridcolor: css("--grid"), linecolor: css("--axis"), zeroline: false }, extra);
+const PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#8a5cd1", "#c0392b", "#16a1b8", "#7f6f4f"];
+
+function renderLife() {
+  const L = PAGE.life;
+  const step = (k) => L.steps[k];
+  const label = (s) => `${s.date} · ${s.kind}${s.movers.length ? `: ${s.movers.join(", ")}` : ""}`;
+  el("life-lede").textContent =
+    `This bond has ${L.holders} holders on ${PAGE.cluster}. Ten of them, picked at random, are shown one by one; the other ` +
+    `${L.holders - L.sample.length} are counted together. Drag the slider to any moment of the bond's life: the bars show who holds ` +
+    `how many bonds and how much each has been paid so far. Every value is read from the ledger.`;
+  el("life-cap").textContent = "At the chosen moment: bonds held (top) and cash received from this bond so far (bottom)";
+  const frame = (k) => {
+    const s = step(k);
+    return {
+      name: String(k),
+      data: [
+        { x: L.sample, y: s.bonds, text: s.bonds.map(String) },
+        { x: L.sample, y: s.cash, text: s.cash.map((v) => money(v)) },
+      ],
+      layout: { title: { text: `${label(s)} — other ${L.holders - L.sample.length} holders: ${s.otherBonds} bonds` } },
+    };
+  };
+  const first = frame(0);
+  const colors = L.sample.map((_, i) => PALETTE[i % PALETTE.length]);
+  const fig = {
+    data: [
+      { type: "bar", x: L.sample, y: first.data[0].y, text: first.data[0].text, textposition: "outside", marker: { color: colors },
+        xaxis: "x", yaxis: "y", name: "bonds held", hovertemplate: "%{x}: %{y} bonds<extra></extra>" },
+      { type: "bar", x: L.sample, y: first.data[1].y, text: first.data[1].text, textposition: "outside", marker: { color: colors, opacity: 0.55 },
+        xaxis: "x2", yaxis: "y2", name: "cash received", hovertemplate: "%{x}: %{y:,.2f} received<extra></extra>" },
+    ],
+    layout: layoutBase({
+      title: { text: first.layout.title.text, font: { size: 13, color: css("--ink") }, x: 0, xanchor: "left" },
+      margin: { l: 56, r: 16, t: 48, b: 40 }, showlegend: false,
+      grid: { rows: 2, columns: 1, pattern: "independent", roworder: "top to bottom" },
+      yaxis: axis({ title: { text: "bonds held" }, range: [0, Math.max(...L.steps.flatMap((s) => s.bonds)) * 1.2] }),
+      yaxis2: axis({ title: { text: "cash received" }, range: [0, Math.max(...L.steps.flatMap((s) => s.cash)) * 1.2] }),
+      xaxis: axis({}), xaxis2: axis({}),
+      sliders: [{
+        active: 0, pad: { t: 36 }, currentvalue: { visible: false },
+        steps: L.steps.map((s, k) => ({ label: s.date, method: "animate",
+          args: [[String(k)], { mode: "immediate", frame: { duration: 0, redraw: true }, transition: { duration: 0 } }] })),
+      }],
+    }),
+    frames: L.steps.map((_, k) => frame(k)),
+  };
+  Plotly.react("life-chart", fig.data, fig.layout, CONFIG).then(() => Plotly.addFrames("life-chart", fig.frames));
+  Plotly.react("life-lines", L.sample.map((n, i) => ({
+    x: L.series[n].m, y: L.series[n].bonds, name: n, type: "scatter", mode: "lines", line: { shape: "hv", width: 2, color: PALETTE[i % PALETTE.length] },
+    hovertemplate: `${n}: %{y} bonds<extra></extra>`,
+  })), layoutBase({ margin: { l: 56, r: 16, t: 16, b: 44 }, legend: { orientation: "h", x: 0, y: -0.25 },
+    xaxis: axis({ title: { text: "minutes from bond creation" } }), yaxis: axis({ title: { text: "bonds held" } }),
+    shapes: L.records.map((r) => ({ type: "line", x0: r.m, x1: r.m, yref: "paper", y0: 0, y1: 1, line: { color: css("--ink"), width: 1, dash: "dot" } })),
+  }), CONFIG);
+}
+
+const sol = (lamports) => (lamports / 1e9).toLocaleString("en-US", { maximumFractionDigits: 6 });
+const short = (a) => `${a.slice(0, 4)}...${a.slice(-4)}`;
+
+function renderCard2() {
+  const c = PAGE.card2;
+  el("c2-problem").innerHTML =
+    `Tokenized bonds usually keep the old machinery. The OECD (2025): the lifecycle is often done on chain and "replicated ('mirrored') ` +
+    `traditionally, and as such, none of the possible efficiencies have materialised". ESMA (2025), on the EU's licensed DLT ` +
+    `infrastructures: neither "supports autonomous rights enforcement (e.g. automatic coupon payments...)".`;
+  el("c2-solution").innerHTML =
+    `<strong>The program is the register and the paying agent.</strong> It knows each holder's position at every record moment, ` +
+    `computes each payment from the terms and pays it from the event's own vault. The issuer's only job is to put the cash in.`;
+  el("c2-result").textContent =
+    `Coupon 0 went from record moment to the last of ${c.coupon0Payments} holders paid in ${c.coupon0Seconds} s and ${c.coupon0Txs} ` +
+    `ledger transactions; ${c.coupon0Issuer} of them came from the issuer (the cash).`;
+  const coupons = c.counts["pay coupon"] ? `${PAGE.card1.couponsPaid} coupons` : "";
+  const life = ["trade", "buyback sale", "tender settlement", "redeem"].filter((k) => c.counts[k])
+    .map((k) => ({ trade: "trading", "buyback sale": "a buyback", "tender settlement": "a tender offer", redeem: "the redemption" })[k]);
+  el("c2-result-2").innerHTML =
+    `The bond's whole life (creation, ${[...life.slice(0, 1), coupons, ...life.slice(1)].filter(Boolean).join(", ")}) is ` +
+    `<strong class="num">${c.total}</strong> ledger transactions. Inputs from outside: the issuer's cash deposits ` +
+    `(<span class="num">${c.issuerTxs}</span>).`;
+  el("c2-cap").textContent = `Every transaction of the bond's life on ${PAGE.cluster}, by step (minutes from creation; dotted lines: record moments)`;
+  const rows = c.order.slice().reverse();
+  const palette = { "issuer cash": css("--h4"), "pay coupon": css("--h3"), "trade": css("--h2") };
+  Plotly.react("c2-chart", rows.map((step) => {
+    const pts = c.points.filter((p) => p.step === step);
+    return { x: pts.map((p) => p.m), y: pts.map(() => step), name: step, type: "scatter", mode: "markers",
+      marker: { size: 9, color: palette[step] || css("--h1"), line: { color: css("--surface"), width: 1.5 } },
+      hovertemplate: `${step} at %{x:.1f} min<extra></extra>`, showlegend: false };
+  }), layoutBase({
+    xaxis: axis({ title: { text: "minutes from bond creation" } }),
+    yaxis: axis({ categoryorder: "array", categoryarray: rows }),
+    shapes: c.records.map((m) => ({ type: "line", x0: m, x1: m, yref: "paper", y0: 0, y1: 1, line: { color: css("--ink"), width: 1, dash: "dot" } })),
+  }), CONFIG);
+  el("c2-links").innerHTML = c.trail.map((t) => `<a href="${t.link}">${t.step} +${t.s} s</a>`).join("");
+}
+
+function renderCard3() {
+  const c = PAGE.card3;
+  el("c3-problem").innerHTML =
+    `On public chains, skeptics say, mass payouts are too expensive. ESMA (2025) on a public-chain DLT infrastructure: ` +
+    `"latency and gas cost sensitivity, particularly for complex corporate actions or bulk operations". A bond with thousands ` +
+    `of holders pays every one of them, every coupon.`;
+  el("c3-solution").innerHTML =
+    `<strong>Each payment is one small transaction</strong> that touches only that holder's record, the event's vault and the holder's ` +
+    `cash account. It creates no new storage. Storage is paid once per event, not once per holder.`;
+  el("c3-result").textContent =
+    `Paying one holder one coupon cost ${Math.round(c.perHolderMin).toLocaleString("en-US")}` +
+    `${c.perHolderMax !== c.perHolderMin ? `-${Math.round(c.perHolderMax).toLocaleString("en-US")}` : ""} lamports ` +
+    `(${sol(c.perHolderMin)} SOL), with ${c.payDeposit.every((d) => d === 0) ? "no" : "some"} storage: up to ${c.holdersPerTx} holders share ` +
+    `one ${c.payFee.map((f) => f.toLocaleString("en-US")).join(" / ")}-lamport transaction.`;
+  el("c3-result-2").innerHTML =
+    `Opening an event: <span class="num">${c.openDeposit.map(sol).join(" / ")}</span> SOL storage (event record and its vault). ` +
+    `${c.payments} coupon payments in all. Coupon 0 for ${c.coupon0Holders} holders, everything included: <span class="num">${sol(c.coupon0Lamports)}</span> SOL. ` +
+    `The whole bond life (${c.total} transactions): <span class="num">${sol(c.totalFees)}</span> SOL in fees and ` +
+    `<span class="num">${sol(c.totalDeposits)}</span> SOL in storage deposits. Measured from the fee payers' balances on ${PAGE.cluster}.`;
+  el("c3-cap").textContent = `Network cost by step over the bond's life, in SOL (fees and storage deposits)`;
+  const rows = c.order.slice().reverse();
+  Plotly.react("c3-chart", [
+    { y: rows, x: rows.map((r) => c.by[r].fee / 1e9), name: "fees", type: "bar", orientation: "h", marker: { color: css("--h1") },
+      hovertemplate: "%{y}: %{x:.6f} SOL in fees<extra></extra>" },
+    { y: rows, x: rows.map((r) => c.by[r].deposit / 1e9), name: "storage deposits", type: "bar", orientation: "h", marker: { color: css("--h4") },
+      hovertemplate: "%{y}: %{x:.6f} SOL in storage<extra></extra>" },
+  ], layoutBase({ barmode: "stack", legend: { orientation: "h", x: 0, y: 1.1 },
+    xaxis: axis({ title: { text: "SOL" } }), yaxis: axis({}) }), CONFIG);
+}
+
+function renderCard4() {
+  const c = PAGE.card4;
+  el("c4-problem").innerHTML =
+    `Automated finance can be rigid and depends on whoever runs it. H. J. Allen (testimony to the US House, 2024): speed and automation ` +
+    `can preclude "opportunities for intervention, discretion and flexibility". The FSB (2024): tokenisation still depends on ` +
+    `"parties that do not operate 24/7/365". If the paying agent stops, do holders lose their coupons?`;
+  el("c4-solution").innerHTML =
+    `<strong>The rights live in the program, not with the operator.</strong> Anyone can open an event, confirm its funding, pay holders ` +
+    `and redeem, at any time later. The amounts follow from the record-moment positions, so whoever sends the transaction cannot change them.`;
+  el("c4-result").textContent =
+    `Our operator stopped after coupon ${c.stop}. After the final record moment, a wallet with no role in the bond ` +
+    `(${short(c.keeper)}) paid coupons ${c.stop + 1}-3 and redeemed everyone: ${c.keeperTxs} transactions, fees paid by that wallet.`;
+  el("c4-result-2").innerHTML =
+    `<strong class="num">${c.exact} of ${c.cells}</strong> payments equal the record-moment holdings. ` +
+    `${c.tradesWithoutOperator} trades happened while no operator was running. The independent audit of this run passed ` +
+    `${c.audit.passed} of ${c.audit.checks} checks.`;
+  el("c4-cap").textContent = `Record moments and payments on ${PAGE.cluster}, by who sent them (minutes from bond creation)`;
+  const rows = ["redemption", "coupon 3", "coupon 2", "coupon 1", "coupon 0"];
+  const who = (w, color) => {
+    const pts = c.pays.filter((p) => p.who === w);
+    return { x: pts.map((p) => p.m), y: pts.map((p) => p.row), name: `paid by ${w}`, type: "scatter", mode: "markers",
+      marker: { size: 10, color, line: { color: css("--surface"), width: 1.5 } }, hovertemplate: `%{y}: paid at %{x:.1f} min<extra></extra>` };
+  };
+  Plotly.react("c4-chart", [
+    { x: c.records.map((r) => r.m), y: c.records.map((r) => r.row), name: "record moment", type: "scatter", mode: "markers",
+      marker: { size: 12, symbol: "diamond-open", color: css("--ink"), line: { width: 2 } }, hovertemplate: "%{y}: record moment at %{x:.1f} min<extra></extra>" },
+    who("operator", css("--h1")),
+    who("outside wallet", css("--h2")),
+  ], layoutBase({ legend: { orientation: "h", x: 0, y: 1.14 }, margin: { l: 90, r: 16, t: 24, b: 44 },
+    xaxis: axis({ title: { text: "minutes from bond creation" } }), yaxis: axis({ categoryorder: "array", categoryarray: rows }) }), CONFIG);
+  el("c4-links").innerHTML = `<a href="${c.keeperLink}">the outside wallet's transactions</a><a href="${PAGE.keeperBondMintLink}">this run's bond token</a>`;
+}
+
+function renderCard5() {
+  const c = PAGE.card5;
+  el("c5-problem").innerHTML =
+    `A token ledger is only useful if it provably matches what the bond owes. The FSB (2024): token holders' claims "may lack legal ` +
+    `clarity", and reconciliation between systems remains. Who checks that the code paid what the terms say?`;
+  el("c5-solution").innerHTML =
+    `<strong>Everything the bond owes follows from public data:</strong> the terms, the record moments and the ledger. An independent ` +
+    `auditor reads only the public ledger, never the program's accounts or the operator's report, and recomputes every payment from the terms.`;
+  el("c5-result").textContent =
+    `${c.passed} of ${c.checks} checks pass on ${PAGE.cluster} (${c.transactions} transactions): for ${c.holdersExact} of ${c.holders} holders, ` +
+    `the cash received from this bond equals the terms, to the smallest unit.`;
+  el("c5-result-2").innerHTML =
+    `${c.modelFree} checks need no bond math (balances add up, nothing leaks); ${c.vsTerms} compare measured amounts with amounts calculated ` +
+    `from the terms. Moving 0.000001 into a vault from outside makes ${c.probeAfter.failed.length} checks fail.`;
+  el("c5-cap").textContent = `Final cash from this bond for the ${Object.keys(c.measured).length} sampled holders: measured on the ledger vs calculated from the terms`;
+  const names = Object.keys(c.measured);
+  Plotly.react("c5-chart", [
+    { x: names, y: names.map((n) => c.measured[n]), name: "measured", type: "bar", marker: { color: css("--h1") },
+      hovertemplate: "%{x}: %{y:,.2f} measured<extra></extra>" },
+    { x: names, y: names.map((n) => c.calculated[n]), name: "calculated", type: "bar", marker: { color: css("--h3") },
+      hovertemplate: "%{x}: %{y:,.2f} calculated<extra></extra>" },
+  ], layoutBase({ barmode: "group", legend: { orientation: "h", x: 0, y: 1.12 }, margin: { l: 56, r: 16, t: 24, b: 40 },
+    xaxis: axis({}), yaxis: axis({ title: { text: "cash" } }) }), CONFIG);
+  el("c5-probe").innerHTML =
+    `<div>${c.probe}</div>` +
+    `<div>Before: ${c.probeBefore.checks - c.probeBefore.failed.length} of ${c.probeBefore.checks} pass.</div>` +
+    `<div>After: ${c.probeAfter.checks - c.probeAfter.failed.length} of ${c.probeAfter.checks} pass. Failed:</div>` +
+    c.probeAfter.failed.map((f) => `<div class="bad">${f}</div>`).join("");
+}
+
+function renderFooter() {
+  const a = PAGE.audit;
+  el("eyebrow").textContent = `bond_servicing on Solana ${PAGE.cluster}`;
+  el("footer").innerHTML =
+    `<div>Measured on Solana ${PAGE.cluster}: <a href="${PAGE.programLink}">program</a>, <a href="${PAGE.bondMintLink}">bond token</a>. ` +
+    `Independent ledger audit of this run: ${a.passed} of ${a.checks} checks passed over ${a.transactions} transactions.</div>` +
+    `<div>Data: ${PAGE.source.map((x) => `<code>${x}</code>`).join(", ")}; generated ${PAGE.generated}.</div>`;
+}
+
+function renderAll() { renderLife(); renderCard1(); renderCard2(); renderCard3(); renderCard4(); renderCard5(); renderFooter(); }
+renderAll();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
+</body>
+</html>

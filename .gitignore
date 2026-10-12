@@ -1,0 +1,30 @@
+# local tooling and references (not part of the product)
+.venv/
+refs/
+.idea/
+.playwright-mcp/
+
+# build outputs
+target/
+node_modules/
+test-ledger/
+.surfpool/
+
+# keypairs (never commit)
+keys/
+
+# anchor template
+.anchor
+.DS_Store
+**/*.rs.bk
+.yarn
+
+# operator reports (regenerated per run)
+ops/out/
+ops/node_modules/
+
+# local screenshots and scratch
+tmp/
+
+# python bytecode
+__pycache__/

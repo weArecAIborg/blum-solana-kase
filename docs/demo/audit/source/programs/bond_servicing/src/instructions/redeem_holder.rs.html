@@ -1,0 +1,126 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/instructions/redeem_holder.rs · audit source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../../../stages.html">← Bond stages</a><h1>programs/bond_servicing/src/instructions/redeem_holder.rs</h1>
+<p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 a23f42b356f2b3ae64cb743dc614fe3b7a34445707634ed26bf3d2acf398c1b5</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Redeem one holder at maturity. Anyone may call it once the redemption is funded and payment has opened.</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! In one transaction the program burns the holder&#x27;s free bonds (permissioned burn: the Bond PDA signs as burn</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>//! authority and permanent delegate) and pays their principal from the redemption vault. No bond is burned unpaid,</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>//! no principal is paid for a live bond.</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>//!   - Bonds still committed to an offer (accepted, not yet bought) are left to that offer; the rest is redeemed</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>//!     now, so a blocked offer cannot hold back the holder&#x27;s redemption.</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>//!   - Principal is computed on the cumulative quantity redeemed: principal(redeemed + now) - principal(redeemed),</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>//!     so partial redemptions round exactly like one.</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>//!   - The holder&#x27;s history is saved first, so the final coupon stays payable whether it is paid before or after.</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code></code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>use anchor_spl::associated_token::AssociatedToken;</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>use anchor_spl::token_2022::Token2022;</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code></code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>use crate::constants::*;</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>use crate::error::BondError;</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>use crate::events::BondsRedeemed;</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>use crate::settlement::{burn_bonds, pay_cash, retire_quantity, Cash};</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>use crate::state::{Bond, Event, EventKind, HolderRecord};</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code></code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>pub struct RedeemHolder&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>    pub payer: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code></code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>    #[account(mut, has_one = cash_mint, has_one = mint)]</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code></code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>    pub mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code></code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>    #[account(has_one = bond, has_one = vault, seeds = [EVENT_SEED, bond.key().as_ref(), &amp;event.index.to_le_bytes()], bump = event.bump)]</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>    pub event: Box&lt;Account&lt;&#x27;info, Event&gt;&gt;,</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code></code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>    #[account(mut, has_one = bond, has_one = owner, seeds = [HOLDER_SEED, mint.key().as_ref(), owner.key().as_ref()], bump = holder.bump)]</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>    pub holder: Box&lt;Account&lt;&#x27;info, HolderRecord&gt;&gt;,</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code></code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>    /// CHECK: the holder&#x27;s wallet, checked by `has_one = owner` on the holder record.</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>    pub owner: UncheckedAccount&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code></code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    #[account(</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>        mut,</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>        associated_token::mint = mint,</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>        associated_token::authority = owner,</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code>        associated_token::token_program = token_program,</code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>    )]</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>    pub holder_bonds: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code></code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>    pub vault: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code></code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>    pub cash_mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code></code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>    #[account(</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>        init_if_needed,</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>        payer = payer,</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>        associated_token::mint = cash_mint,</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>        associated_token::authority = owner,</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>        associated_token::token_program = cash_token_program,</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>    )]</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>    pub holder_cash: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code></code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    /// CHECK: SPL Memo program; needed only when the holder&#x27;s cash account requires memos (checked when used).</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>    pub memo_program: Option&lt;UncheckedAccount&lt;&#x27;info&gt;&gt;,</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code></code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    pub token_program: Program&lt;&#x27;info, Token2022&gt;,</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>    pub cash_token_program: Interface&lt;&#x27;info, TokenInterface&gt;,</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>    pub associated_token_program: Program&lt;&#x27;info, AssociatedToken&gt;,</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>    pub system_program: Program&lt;&#x27;info, System&gt;,</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>}</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code></code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>pub fn handle_redeem_holder(ctx: Context&lt;RedeemHolder&gt;) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    let a = &amp;mut *ctx.accounts;</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>    require!(a.event.kind == EventKind::Redemption, BondError::WrongEventKind);</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>    require!(a.event.funded, BondError::NotFunded);</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>    require!(a.bond.now()? &gt;= a.event.payment_time, BondError::PaymentNotOpen);</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>    let passed = a.bond.periods();</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>    let position = a.holder.position.quantity;</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>    require!(a.holder_bonds.amount == position, BondError::PositionMismatch);</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>    let free = position.checked_sub(a.holder.locked).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>    require!(free &gt; 0, BondError::NothingToPay);</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>    let before = a.holder.redeemed;</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>    let after = before.checked_add(free).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>    let principal = a.bond.principal(after)? - a.bond.principal(before)?;</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code></code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>    let mint_key = a.bond.mint;</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>    let bond_key = a.bond.key();</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>    let bump = a.bond.bump;</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>    let seeds: &amp;[&amp;[u8]] = &amp;[BOND_SEED, mint_key.as_ref(), &amp;[bump]];</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code>    let bond_info = a.bond.to_account_info();</code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>    burn_bonds(</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>        &amp;a.token_program.to_account_info(),</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>        &amp;a.holder_bonds.to_account_info(),</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>        &amp;a.mint.to_account_info(),</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>        &amp;bond_info,</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>        free,</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code>        seeds,</code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>    )?;</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>    let memo_info = a.memo_program.as_ref().map(|m| m.to_account_info());</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>    pay_cash(</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>        &amp;Cash {</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>            cash_token_program: &amp;a.cash_token_program.to_account_info(),</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>            vault: &amp;a.vault.to_account_info(),</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>            cash_mint: &amp;a.cash_mint.to_account_info(),</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code>            holder_cash: &amp;a.holder_cash.to_account_info(),</code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>            bond: &amp;bond_info,</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>            memo_program: memo_info.as_ref(),</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>        },</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code>        principal,</code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>        a.cash_mint.decimals,</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code>        &quot;bond_servicing: redemption&quot;,</code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code>        seeds,</code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>    )?;</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>    retire_quantity(&amp;mut a.holder, &amp;mut a.bond, bond_key, passed, free)?;</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>    a.holder.redeemed = after;</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code>    emit!(BondsRedeemed { bond: bond_key, owner: a.holder.owner, burned: free, principal });</code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>    Ok(())</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code>}</code></span></pre></html>

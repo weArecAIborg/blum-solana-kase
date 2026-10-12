@@ -1,0 +1,116 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/instructions/transfer_hook.rs · source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/transfer_hook.rs</h1>
+<p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file 5484931c79ab547e19cdebadfbe5748f9b32e2b0dba5b40071f850b8fbf6b858</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Token-2022 calls this on every bond transfer, after both balances are updated (token-2022 `processor.rs`,</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! `process_transfer`). It</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>//!   - closes trading from the final record moment (balances are frozen for redemption);</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>//!   - keeps bonds in associated token accounts only, so one holder record = one position;</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>//!   - before moving the two holders&#x27; quantities, keeps each holder&#x27;s quantity for every record moment passed</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>//!     since its last change (PositionHistory::save), so no record-moment position is ever lost.</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>//! It writes only the two holders&#x27; records: transfers between different holders run in parallel.</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code></code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>use std::cell::RefMut;</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code></code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>use anchor_spl::associated_token::get_associated_token_address_with_program_id;</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>use anchor_spl::token_2022::spl_token_2022::{</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>    extension::{transfer_hook::TransferHookAccount, BaseStateWithExtensionsMut, PodStateWithExtensionsMut},</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>    pod::PodAccount,</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>};</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>use anchor_spl::token_interface::{Mint, TokenAccount};</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code></code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>use crate::constants::*;</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>use crate::error::BondError;</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>use crate::events::PositionsSaved;</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>use crate::state::{Bond, HolderRecord};</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code></code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code>pub struct TransferHook&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>    #[account(token::mint = mint)]</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>    pub source_token: InterfaceAccount&lt;&#x27;info, TokenAccount&gt;,</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code></code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>    pub mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code></code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>    #[account(token::mint = mint)]</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>    pub destination_token: InterfaceAccount&lt;&#x27;info, TokenAccount&gt;,</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code></code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>    /// CHECK: owner or delegate that authorised the transfer; Token-2022 has already checked it.</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>    pub authority: UncheckedAccount&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code></code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>    /// CHECK: ExtraAccountMetaList at the interface seeds.</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>    #[account(seeds = [EXTRA_ACCOUNT_METAS_SEED, mint.key().as_ref()], bump)]</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>    pub extra_account_meta_list: UncheckedAccount&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code></code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>    #[account(seeds = [BOND_SEED, mint.key().as_ref()], bump = bond.bump)]</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code></code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>    /// CHECK: holder record of the source owner. Read and written by hand because source and destination</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>    /// may belong to the same owner.</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code>    #[account(mut, seeds = [HOLDER_SEED, mint.key().as_ref(), source_token.owner.as_ref()], bump)]</code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code>    pub source_holder: UncheckedAccount&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code></code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>    /// CHECK: holder record of the destination owner (see above).</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>    #[account(mut, seeds = [HOLDER_SEED, mint.key().as_ref(), destination_token.owner.as_ref()], bump)]</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code>    pub destination_holder: UncheckedAccount&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>}</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code></code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>pub fn handle_transfer_hook(ctx: Context&lt;TransferHook&gt;, amount: u64) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>    let a = &amp;ctx.accounts;</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>    check_is_transferring(&amp;a.source_token)?;</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>    check_associated(&amp;a.source_token, &amp;a.mint)?;</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>    check_associated(&amp;a.destination_token, &amp;a.mint)?;</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>    let mut source = read_record(&amp;a.source_holder.to_account_info())?;</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>    let same = a.source_token.key() == a.destination_token.key();</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>    let mut destination = if same { None } else { Some(read_record(&amp;a.destination_holder.to_account_info())?) };</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>    let bond = &amp;a.bond;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>    let now = bond.now()?;</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    require!(now &lt; bond.final_record_time()?, BondError::TransfersClosedAtMaturity);</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>    if same { return Ok(()); }</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>    let destination = destination.as_mut().unwrap();</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    let passed = bond.passed_record_moments_from(now, source.position.live_from.max(destination.position.live_from))?;</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>    let source_before = a.source_token.amount.checked_add(amount).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>    let destination_before = a.destination_token.amount.checked_sub(amount).ok_or(BondError::Overflow)?;</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>    update_record(&amp;mut source, bond.key(), passed, source_before, a.source_token.amount)?;</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>    require!(source.locked &lt;= a.source_token.amount, BondError::BondsLocked);</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>    update_record(destination, bond.key(), passed, destination_before, a.destination_token.amount)?;</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>    source.try_serialize(&amp;mut &amp;mut a.source_holder.try_borrow_mut_data()?[..])?;</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    destination.try_serialize(&amp;mut &amp;mut a.destination_holder.try_borrow_mut_data()?[..])?;</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>    Ok(())</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>}</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code></code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>fn read_record(info: &amp;AccountInfo) -&gt; Result&lt;HolderRecord&gt; {</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>    require_keys_eq!(*info.owner, crate::ID, ErrorCode::AccountOwnedByWrongProgram);</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>    HolderRecord::try_deserialize(&amp;mut &amp;info.try_borrow_data()?[..])</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>}</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code></code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>fn update_record(record: &amp;mut HolderRecord, bond: Pubkey, passed: u16, before: u64, after: u64) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code>    require!(record.position.quantity == before, BondError::PositionMismatch);</code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code>    if let Some((from_event, to_event)) = record.position.save(passed) {</code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>        emit!(PositionsSaved { bond, owner: record.owner, from_event, to_event, quantity: before });</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>    }</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>    record.position.quantity = after;</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>    Ok(())</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>}</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code></code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>fn check_associated(token: &amp;InterfaceAccount&lt;TokenAccount&gt;, mint: &amp;InterfaceAccount&lt;Mint&gt;) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>    let expected =</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>        get_associated_token_address_with_program_id(&amp;token.owner, &amp;mint.key(), &amp;anchor_spl::token_2022::ID);</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>    require_keys_eq!(token.key(), expected, BondError::NotAssociatedTokenAccount);</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>    Ok(())</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>}</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code></code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>/// From the official example: fail unless Token-2022 marked the account as being transferred.</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>fn check_is_transferring(source: &amp;InterfaceAccount&lt;TokenAccount&gt;) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>    let info = source.to_account_info();</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>    let mut data: RefMut&lt;&amp;mut [u8]&gt; = info.try_borrow_mut_data()?;</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>    let mut account =</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>        PodStateWithExtensionsMut::&lt;PodAccount&gt;::unpack(*data).map_err(|_| ProgramError::InvalidAccountData)?;</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code>    let extension =</code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code>        account.get_extension_mut::&lt;TransferHookAccount&gt;().map_err(|_| ProgramError::InvalidAccountData)?;</code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>    require!(bool::from(extension.transferring), BondError::NotTransferring);</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>    Ok(())</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>}</code></span></pre></html>

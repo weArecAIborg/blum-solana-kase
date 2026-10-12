@@ -1,0 +1,404 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tools/demo/build_stages.py · audit source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../stages.html">← Bond stages</a><h1>tools/demo/build_stages.py</h1>
+<p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 cd97466201a8039e113138521e7d4a9ee57858322b9f638e147cca839e49e5c4</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>&quot;&quot;&quot;Build the stage-by-stage comparison (docs/demo/stages.html): for each stage of a bond&#x27;s life, the textbook bond</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>(left) beside the same stage tokenized on Solana (right), each with its own picture, and the outcome they share.</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code></code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>Left side: what corporate-finance practice says, with its source (docs/tradfi-vs-onchain.md, docs/bond-mechanics.md).</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>Right side: what the program did, measured on devnet. Every number is computed here from the measured data.</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code></code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>Inputs (all measured): docs/demo/data/devnet-crowd-1000.json, devnet-keeper.json, tamper-probe-local.json,</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code>devnet-hostile-attempts.json.</code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>Auditor supplement required beside the output: data/stages-probe-ledger.json (cached finalized probe responses).</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code></code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code>Usage: .venv/bin/python3 tools/demo/build_stages.py docs/demo/data/devnet-crowd-1000.json \</code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>           docs/demo/data/devnet-keeper.json docs/demo/data/tamper-probe-local.json \</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>           docs/demo/data/devnet-hostile-attempts.json docs/demo/stages.html</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>&quot;&quot;&quot;</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code></code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code>import json</code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>import sys</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>from html import escape</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>from pathlib import Path</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code></code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>ROOT = Path(__file__).resolve().parents[2]</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code>sys.path.insert(0, str(ROOT / &quot;tools/demo&quot;))</code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>from build_psr import card_audit, card_market_open  # noqa: E402</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>from stages_audit import build_evidence, RULES  # noqa: E402</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code></code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code></code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code># ---------- HTML: every text is written into the file; the page&#x27;s script draws only the pictures ----------</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code></code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>def esc(s):</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>    return escape(str(s), quote=True)</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code></code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code></code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>def tx(href, label=&quot;transaction&quot;, evidence=None, cls=&quot;&quot;, chip=True):</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code>    classes = &quot; &quot;.join(c for c in (&quot;bs-proof&quot; if chip else &quot;&quot;, &quot;audit-link&quot; if evidence else &quot;&quot;, cls) if c)</code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>    attrs = (f&#x27; data-evidence=&quot;{esc(evidence)}&quot;&#x27; if evidence else &quot;&quot;) + (f&#x27; class=&quot;{esc(classes)}&quot;&#x27; if classes else &quot;&quot;)</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code>    return f&#x27;&lt;a href=&quot;{esc(href)}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;{attrs}&gt;{esc(label)}&lt;/a&gt;&#x27;</code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code></code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code></code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>def proof(evidence, key, label, cls=&quot;&quot;, chip=True):</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>    return tx(evidence[key][&quot;refs&quot;][0][&quot;href&quot;], label, key, cls, chip)</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code></code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code></code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code># Stage names, as in the Claude Design stages kit: the strip &quot;1 Issue&quot; ... &quot;9 Audit&quot;, headings &quot;Record: ...&quot;.</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>NAMES = {&quot;issue&quot;: &quot;Issue&quot;, &quot;trade&quot;: &quot;Trade&quot;, &quot;record&quot;: &quot;Record&quot;, &quot;calculate&quot;: &quot;Calculate&quot;, &quot;fund&quot;: &quot;Fund&quot;, &quot;pay&quot;: &quot;Pay&quot;,</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>         &quot;redeem&quot;: &quot;Redeem&quot;, &quot;offer&quot;: &quot;Offer&quot;, &quot;audit&quot;: &quot;Audit&quot;}</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code></code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code></code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>def index_html(stages):</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>    return &quot;&quot;.join(f&#x27;&lt;a href=&quot;#{s[&quot;id&quot;]}&quot; data-id=&quot;{s[&quot;id&quot;]}&quot;{&quot; aria-current=\&quot;true\&quot;&quot; if i == 0 else &quot;&quot;}&gt;{i + 1} {NAMES[s[&quot;id&quot;]]}&lt;/a&gt;&#x27;</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>                   for i, s in enumerate(stages))</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code></code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code></code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>def record_tables(d, evidence):</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>    &quot;&quot;&quot;Stage 3 as the kit lays it out: the 09:00 list (textbook) and the ledger entries around it (on Solana).&quot;&quot;&quot;</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>    after_s, after_b = d[&quot;sellerAtRecord&quot;] - d[&quot;sold&quot;], d[&quot;buyerAtRecord&quot;] + d[&quot;sold&quot;]</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>    book = (f&#x27;&lt;table class=&quot;bs-register&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Holder&lt;/th&gt;&lt;th class=&quot;r&quot;&gt;Bonds at 09:00&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;&#x27;</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code>            f&#x27;&lt;tr&gt;&lt;td&gt;{esc(d[&quot;seller&quot;])}&lt;/td&gt;&lt;td class=&quot;r&quot;&gt;{d[&quot;sellerAtRecord&quot;]}&lt;/td&gt;&lt;/tr&gt;&#x27;</code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>            f&#x27;&lt;tr&gt;&lt;td&gt;{esc(d[&quot;buyer&quot;])}&lt;/td&gt;&lt;td class=&quot;r&quot;&gt;{d[&quot;buyerAtRecord&quot;]}&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;&#x27;)</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>    chain = (f&#x27;&lt;table class=&quot;bs-ledger&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Time&lt;/th&gt;&lt;th&gt;Entry&lt;/th&gt;&lt;th class=&quot;r&quot;&gt;{esc(d[&quot;seller&quot;])}&lt;/th&gt;&#x27;</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>             f&#x27;&lt;th class=&quot;r&quot;&gt;{esc(d[&quot;buyer&quot;])}&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;&#x27;</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code>             f&#x27;&lt;tr&gt;&lt;td&gt;09:00:00&lt;/td&gt;&lt;td&gt;record moment 0&lt;/td&gt;&lt;td class=&quot;r&quot;&gt;{d[&quot;sellerAtRecord&quot;]}&lt;/td&gt;&lt;td class=&quot;r&quot;&gt;{d[&quot;buyerAtRecord&quot;]}&lt;/td&gt;&lt;/tr&gt;&#x27;</code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>             f&#x27;&lt;tr class=&quot;hl&quot;&gt;&lt;td&gt;+{d[&quot;saleLag&quot;]} s&lt;/td&gt;&lt;td&gt;hook: positions saved for 09:00&lt;/td&gt;&lt;td class=&quot;r&quot;&gt;{d[&quot;sellerAtRecord&quot;]}&lt;/td&gt;&#x27;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>             f&#x27;&lt;td class=&quot;r&quot;&gt;{d[&quot;buyerAtRecord&quot;]}&lt;/td&gt;&lt;/tr&gt;&#x27;</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>             f&#x27;&lt;tr&gt;&lt;td&gt;+{d[&quot;saleLag&quot;]} s&lt;/td&gt;&lt;td&gt;transfer {d[&quot;sold&quot;]} → {esc(d[&quot;buyer&quot;])}&lt;/td&gt;&lt;td class=&quot;r&quot;&gt;{after_s}&lt;/td&gt;&#x27;</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>             f&#x27;&lt;td class=&quot;r&quot;&gt;{after_b}&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;&#x27;)</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>    links = f&#x27;&lt;p class=&quot;bs-links&quot;&gt;{proof(evidence, d[&quot;saleKey&quot;], &quot;the sale&quot;)} {proof(evidence, d[&quot;payKey&quot;], &quot;the payment&quot;)}&lt;/p&gt;&#x27;</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    return book, chain + links</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code></code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code></code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>def receipts(d):</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>    &quot;&quot;&quot;Stage 4 as the kit lays it out: the same sum on a coupon statement and in the cash token&#x27;s smallest unit.&quot;&quot;&quot;</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>    units = 10 ** d[&quot;decimals&quot;]</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>    row = lambda k, v, cls=&quot;&quot;: f&#x27;&lt;div class=&quot;bs-rl{cls}&quot;&gt;&lt;span&gt;{esc(k)}&lt;/span&gt;&lt;span&gt;{esc(v)}&lt;/span&gt;&lt;/div&gt;&#x27;  # noqa: E731</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    book = (&#x27;&lt;div class=&quot;bs-receipt book&quot;&gt;&#x27; + row(&quot;Holding&quot;, f&#x27;{d[&quot;bonds&quot;]} bonds&#x27;) + row(&quot;Face value&quot;, f&#x27;{d[&quot;face&quot;]:,.2f}&#x27;)</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>            + row(&quot;Interest&quot;, f&#x27;{d[&quot;rateBps&quot;] / 100:g}% a year&#x27;) + row(&quot;Payments a year&quot;, d[&quot;perYear&quot;])</code></span>
+<span class="line" id="L76"><a href="#L76" aria-label="Line 76">76</a><code>            + row(&quot;Coupon&quot;, f&#x27;{d[&quot;bonds&quot;]} × {d[&quot;face&quot;]:,.0f} × {d[&quot;rateBps&quot;] / 100:g}% / {d[&quot;perYear&quot;]}&#x27;)</code></span>
+<span class="line" id="L77"><a href="#L77" aria-label="Line 77">77</a><code>            + row(&quot;Rounded down to&quot;, &quot;0.01&quot;) + row(&quot;Owed&quot;, f&#x27;{d[&quot;paid&quot;]:,.2f}&#x27;, &quot; total&quot;) + &quot;&lt;/div&gt;&quot;)</code></span>
+<span class="line" id="L78"><a href="#L78" aria-label="Line 78">78</a><code>    chain = (&#x27;&lt;div class=&quot;bs-receipt chain&quot;&gt;&#x27; + row(&quot;position&quot;, d[&quot;bonds&quot;]) + row(&quot;face_units&quot;, f&#x27;{d[&quot;faceUnits&quot;]:,}&#x27;)</code></span>
+<span class="line" id="L79"><a href="#L79" aria-label="Line 79">79</a><code>             + row(&quot;rate_bps&quot;, d[&quot;rateBps&quot;]) + row(&quot;periods&quot;, d[&quot;perYear&quot;])</code></span>
+<span class="line" id="L80"><a href="#L80" aria-label="Line 80">80</a><code>             + row(&quot;amount&quot;, f&#x27;{d[&quot;bonds&quot;]} x {d[&quot;faceUnits&quot;]:,} x {d[&quot;rateBps&quot;]} / 10,000 / {d[&quot;perYear&quot;]}&#x27;)</code></span>
+<span class="line" id="L81"><a href="#L81" aria-label="Line 81">81</a><code>             + row(&quot;units&quot;, f&#x27;{round(d[&quot;paid&quot;] * units):,}&#x27;) + row(&quot;paid&quot;, f&#x27;{d[&quot;paid&quot;]:.{d[&quot;decimals&quot;]}f}&#x27;, &quot; total&quot;)</code></span>
+<span class="line" id="L82"><a href="#L82" aria-label="Line 82">82</a><code>             + row(&quot;QuantLib, FinancePy&quot;, f&#x27;{d[&quot;paid&quot;]:,.2f}&#x27;, &quot; check&quot;) + &quot;&lt;/div&gt;&quot;)</code></span>
+<span class="line" id="L83"><a href="#L83" aria-label="Line 83">83</a><code>    return book, chain</code></span>
+<span class="line" id="L84"><a href="#L84" aria-label="Line 84">84</a><code></code></span>
+<span class="line" id="L85"><a href="#L85" aria-label="Line 85">85</a><code></code></span>
+<span class="line" id="L86"><a href="#L86" aria-label="Line 86">86</a><code>def screens_html(stages, evidence):</code></span>
+<span class="line" id="L87"><a href="#L87" aria-label="Line 87">87</a><code>    def refused(rows):</code></span>
+<span class="line" id="L88"><a href="#L88" aria-label="Line 88">88</a><code>        return f&quot;&quot;&quot;&lt;ul class=&quot;bs-ref&quot;&gt;{&quot;&quot;.join(f&#x27;&#x27;&#x27;&lt;li&gt;&lt;span class=&quot;bs-mark refused&quot;&gt;Refused&lt;/span&gt;</code></span>
+<span class="line" id="L89"><a href="#L89" aria-label="Line 89">89</a><code>            &lt;span&gt;{esc(r[&quot;actor&quot;][0].upper() + r[&quot;actor&quot;][1:])} {esc(r[&quot;tries&quot;])} · {tx(r[&quot;explorer&quot;], &#x27;transaction&#x27;, &#x27;attack:&#x27; + r[&#x27;id&#x27;])}&lt;/span&gt;&lt;/li&gt;&#x27;&#x27;&#x27; for r in rows)}&lt;/ul&gt;&quot;&quot;&quot; \</code></span>
+<span class="line" id="L90"><a href="#L90" aria-label="Line 90">90</a><code>            if rows else &quot;&quot;</code></span>
+<span class="line" id="L91"><a href="#L91" aria-label="Line 91">91</a><code></code></span>
+<span class="line" id="L92"><a href="#L92" aria-label="Line 92">92</a><code>    def bodies(i, s):</code></span>
+<span class="line" id="L93"><a href="#L93" aria-label="Line 93">93</a><code>        if s[&quot;id&quot;] == &quot;record&quot;:</code></span>
+<span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>            return record_tables(s[&quot;data&quot;], evidence)</code></span>
+<span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>        if s[&quot;id&quot;] == &quot;calculate&quot;:</code></span>
+<span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>            return receipts(s[&quot;data&quot;])</code></span>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>        return (f&#x27;&lt;div class=&quot;viz&quot; data-stage=&quot;{i}&quot; data-side=&quot;left&quot;&gt;&lt;/div&gt;&#x27;, f&#x27;&lt;div class=&quot;viz&quot; data-stage=&quot;{i}&quot; data-side=&quot;right&quot;&gt;&lt;/div&gt;&#x27;)</code></span>
+<span class="line" id="L98"><a href="#L98" aria-label="Line 98">98</a><code></code></span>
+<span class="line" id="L99"><a href="#L99" aria-label="Line 99">99</a><code>    def sim(s):</code></span>
+<span class="line" id="L100"><a href="#L100" aria-label="Line 100">100</a><code>        if s[&quot;id&quot;] != &quot;record&quot;:</code></span>
+<span class="line" id="L101"><a href="#L101" aria-label="Line 101">101</a><code>            return &quot;&quot;</code></span>
+<span class="line" id="L102"><a href="#L102" aria-label="Line 102">102</a><code>        d = s[&quot;data&quot;]</code></span>
+<span class="line" id="L103"><a href="#L103" aria-label="Line 103">103</a><code>        return (f&#x27;&lt;p class=&quot;bs-sim&quot;&gt;&lt;b&gt;Simulated&lt;/b&gt;&lt;span&gt;Devnet time is compressed: 1 bond day = {d[&quot;scale&quot;]} chain seconds, &#x27;</code></span>
+<span class="line" id="L104"><a href="#L104" aria-label="Line 104">104</a><code>                f&#x27;so “{d[&quot;saleLag&quot;]} s after 09:00” is {d[&quot;saleLag&quot;]} chain seconds.&lt;/span&gt;&lt;/p&gt;&#x27;)</code></span>
+<span class="line" id="L105"><a href="#L105" aria-label="Line 105">105</a><code></code></span>
+<span class="line" id="L106"><a href="#L106" aria-label="Line 106">106</a><code>    out = []</code></span>
+<span class="line" id="L107"><a href="#L107" aria-label="Line 107">107</a><code>    for i, s in enumerate(stages):</code></span>
+<span class="line" id="L108"><a href="#L108" aria-label="Line 108">108</a><code>        left, right = bodies(i, s)</code></span>
+<span class="line" id="L109"><a href="#L109" aria-label="Line 109">109</a><code>        out.append(f&quot;&quot;&quot;</code></span>
+<span class="line" id="L110"><a href="#L110" aria-label="Line 110">110</a><code>  &lt;section class=&quot;bs-screen&quot; id=&quot;{s[&quot;id&quot;]}&quot;&gt;</code></span>
+<span class="line" id="L111"><a href="#L111" aria-label="Line 111">111</a><code>    &lt;div class=&quot;bs-sh&quot;&gt;&lt;span class=&quot;no&quot;&gt;{i + 1} / {len(stages)}&lt;/span&gt;&lt;h2&gt;{NAMES[s[&quot;id&quot;]]}: {esc(s[&quot;title&quot;][0].lower() + s[&quot;title&quot;][1:])}&lt;/h2&gt;&lt;/div&gt;</code></span>
+<span class="line" id="L112"><a href="#L112" aria-label="Line 112">112</a><code>    &lt;div class=&quot;bs-lr&quot;&gt;</code></span>
+<span class="line" id="L113"><a href="#L113" aria-label="Line 113">113</a><code>      &lt;div class=&quot;bs-side book&quot;&gt;&lt;span class=&quot;label&quot;&gt;Textbook&lt;/span&gt;</code></span>
+<span class="line" id="L114"><a href="#L114" aria-label="Line 114">114</a><code>        {left}</code></span>
+<span class="line" id="L115"><a href="#L115" aria-label="Line 115">115</a><code>        &lt;p class=&quot;cap&quot;&gt;{esc(s[&quot;left&quot;][&quot;caption&quot;])}&lt;/p&gt;&lt;p class=&quot;src&quot;&gt;{esc(s[&quot;left&quot;][&quot;source&quot;])} ·</code></span>
+<span class="line" id="L116"><a href="#L116" aria-label="Line 116">116</a><code>          {&quot; · &quot;.join(tx(url, name, &#x27;rule:&#x27; + s[&#x27;id&#x27;], chip=False) for name, url in RULES[s[&#x27;id&#x27;]])}&lt;/p&gt;&lt;/div&gt;</code></span>
+<span class="line" id="L117"><a href="#L117" aria-label="Line 117">117</a><code>      &lt;div class=&quot;bs-side chain&quot;&gt;&lt;span class=&quot;label&quot;&gt;On Solana, measured&lt;/span&gt;</code></span>
+<span class="line" id="L118"><a href="#L118" aria-label="Line 118">118</a><code>        {right}</code></span>
+<span class="line" id="L119"><a href="#L119" aria-label="Line 119">119</a><code>        &lt;p class=&quot;cap&quot;&gt;{esc(s[&quot;right&quot;][&quot;caption&quot;])}&lt;/p&gt;</code></span>
+<span class="line" id="L120"><a href="#L120" aria-label="Line 120">120</a><code>        &lt;div class=&quot;bs-value&quot;&gt;{proof(evidence, &#x27;stage:&#x27; + s[&#x27;id&#x27;], s[&#x27;right&#x27;][&#x27;value&#x27;], &#x27;metric-link&#x27;, chip=False)}&lt;/div&gt;</code></span>
+<span class="line" id="L121"><a href="#L121" aria-label="Line 121">121</a><code>        {refused(s[&quot;right&quot;][&quot;refused&quot;])}</code></span>
+<span class="line" id="L122"><a href="#L122" aria-label="Line 122">122</a><code>        &lt;p class=&quot;bs-links&quot;&gt;{proof(evidence, &#x27;stage:&#x27; + s[&#x27;id&#x27;], &#x27;inspect evidence&#x27;)}</code></span>
+<span class="line" id="L123"><a href="#L123" aria-label="Line 123">123</a><code>          {tx(&#x27;data/devnet-crowd-1000.json&#x27;, &#x27;measured data&#x27;, &#x27;stage:&#x27; + s[&#x27;id&#x27;])}</code></span>
+<span class="line" id="L124"><a href="#L124" aria-label="Line 124">124</a><code>          {proof(evidence, &#x27;keeper&#x27;, &#x27;outside keeper&#x27;) if s[&#x27;id&#x27;] == &#x27;pay&#x27; else &#x27;&#x27;}</code></span>
+<span class="line" id="L125"><a href="#L125" aria-label="Line 125">125</a><code>          {tx(&#x27;data/devnet-hostile-attempts.json&#x27;, f&#x27;all {s[&quot;right&quot;][&quot;probes&quot;]} probes&#x27;, &#x27;stage:audit&#x27;) if s[&#x27;id&#x27;] == &#x27;audit&#x27; else &#x27;&#x27;}&lt;/p&gt;&lt;/div&gt;</code></span>
+<span class="line" id="L126"><a href="#L126" aria-label="Line 126">126</a><code>    &lt;/div&gt;</code></span>
+<span class="line" id="L127"><a href="#L127" aria-label="Line 127">127</a><code>    &lt;p class=&quot;bs-now ok&quot;&gt;&lt;b&gt;Same outcome&lt;/b&gt;&lt;span&gt;{esc(s[&quot;verdict&quot;])}&lt;/span&gt;&lt;/p&gt;</code></span>
+<span class="line" id="L128"><a href="#L128" aria-label="Line 128">128</a><code>    {sim(s)}</code></span>
+<span class="line" id="L129"><a href="#L129" aria-label="Line 129">129</a><code>  &lt;/section&gt;&quot;&quot;&quot;)</code></span>
+<span class="line" id="L130"><a href="#L130" aria-label="Line 130">130</a><code>    return &quot;&quot;.join(out)</code></span>
+<span class="line" id="L131"><a href="#L131" aria-label="Line 131">131</a><code></code></span>
+<span class="line" id="L132"><a href="#L132" aria-label="Line 132">132</a><code></code></span>
+<span class="line" id="L133"><a href="#L133" aria-label="Line 133">133</a><code>def foot_html(page):</code></span>
+<span class="line" id="L134"><a href="#L134" aria-label="Line 134">134</a><code>    return (f&#x27;Program {tx(page[&quot;programLink&quot;], &quot;2UkTKYYz...8sHf&quot;, &quot;program&quot;)} on Solana devnet. Right-hand numbers are measured\n&#x27;</code></span>
+<span class="line" id="L135"><a href="#L135" aria-label="Line 135">135</a><code>            f&#x27;  from the ledger (1000-holder run, {esc(page[&quot;generated&quot;])}; attacks from the attacker run). Left-hand rules: &#x27;</code></span>
+<span class="line" id="L136"><a href="#L136" aria-label="Line 136">136</a><code>            f&#x27;{tx(&quot;audit/source/docs/tradfi-vs-onchain.md.html&quot;, &quot;TradFi comparison&quot;, &quot;rule:issue&quot;)}, &#x27;</code></span>
+<span class="line" id="L137"><a href="#L137" aria-label="Line 137">137</a><code>            f&#x27;{tx(&quot;audit/source/docs/bond-mechanics.md.html&quot;, &quot;bond mechanics&quot;, &quot;rule:issue&quot;)}. &#x27;</code></span>
+<span class="line" id="L138"><a href="#L138" aria-label="Line 138">138</a><code>            f&#x27;{tx(&quot;audit/evidence.json&quot;, &quot;Auditor evidence index&quot;, &quot;stage:audit&quot;)} · &#x27;</code></span>
+<span class="line" id="L139"><a href="#L139" aria-label="Line 139">139</a><code>            f&#x27;{tx(&quot;audit/review.html&quot;, &quot;How the probes work and what they prove&quot;)}&#x27;)</code></span>
+<span class="line" id="L140"><a href="#L140" aria-label="Line 140">140</a><code></code></span>
+<span class="line" id="L141"><a href="#L141" aria-label="Line 141">141</a><code></code></span>
+<span class="line" id="L142"><a href="#L142" aria-label="Line 142">142</a><code>def fill(template, parts):</code></span>
+<span class="line" id="L143"><a href="#L143" aria-label="Line 143">143</a><code>    for key, html in parts.items():</code></span>
+<span class="line" id="L144"><a href="#L144" aria-label="Line 144">144</a><code>        marker = f&quot;&lt;!--__{key}__--&gt;&quot; if key != &quot;PAGE&quot; else &quot;/*__PAGE__*/null&quot;</code></span>
+<span class="line" id="L145"><a href="#L145" aria-label="Line 145">145</a><code>        assert template.count(marker) == 1, f&quot;template must hold {marker} once&quot;</code></span>
+<span class="line" id="L146"><a href="#L146" aria-label="Line 146">146</a><code>        template = template.replace(marker, html)</code></span>
+<span class="line" id="L147"><a href="#L147" aria-label="Line 147">147</a><code>    return template</code></span>
+<span class="line" id="L148"><a href="#L148" aria-label="Line 148">148</a><code></code></span>
+<span class="line" id="L149"><a href="#L149" aria-label="Line 149">149</a><code></code></span>
+<span class="line" id="L150"><a href="#L150" aria-label="Line 150">150</a><code>def main(crowd_path, keeper_path, probe_path, hostile_path, out_path):</code></span>
+<span class="line" id="L151"><a href="#L151" aria-label="Line 151">151</a><code>    D = json.loads(Path(crowd_path).read_text())</code></span>
+<span class="line" id="L152"><a href="#L152" aria-label="Line 152">152</a><code>    K = json.loads(Path(keeper_path).read_text())</code></span>
+<span class="line" id="L153"><a href="#L153" aria-label="Line 153">153</a><code>    probe = json.loads(Path(probe_path).read_text())</code></span>
+<span class="line" id="L154"><a href="#L154" aria-label="Line 154">154</a><code>    H = json.loads(Path(hostile_path).read_text())</code></span>
+<span class="line" id="L155"><a href="#L155" aria-label="Line 155">155</a><code>    scn = json.loads((ROOT / D[&quot;scenarioFile&quot;]).read_text())</code></span>
+<span class="line" id="L156"><a href="#L156" aria-label="Line 156">156</a><code>    T = scn[&quot;terms&quot;]</code></span>
+<span class="line" id="L157"><a href="#L157" aria-label="Line 157">157</a><code>    unit = 10 ** T[&quot;cashDecimals&quot;]</code></span>
+<span class="line" id="L158"><a href="#L158" aria-label="Line 158">158</a><code>    face = int(T[&quot;faceUnits&quot;]) / unit</code></span>
+<span class="line" id="L159"><a href="#L159" aria-label="Line 159">159</a><code>    per_bond = D[&quot;comparison&quot;][&quot;perBond&quot;]</code></span>
+<span class="line" id="L160"><a href="#L160" aria-label="Line 160">160</a><code>    c1, c5 = card_market_open(D), card_audit(D, probe)</code></span>
+<span class="line" id="L161"><a href="#L161" aria-label="Line 161">161</a><code>    att = {a[&quot;id&quot;]: a for a in H[&quot;attempts&quot;]}</code></span>
+<span class="line" id="L162"><a href="#L162" aria-label="Line 162">162</a><code>    failing = [c[&quot;id&quot;] for c in D[&quot;audit&quot;][&quot;checks&quot;] if not c[&quot;ok&quot;]] + [a[&quot;id&quot;] for a in H[&quot;attempts&quot;] if not a[&quot;byGuard&quot;]]</code></span>
+<span class="line" id="L163"><a href="#L163" aria-label="Line 163">163</a><code>    if failing or c1[&quot;exact&quot;] != c1[&quot;cells&quot;]:</code></span>
+<span class="line" id="L164"><a href="#L164" aria-label="Line 164">164</a><code>        raise SystemExit(f&quot;not building: failing {failing}, exact {c1[&#x27;exact&#x27;]} of {c1[&#x27;cells&#x27;]}&quot;)</code></span>
+<span class="line" id="L165"><a href="#L165" aria-label="Line 165">165</a><code></code></span>
+<span class="line" id="L166"><a href="#L166" aria-label="Line 166">166</a><code>    records = [r[&quot;chainTime&quot;] for r in D[&quot;records&quot;]]</code></span>
+<span class="line" id="L167"><a href="#L167" aria-label="Line 167">167</a><code>    events = D[&quot;events&quot;]</code></span>
+<span class="line" id="L168"><a href="#L168" aria-label="Line 168">168</a><code>    tender = next(o for o in scn[&quot;offers&quot;] if o[&quot;kind&quot;] == &quot;tender&quot;)</code></span>
+<span class="line" id="L169"><a href="#L169" aria-label="Line 169">169</a><code>    buyback = next(o for o in scn[&quot;offers&quot;] if o[&quot;kind&quot;] == &quot;buyback&quot;)</code></span>
+<span class="line" id="L170"><a href="#L170" aria-label="Line 170">170</a><code>    tender_price = int(tender[&quot;priceUnits&quot;]) / unit</code></span>
+<span class="line" id="L171"><a href="#L171" aria-label="Line 171">171</a><code></code></span>
+<span class="line" id="L172"><a href="#L172" aria-label="Line 172">172</a><code>    # Bonds over the bond&#x27;s life (supply) and what retired them.</code></span>
+<span class="line" id="L173"><a href="#L173" aria-label="Line 173">173</a><code>    supply, s_t, s_v, retired = 0, [], [], {&quot;buyback&quot;: 0, &quot;tender&quot;: 0, &quot;redemption&quot;: 0}</code></span>
+<span class="line" id="L174"><a href="#L174" aria-label="Line 174">174</a><code>    for e in events:</code></span>
+<span class="line" id="L175"><a href="#L175" aria-label="Line 175">175</a><code>        change = sum(m[&quot;bonds&quot;] for m in e[&quot;moves&quot;].values()) if e[&quot;kind&quot;] != &quot;trade&quot; else 0</code></span>
+<span class="line" id="L176"><a href="#L176" aria-label="Line 176">176</a><code>        if not change:</code></span>
+<span class="line" id="L177"><a href="#L177" aria-label="Line 177">177</a><code>            continue</code></span>
+<span class="line" id="L178"><a href="#L178" aria-label="Line 178">178</a><code>        supply += change</code></span>
+<span class="line" id="L179"><a href="#L179" aria-label="Line 179">179</a><code>        s_t.append(e[&quot;t&quot;])</code></span>
+<span class="line" id="L180"><a href="#L180" aria-label="Line 180">180</a><code>        s_v.append(supply)</code></span>
+<span class="line" id="L181"><a href="#L181" aria-label="Line 181">181</a><code>        if e[&quot;kind&quot;] == &quot;buyback&quot;:</code></span>
+<span class="line" id="L182"><a href="#L182" aria-label="Line 182">182</a><code>            for m in e[&quot;moves&quot;].values():</code></span>
+<span class="line" id="L183"><a href="#L183" aria-label="Line 183">183</a><code>                if m[&quot;bonds&quot;]:</code></span>
+<span class="line" id="L184"><a href="#L184" aria-label="Line 184">184</a><code>                    retired[&quot;tender&quot; if round(m[&quot;cash&quot;] / -m[&quot;bonds&quot;], 6) == tender_price else &quot;buyback&quot;] -= m[&quot;bonds&quot;]</code></span>
+<span class="line" id="L185"><a href="#L185" aria-label="Line 185">185</a><code>        elif e[&quot;kind&quot;] == &quot;redemption&quot;:</code></span>
+<span class="line" id="L186"><a href="#L186" aria-label="Line 186">186</a><code>            retired[&quot;redemption&quot;] -= change</code></span>
+<span class="line" id="L187"><a href="#L187" aria-label="Line 187">187</a><code>    placed = sum(m[&quot;bonds&quot;] for e in events if e[&quot;kind&quot;] == &quot;placement&quot; for m in e[&quot;moves&quot;].values())</code></span>
+<span class="line" id="L188"><a href="#L188" aria-label="Line 188">188</a><code></code></span>
+<span class="line" id="L189"><a href="#L189" aria-label="Line 189">189</a><code>    # Trades: seconds after the record moment before them (bond days at the run&#x27;s scale).</code></span>
+<span class="line" id="L190"><a href="#L190" aria-label="Line 190">190</a><code>    lags = []</code></span>
+<span class="line" id="L191"><a href="#L191" aria-label="Line 191">191</a><code>    for e in events:</code></span>
+<span class="line" id="L192"><a href="#L192" aria-label="Line 192">192</a><code>        if e[&quot;kind&quot;] == &quot;trade&quot;:</code></span>
+<span class="line" id="L193"><a href="#L193" aria-label="Line 193">193</a><code>            passed = [r for r in records if r &lt;= e[&quot;t&quot;]]</code></span>
+<span class="line" id="L194"><a href="#L194" aria-label="Line 194">194</a><code>            if passed:</code></span>
+<span class="line" id="L195"><a href="#L195" aria-label="Line 195">195</a><code>                lags.append(round(e[&quot;t&quot;] - passed[-1], 1))</code></span>
+<span class="line" id="L196"><a href="#L196" aria-label="Line 196">196</a><code></code></span>
+<span class="line" id="L197"><a href="#L197" aria-label="Line 197">197</a><code>    # Coupon 0: every payment transaction, seconds after the first one; holders paid in each.</code></span>
+<span class="line" id="L198"><a href="#L198" aria-label="Line 198">198</a><code>    c0 = [e for e in events if e[&quot;kind&quot;] == &quot;coupon&quot; and e[&quot;coupon&quot;] == 0]</code></span>
+<span class="line" id="L199"><a href="#L199" aria-label="Line 199">199</a><code>    t_first = min(e[&quot;t&quot;] for e in c0)</code></span>
+<span class="line" id="L200"><a href="#L200" aria-label="Line 200">200</a><code>    pay_batches = sorted((e[&quot;t&quot;] - t_first, sum(1 for m in e[&quot;moves&quot;].values() if m[&quot;cash&quot;] &gt; 0)) for e in c0)</code></span>
+<span class="line" id="L201"><a href="#L201" aria-label="Line 201">201</a><code>    supply0 = sum(D[&quot;grid&quot;][0][&quot;atRecord&quot;].values())</code></span>
+<span class="line" id="L202"><a href="#L202" aria-label="Line 202">202</a><code></code></span>
+<span class="line" id="L203"><a href="#L203" aria-label="Line 203">203</a><code>    # The listing&#x27;s example holder through redemption.</code></span>
+<span class="line" id="L204"><a href="#L204" aria-label="Line 204">204</a><code>    bh1_red = next(e for e in events if e[&quot;kind&quot;] == &quot;redemption&quot; and &quot;BH#1&quot; in e[&quot;moves&quot;])</code></span>
+<span class="line" id="L205"><a href="#L205" aria-label="Line 205">205</a><code>    # Tender: who tendered (the scenario&#x27;s instructions), what was accepted (measured), coupon in the window.</code></span>
+<span class="line" id="L206"><a href="#L206" aria-label="Line 206">206</a><code>    tendered_by = {}</code></span>
+<span class="line" id="L207"><a href="#L207" aria-label="Line 207">207</a><code>    for a in tender[&quot;actions&quot;]:</code></span>
+<span class="line" id="L208"><a href="#L208" aria-label="Line 208">208</a><code>        tendered_by[a[&quot;holder&quot;]] = tendered_by.get(a[&quot;holder&quot;], 0) + a.get(&quot;tender&quot;, 0) - a.get(&quot;withdraw&quot;, 0)</code></span>
+<span class="line" id="L209"><a href="#L209" aria-label="Line 209">209</a><code>    tendered_by = {h: q for h, q in tendered_by.items() if q &gt; 0}</code></span>
+<span class="line" id="L210"><a href="#L210" aria-label="Line 210">210</a><code>    accepted_by = {}</code></span>
+<span class="line" id="L211"><a href="#L211" aria-label="Line 211">211</a><code>    for e in events:</code></span>
+<span class="line" id="L212"><a href="#L212" aria-label="Line 212">212</a><code>        if e[&quot;kind&quot;] == &quot;buyback&quot;:</code></span>
+<span class="line" id="L213"><a href="#L213" aria-label="Line 213">213</a><code>            for h, m in e[&quot;moves&quot;].items():</code></span>
+<span class="line" id="L214"><a href="#L214" aria-label="Line 214">214</a><code>                if m[&quot;bonds&quot;] and round(m[&quot;cash&quot;] / -m[&quot;bonds&quot;], 6) == tender_price:</code></span>
+<span class="line" id="L215"><a href="#L215" aria-label="Line 215">215</a><code>                    accepted_by[h] = accepted_by.get(h, 0) - m[&quot;bonds&quot;]</code></span>
+<span class="line" id="L216"><a href="#L216" aria-label="Line 216">216</a><code>    window = tender[&quot;close&quot;][&quot;recordMoment&quot;]</code></span>
+<span class="line" id="L217"><a href="#L217" aria-label="Line 217">217</a><code>    kept_coupon = sum(1 for h in tendered_by if D[&quot;grid&quot;][window][&quot;paid&quot;].get(h, 0) &gt; 0)</code></span>
+<span class="line" id="L218"><a href="#L218" aria-label="Line 218">218</a><code>    total_tendered = sum(tendered_by.values())</code></span>
+<span class="line" id="L219"><a href="#L219" aria-label="Line 219">219</a><code>    holders_tender = sorted(tendered_by, key=lambda h: -tendered_by[h])</code></span>
+<span class="line" id="L220"><a href="#L220" aria-label="Line 220">220</a><code></code></span>
+<span class="line" id="L221"><a href="#L221" aria-label="Line 221">221</a><code>    keeper_exact = sum(1 for g in K[&quot;grid&quot;] for n in g[&quot;expected&quot;] if abs(g[&quot;paid&quot;][n] - g[&quot;expected&quot;][n]) &lt; 1e-9)</code></span>
+<span class="line" id="L222"><a href="#L222" aria-label="Line 222">222</a><code>    keeper_cells = sum(len(g[&quot;expected&quot;]) for g in K[&quot;grid&quot;])</code></span>
+<span class="line" id="L223"><a href="#L223" aria-label="Line 223">223</a><code>    serviced = [s for s in H[&quot;serviced&quot;] if s[&quot;cashTo&quot;]]</code></span>
+<span class="line" id="L224"><a href="#L224" aria-label="Line 224">224</a><code>    evidence, payment_events, sources = build_evidence(D, K, probe, H, scn, Path(out_path).parent)</code></span>
+<span class="line" id="L225"><a href="#L225" aria-label="Line 225">225</a><code></code></span>
+<span class="line" id="L226"><a href="#L226" aria-label="Line 226">226</a><code>    stages = [</code></span>
+<span class="line" id="L227"><a href="#L227" aria-label="Line 227">227</a><code>        {&quot;id&quot;: &quot;issue&quot;, &quot;title&quot;: &quot;A fixed supply, on a known register&quot;,</code></span>
+<span class="line" id="L228"><a href="#L228" aria-label="Line 228">228</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;The issuer sells bonds on fixed terms. The central securities depository keeps the register &quot;</code></span>
+<span class="line" id="L229"><a href="#L229" aria-label="Line 229">229</a><code>                             &quot;of who holds them.&quot;,</code></span>
+<span class="line" id="L230"><a href="#L230" aria-label="Line 230">230</a><code>                  &quot;source&quot;: &quot;SCoRE glossary: the CSD ensures the integrity of securities issues&quot;},</code></span>
+<span class="line" id="L231"><a href="#L231" aria-label="Line 231">231</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;The terms live in the bond&#x27;s account on chain. Only the program can mint, and only before &quot;</code></span>
+<span class="line" id="L232"><a href="#L232" aria-label="Line 232">232</a><code>                              &quot;the first record moment. The token has no freeze authority.&quot;,</code></span>
+<span class="line" id="L233"><a href="#L233" aria-label="Line 233">233</a><code>                   &quot;value&quot;: f&quot;{placed:,} bonds, {len(D[&#x27;holders&#x27;]):,} holders&quot;,</code></span>
+<span class="line" id="L234"><a href="#L234" aria-label="Line 234">234</a><code>                   &quot;refused&quot;: [att[i] for i in (&quot;mint-bonds&quot;, &quot;place-late&quot;, &quot;place-beyond-issue&quot;, &quot;register-self&quot;)]},</code></span>
+<span class="line" id="L235"><a href="#L235" aria-label="Line 235">235</a><code>         &quot;verdict&quot;: f&quot;Same register: {placed:,} bonds placed with {len(D[&#x27;holders&#x27;]):,} holders; nobody else can add one.&quot;,</code></span>
+<span class="line" id="L236"><a href="#L236" aria-label="Line 236">236</a><code>         &quot;draw&quot;: &quot;certificate&quot;},</code></span>
+<span class="line" id="L237"><a href="#L237" aria-label="Line 237">237</a><code>        {&quot;id&quot;: &quot;trade&quot;, &quot;title&quot;: &quot;The securities leg settles in one transaction&quot;,</code></span>
+<span class="line" id="L238"><a href="#L238" aria-label="Line 238">238</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;A trade settles a settlement cycle later. If it is still pending on the record date, the &quot;</code></span>
+<span class="line" id="L239"><a href="#L239" aria-label="Line 239">239</a><code>                             &quot;coupon goes to the seller and is then reclaimed: a market claim.&quot;,</code></span>
+<span class="line" id="L240"><a href="#L240" aria-label="Line 240">240</a><code>                  &quot;source&quot;: &quot;AFME Market Claims, standard 1b; T2S market claims standards&quot;},</code></span>
+<span class="line" id="L241"><a href="#L241" aria-label="Line 241">241</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;Bond-token transfer and the register update are one transaction. No securities transfer &quot;</code></span>
+<span class="line" id="L242"><a href="#L242" aria-label="Line 242">242</a><code>                              &quot;is left pending at the record moment. This run does not demonstrate a cash trade leg.&quot;,</code></span>
+<span class="line" id="L243"><a href="#L243" aria-label="Line 243">243</a><code>                   &quot;value&quot;: f&quot;{len(lags)} trades, 0 pending&quot;,</code></span>
+<span class="line" id="L244"><a href="#L244" aria-label="Line 244">244</a><code>                   &quot;refused&quot;: [att[i] for i in (&quot;send-unregistered&quot;, &quot;skip-hook&quot;, &quot;take-bonds&quot;)]},</code></span>
+<span class="line" id="L245"><a href="#L245" aria-label="Line 245">245</a><code>         &quot;verdict&quot;: &quot;Same register after every trade; no market claims to process.&quot;,</code></span>
+<span class="line" id="L246"><a href="#L246" aria-label="Line 246">246</a><code>         &quot;draw&quot;: &quot;settlement&quot;, &quot;data&quot;: {&quot;lags&quot;: lags, &quot;scale&quot;: D[&quot;scale&quot;]}},</code></span>
+<span class="line" id="L247"><a href="#L247" aria-label="Line 247">247</a><code>        {&quot;id&quot;: &quot;record&quot;, &quot;title&quot;: &quot;Who held the bond at 09:00&quot;,</code></span>
+<span class="line" id="L248"><a href="#L248" aria-label="Line 248">248</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;On the record date the depository strikes the settled positions, and the coupon follows that &quot;</code></span>
+<span class="line" id="L249"><a href="#L249" aria-label="Line 249">249</a><code>                             &quot;list whatever trades come after. Sample bond: the list is taken at 09:00 on payment day &quot;</code></span>
+<span class="line" id="L250"><a href="#L250" aria-label="Line 250">250</a><code>                             &quot;while trades keep being registered.&quot;,</code></span>
+<span class="line" id="L251"><a href="#L251" aria-label="Line 251">251</a><code>                  &quot;source&quot;: &quot;SCoRE and AFME glossaries, record date; sample: Kazakhstan CSD rules for government bonds, &quot;</code></span>
+<span class="line" id="L252"><a href="#L252" aria-label="Line 252">252</a><code>                            &quot;art. 8 p. 6&quot;},</code></span>
+<span class="line" id="L253"><a href="#L253" aria-label="Line 253">253</a><code>         &quot;right&quot;: {&quot;caption&quot;: f&quot;No list is taken. {c1[&#x27;seller&#x27;]}&#x27;s sale {c1[&#x27;saleLag&#x27;]} s after 09:00 first saved the &quot;</code></span>
+<span class="line" id="L254"><a href="#L254" aria-label="Line 254">254</a><code>                              f&quot;{c1[&#x27;sellerAtRecord&#x27;]} bonds it held at 09:00; the coupon used that.&quot;,</code></span>
+<span class="line" id="L255"><a href="#L255" aria-label="Line 255">255</a><code>                   &quot;value&quot;: f&quot;{c1[&#x27;exact&#x27;]:,} of {c1[&#x27;cells&#x27;]:,} exact&quot;,</code></span>
+<span class="line" id="L256"><a href="#L256" aria-label="Line 256">256</a><code>                   &quot;refused&quot;: [att[&quot;forge-position&quot;]]},</code></span>
+<span class="line" id="L257"><a href="#L257" aria-label="Line 257">257</a><code>         &quot;verdict&quot;: f&quot;Same entitlement: {c1[&#x27;seller&#x27;]} paid on {c1[&#x27;sellerAtRecord&#x27;]}, {c1[&#x27;buyer&#x27;]} on &quot;</code></span>
+<span class="line" id="L258"><a href="#L258" aria-label="Line 258">258</a><code>                    f&quot;{c1[&#x27;buyerAtRecord&#x27;]}, as the 09:00 list says.&quot;,</code></span>
+<span class="line" id="L259"><a href="#L259" aria-label="Line 259">259</a><code>         &quot;draw&quot;: &quot;record&quot;, &quot;data&quot;: {&quot;series&quot;: c1[&quot;series&quot;], &quot;seller&quot;: c1[&quot;seller&quot;], &quot;buyer&quot;: c1[&quot;buyer&quot;], &quot;saleLag&quot;: c1[&quot;saleLag&quot;],</code></span>
+<span class="line" id="L260"><a href="#L260" aria-label="Line 260">260</a><code>                                    &quot;sellerAtRecord&quot;: c1[&quot;sellerAtRecord&quot;], &quot;buyerAtRecord&quot;: c1[&quot;buyerAtRecord&quot;],</code></span>
+<span class="line" id="L261"><a href="#L261" aria-label="Line 261">261</a><code>                                    &quot;sellerPaid&quot;: c1[&quot;sellerPaid&quot;], &quot;buyerPaid&quot;: c1[&quot;buyerPaid&quot;],</code></span>
+<span class="line" id="L262"><a href="#L262" aria-label="Line 262">262</a><code>                                    &quot;saleLink&quot;: c1[&quot;saleLink&quot;], &quot;payLink&quot;: c1[&quot;payLink&quot;], &quot;sold&quot;: c1[&quot;sold&quot;], &quot;scale&quot;: D[&quot;scale&quot;]}},</code></span>
+<span class="line" id="L263"><a href="#L263" aria-label="Line 263">263</a><code>        {&quot;id&quot;: &quot;calculate&quot;, &quot;title&quot;: &quot;The coupon statement&quot;,</code></span>
+<span class="line" id="L264"><a href="#L264" aria-label="Line 264">264</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;Coupon = holding x face x rate / payments a year, on the holder&#x27;s total holding, rounded &quot;</code></span>
+<span class="line" id="L265"><a href="#L265" aria-label="Line 265">265</a><code>                             &quot;down to the currency&#x27;s smallest unit.&quot;,</code></span>
+<span class="line" id="L266"><a href="#L266" aria-label="Line 266">266</a><code>                  &quot;source&quot;: &quot;SCoRE, standard 4; government bond terms: S = N x C&quot;},</code></span>
+<span class="line" id="L267"><a href="#L267" aria-label="Line 267">267</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;The program computes it in integers of the cash token&#x27;s smallest unit, rounded down once &quot;</code></span>
+<span class="line" id="L268"><a href="#L268" aria-label="Line 268">268</a><code>                              &quot;per holder. How we checked: we read every transaction of this bond from the public devnet &quot;</code></span>
+<span class="line" id="L269"><a href="#L269" aria-label="Line 269">269</a><code>                              &quot;RPC (the data Solana Explorer shows), add up the token balance changes each one recorded, &quot;</code></span>
+<span class="line" id="L270"><a href="#L270" aria-label="Line 270">270</a><code>                              f&quot;and get each holder&#x27;s bonds at the record moment and the cash it received. Bonds x &quot;</code></span>
+<span class="line" id="L271"><a href="#L271" aria-label="Line 271">271</a><code>                              f&quot;{per_bond:,.2f} = cash received. QuantLib and FinancePy, run on the bond&#x27;s terms, give the &quot;</code></span>
+<span class="line" id="L272"><a href="#L272" aria-label="Line 272">272</a><code>                              &quot;same amounts.&quot;,</code></span>
+<span class="line" id="L273"><a href="#L273" aria-label="Line 273">273</a><code>                   &quot;value&quot;: f&quot;{c1[&#x27;exact&#x27;]:,} of {c1[&#x27;cells&#x27;]:,} equal&quot;,</code></span>
+<span class="line" id="L274"><a href="#L274" aria-label="Line 274">274</a><code>                   &quot;refused&quot;: [att[&quot;late-buyer&quot;]]},</code></span>
+<span class="line" id="L275"><a href="#L275" aria-label="Line 275">275</a><code>         &quot;verdict&quot;: f&quot;Same amount: BH#1, {D[&#x27;grid&#x27;][0][&#x27;atRecord&#x27;][&#x27;BH#1&#x27;]} bonds, {D[&#x27;grid&#x27;][0][&#x27;paid&#x27;][&#x27;BH#1&#x27;]:,.2f}.&quot;,</code></span>
+<span class="line" id="L276"><a href="#L276" aria-label="Line 276">276</a><code>         &quot;draw&quot;: &quot;receipt&quot;,</code></span>
+<span class="line" id="L277"><a href="#L277" aria-label="Line 277">277</a><code>         &quot;data&quot;: {&quot;bonds&quot;: D[&quot;grid&quot;][0][&quot;atRecord&quot;][&quot;BH#1&quot;], &quot;face&quot;: face, &quot;faceUnits&quot;: int(T[&quot;faceUnits&quot;]), &quot;rateBps&quot;: T[&quot;rateBps&quot;],</code></span>
+<span class="line" id="L278"><a href="#L278" aria-label="Line 278">278</a><code>                  &quot;perYear&quot;: T[&quot;periodsPerYear&quot;], &quot;decimals&quot;: T[&quot;cashDecimals&quot;], &quot;paid&quot;: D[&quot;grid&quot;][0][&quot;paid&quot;][&quot;BH#1&quot;]}},</code></span>
+<span class="line" id="L279"><a href="#L279" aria-label="Line 279">279</a><code>        {&quot;id&quot;: &quot;fund&quot;, &quot;title&quot;: &quot;No payment until all the money is there&quot;,</code></span>
+<span class="line" id="L280"><a href="#L280" aria-label="Line 280">280</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;Holders are paid on the payment date by a set hour; SCoRE sets 12:00 for European currencies. &quot;</code></span>
+<span class="line" id="L281"><a href="#L281" aria-label="Line 281">281</a><code>                             &quot;Sample bond: the issuer pays the whole amount to the CSD by 16:00, and the CSD pays holders &quot;</code></span>
+<span class="line" id="L282"><a href="#L282" aria-label="Line 282">282</a><code>                             &quot;by 17:00.&quot;,</code></span>
+<span class="line" id="L283"><a href="#L283" aria-label="Line 283">283</a><code>                  &quot;source&quot;: &quot;SCoRE, standard 8; sample: Kazakhstan CSD rules, art. 8 p. 6-7&quot;},</code></span>
+<span class="line" id="L284"><a href="#L284" aria-label="Line 284">284</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;Each coupon has its own vault and a budget fixed by the supply at 09:00. Anyone may confirm &quot;</code></span>
+<span class="line" id="L285"><a href="#L285" aria-label="Line 285">285</a><code>                              &quot;the funding; it is refused until the vault covers the budget.&quot;,</code></span>
+<span class="line" id="L286"><a href="#L286" aria-label="Line 286">286</a><code>                   &quot;value&quot;: f&quot;{supply0 * per_bond:,.2f} budget&quot;,</code></span>
+<span class="line" id="L287"><a href="#L287" aria-label="Line 287">287</a><code>                   &quot;refused&quot;: [att[i] for i in (&quot;confirm-short&quot;, &quot;pay-unfunded&quot;, &quot;drain-vault&quot;)]},</code></span>
+<span class="line" id="L288"><a href="#L288" aria-label="Line 288">288</a><code>         &quot;verdict&quot;: f&quot;Same rule: coupon 0&#x27;s budget, {supply0:,} bonds x {per_bond:,.2f} = {supply0 * per_bond:,.2f}, &quot;</code></span>
+<span class="line" id="L289"><a href="#L289" aria-label="Line 289">289</a><code>                    f&quot;fully in the vault before anyone is paid.&quot;,</code></span>
+<span class="line" id="L290"><a href="#L290" aria-label="Line 290">290</a><code>         &quot;draw&quot;: &quot;vault&quot;, &quot;data&quot;: {&quot;budget&quot;: supply0 * per_bond, &quot;supply&quot;: supply0, &quot;perBond&quot;: per_bond,</code></span>
+<span class="line" id="L291"><a href="#L291" aria-label="Line 291">291</a><code>                                   &quot;short&quot;: att[&quot;confirm-short&quot;][&quot;explorer&quot;]}},</code></span>
+<span class="line" id="L292"><a href="#L292" aria-label="Line 292">292</a><code>        {&quot;id&quot;: &quot;pay&quot;, &quot;title&quot;: &quot;Every holder paid, exactly once&quot;,</code></span>
+<span class="line" id="L293"><a href="#L293" aria-label="Line 293">293</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;On the payment date every holder on the record-date list is credited its holding x the rate, &quot;</code></span>
+<span class="line" id="L294"><a href="#L294" aria-label="Line 294">294</a><code>                             &quot;once. Sample bond: the CSD pays by 17:00.&quot;,</code></span>
+<span class="line" id="L295"><a href="#L295" aria-label="Line 295">295</a><code>                  &quot;source&quot;: &quot;SCoRE event INTR; sample: Kazakhstan CSD rules, art. 8 p. 6&quot;},</code></span>
+<span class="line" id="L296"><a href="#L296" aria-label="Line 296">296</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;Any wallet may pay any holder, in any order. Payment and the holder&#x27;s paid flag for that &quot;</code></span>
+<span class="line" id="L297"><a href="#L297" aria-label="Line 297">297</a><code>                              &quot;coupon are one transaction, so it cannot happen twice.&quot;,</code></span>
+<span class="line" id="L298"><a href="#L298" aria-label="Line 298">298</a><code>                   &quot;value&quot;: f&quot;{len(pay_batches)} transactions, {sum(n for _, n in pay_batches):,} holders&quot;,</code></span>
+<span class="line" id="L299"><a href="#L299" aria-label="Line 299">299</a><code>                   &quot;refused&quot;: [att[i] for i in (&quot;pay-twice&quot;, &quot;redirect-coupon&quot;, &quot;other-vault&quot;)]},</code></span>
+<span class="line" id="L300"><a href="#L300" aria-label="Line 300">300</a><code>         &quot;verdict&quot;: f&quot;Same result: {sum(n for _, n in pay_batches):,} holders paid coupon 0 once; when our operator stopped, &quot;</code></span>
+<span class="line" id="L301"><a href="#L301" aria-label="Line 301">301</a><code>                    f&quot;a wallet with no role paid the rest ({keeper_exact} of {keeper_cells} exact).&quot;,</code></span>
+<span class="line" id="L302"><a href="#L302" aria-label="Line 302">302</a><code>         &quot;draw&quot;: &quot;waffle&quot;, &quot;data&quot;: {&quot;batches&quot;: pay_batches, &quot;keeperLink&quot;: f&quot;https://explorer.solana.com/address/{K[&#x27;keeperAddress&#x27;]}?cluster={K[&#x27;cluster&#x27;]}&quot;}},</code></span>
+<span class="line" id="L303"><a href="#L303" aria-label="Line 303">303</a><code>        {&quot;id&quot;: &quot;redeem&quot;, &quot;title&quot;: &quot;Burned the moment the principal is paid&quot;,</code></span>
+<span class="line" id="L304"><a href="#L304" aria-label="Line 304">304</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;Trading stops before the record date; at maturity the face value is paid and the bonds are &quot;</code></span>
+<span class="line" id="L305"><a href="#L305" aria-label="Line 305">305</a><code>                             &quot;written off, cash and securities at the same time. Sample bond: on redemption day the CSD &quot;</code></span>
+<span class="line" id="L306"><a href="#L306" aria-label="Line 306">306</a><code>                             &quot;stops registering trades, takes the 09:00 list, pays and writes the bonds off.&quot;,</code></span>
+<span class="line" id="L307"><a href="#L307" aria-label="Line 307">307</a><code>                  &quot;source&quot;: &quot;AFME, mandatory reorganisations, standard 12; SCoRE, standard 8; sample: Kazakhstan CSD &quot;</code></span>
+<span class="line" id="L308"><a href="#L308" aria-label="Line 308">308</a><code>                            &quot;rules, art. 10 p. 6&quot;},</code></span>
+<span class="line" id="L309"><a href="#L309" aria-label="Line 309">309</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;Trading closes at the final record moment. One transaction burns the holder&#x27;s bonds and pays &quot;</code></span>
+<span class="line" id="L310"><a href="#L310" aria-label="Line 310">310</a><code>                              &quot;the principal: neither can happen without the other.&quot;,</code></span>
+<span class="line" id="L311"><a href="#L311" aria-label="Line 311">311</a><code>                   &quot;value&quot;: f&quot;{retired[&#x27;redemption&#x27;]:,} bonds burned, supply 0&quot;,</code></span>
+<span class="line" id="L312"><a href="#L312" aria-label="Line 312">312</a><code>                   &quot;refused&quot;: [att[i] for i in (&quot;redeem-twice&quot;, &quot;redirect-principal&quot;, &quot;trade-at-maturity&quot;)]},</code></span>
+<span class="line" id="L313"><a href="#L313" aria-label="Line 313">313</a><code>         &quot;verdict&quot;: f&quot;Same end: every bond retired against cash; supply {placed:,} to 0.&quot;,</code></span>
+<span class="line" id="L314"><a href="#L314" aria-label="Line 314">314</a><code>         &quot;draw&quot;: &quot;supply&quot;, &quot;data&quot;: {&quot;t&quot;: s_t, &quot;v&quot;: s_v, &quot;records&quot;: records, &quot;retired&quot;: retired, &quot;placed&quot;: placed,</code></span>
+<span class="line" id="L315"><a href="#L315" aria-label="Line 315">315</a><code>                                    &quot;bh1&quot;: {&quot;burned&quot;: -bh1_red[&quot;moves&quot;][&quot;BH#1&quot;][&quot;bonds&quot;], &quot;cash&quot;: bh1_red[&quot;moves&quot;][&quot;BH#1&quot;][&quot;cash&quot;],</code></span>
+<span class="line" id="L316"><a href="#L316" aria-label="Line 316">316</a><code>                                            &quot;link&quot;: bh1_red[&quot;link&quot;]}}},</code></span>
+<span class="line" id="L317"><a href="#L317" aria-label="Line 317">317</a><code>        {&quot;id&quot;: &quot;offer&quot;, &quot;title&quot;: &quot;Tendered bonds stay put and keep their coupon&quot;,</code></span>
+<span class="line" id="L318"><a href="#L318" aria-label="Line 318">318</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;In an issuer bid or tender offer, holders&#x27; instructions travel up the custody chain to the &quot;</code></span>
+<span class="line" id="L319"><a href="#L319" aria-label="Line 319">319</a><code>                             &quot;issuer before a deadline. Bonds bought back are redeemed.&quot;,</code></span>
+<span class="line" id="L320"><a href="#L320" aria-label="Line 320">320</a><code>                  &quot;source&quot;: &quot;ISO 20022 events BIDS and TEND; sample: Kazakhstan government bond rules, p. 16&quot;},</code></span>
+<span class="line" id="L321"><a href="#L321" aria-label="Line 321">321</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;Holders tender directly. Tendered bonds stay in their own accounts, locked, so a coupon &quot;</code></span>
+<span class="line" id="L322"><a href="#L322" aria-label="Line 322">322</a><code>                              &quot;whose record moment falls in the window is still theirs.&quot;,</code></span>
+<span class="line" id="L323"><a href="#L323" aria-label="Line 323">323</a><code>                   &quot;value&quot;: f&quot;{kept_coupon} of {len(tendered_by)} kept coupon {window}&quot;,</code></span>
+<span class="line" id="L324"><a href="#L324" aria-label="Line 324">324</a><code>                   &quot;refused&quot;: [att[i] for i in (&quot;sell-tendered&quot;, &quot;over-maximum&quot;, &quot;sell-others-bonds&quot;)]},</code></span>
+<span class="line" id="L325"><a href="#L325" aria-label="Line 325">325</a><code>         &quot;verdict&quot;: f&quot;Same end for bonds bought back: retired against cash. {sum(accepted_by.values())} of {total_tendered} &quot;</code></span>
+<span class="line" id="L326"><a href="#L326" aria-label="Line 326">326</a><code>                    f&quot;tendered accepted (maximum {tender[&#x27;maxQuantity&#x27;]}), {retired[&#x27;buyback&#x27;]} bought first come (maximum &quot;</code></span>
+<span class="line" id="L327"><a href="#L327" aria-label="Line 327">327</a><code>                    f&quot;{buyback[&#x27;maxQuantity&#x27;]}).&quot;,</code></span>
+<span class="line" id="L328"><a href="#L328" aria-label="Line 328">328</a><code>         &quot;draw&quot;: &quot;tender&quot;, &quot;data&quot;: {&quot;tendered&quot;: [tendered_by[h] for h in holders_tender],</code></span>
+<span class="line" id="L329"><a href="#L329" aria-label="Line 329">329</a><code>                                    &quot;accepted&quot;: [accepted_by.get(h, 0) for h in holders_tender],</code></span>
+<span class="line" id="L330"><a href="#L330" aria-label="Line 330">330</a><code>                                    &quot;max&quot;: tender[&quot;maxQuantity&quot;], &quot;window&quot;: window}},</code></span>
+<span class="line" id="L331"><a href="#L331" aria-label="Line 331">331</a><code>        {&quot;id&quot;: &quot;audit&quot;, &quot;title&quot;: &quot;Anyone can check every unit&quot;,</code></span>
+<span class="line" id="L332"><a href="#L332" aria-label="Line 332">332</a><code>         &quot;left&quot;: {&quot;caption&quot;: &quot;Holdings sit in tiers: the CSD knows its participants, and each level informs the next &quot;</code></span>
+<span class="line" id="L333"><a href="#L333" aria-label="Line 333">333</a><code>                             &quot;until the information reaches the end investor.&quot;,</code></span>
+<span class="line" id="L334"><a href="#L334" aria-label="Line 334">334</a><code>                  &quot;source&quot;: &quot;AFME, standard 9; T2S note on the cascade&quot;},</code></span>
+<span class="line" id="L335"><a href="#L335" aria-label="Line 335">335</a><code>         &quot;right&quot;: {&quot;caption&quot;: &quot;A ledger-only audit reads the public ledger and recomputes payments from the terms. &quot;</code></span>
+<span class="line" id="L336"><a href="#L336" aria-label="Line 336">336</a><code>                              &quot;Tamper test, on a separate local run: 0.000001 put into a vault from outside. The audit &quot;</code></span>
+<span class="line" id="L337"><a href="#L337" aria-label="Line 337">337</a><code>                              f&quot;caught it: {len(probe[&#x27;after&#x27;][&#x27;failed&#x27;])} of its {probe[&#x27;after&#x27;][&#x27;checks&#x27;]} checks &quot;</code></span>
+<span class="line" id="L338"><a href="#L338" aria-label="Line 338">338</a><code>                              &quot;failed. That test is not a devnet exploit.&quot;,</code></span>
+<span class="line" id="L339"><a href="#L339" aria-label="Line 339">339</a><code>                   &quot;value&quot;: f&quot;{c5[&#x27;passed&#x27;]:,} of {c5[&#x27;checks&#x27;]:,} checks&quot;,</code></span>
+<span class="line" id="L340"><a href="#L340" aria-label="Line 340">340</a><code>                   &quot;refused&quot;: [], &quot;probes&quot;: len(H[&quot;attempts&quot;])},</code></span>
+<span class="line" id="L341"><a href="#L341" aria-label="Line 341">341</a><code>         &quot;verdict&quot;: f&quot;Same books, open to anyone: {c5[&#x27;holdersExact&#x27;]:,} of {c5[&#x27;holders&#x27;]:,} holders&#x27; cash equals the &quot;</code></span>
+<span class="line" id="L342"><a href="#L342" aria-label="Line 342">342</a><code>                    f&quot;terms to the unit.&quot;,</code></span>
+<span class="line" id="L343"><a href="#L343" aria-label="Line 343">343</a><code>         &quot;draw&quot;: &quot;checks&quot;, &quot;data&quot;: {&quot;passed&quot;: c5[&quot;passed&quot;], &quot;checks&quot;: c5[&quot;checks&quot;], &quot;probeFailed&quot;: len(probe[&quot;after&quot;][&quot;failed&quot;]),</code></span>
+<span class="line" id="L344"><a href="#L344" aria-label="Line 344">344</a><code>                                    &quot;probeChecks&quot;: probe[&quot;after&quot;][&quot;checks&quot;]}},</code></span>
+<span class="line" id="L345"><a href="#L345" aria-label="Line 345">345</a><code>    ]</code></span>
+<span class="line" id="L346"><a href="#L346" aria-label="Line 346">346</a><code>    for stage in stages:</code></span>
+<span class="line" id="L347"><a href="#L347" aria-label="Line 347">347</a><code>        if stage[&quot;id&quot;] == &quot;trade&quot;:</code></span>
+<span class="line" id="L348"><a href="#L348" aria-label="Line 348">348</a><code>            stage[&quot;data&quot;][&quot;tradeKeys&quot;] = [f&#x27;tx:{e[&quot;signature&quot;]}&#x27; for e in events if e[&quot;kind&quot;] == &quot;trade&quot; and any(r &lt;= e[&quot;t&quot;] for r in records)]</code></span>
+<span class="line" id="L349"><a href="#L349" aria-label="Line 349">349</a><code>        elif stage[&quot;id&quot;] == &quot;pay&quot;:</code></span>
+<span class="line" id="L350"><a href="#L350" aria-label="Line 350">350</a><code>            stage[&quot;data&quot;][&quot;cells&quot;] = [{&quot;t&quot;: e[&quot;t&quot;] - t_first, &quot;key&quot;: f&quot;paid:{name}&quot;} for e in sorted(payment_events, key=lambda x: x[&quot;t&quot;])</code></span>
+<span class="line" id="L351"><a href="#L351" aria-label="Line 351">351</a><code>                                      for name, m in e[&quot;moves&quot;].items() if m[&quot;cash&quot;] &gt; 0]</code></span>
+<span class="line" id="L352"><a href="#L352" aria-label="Line 352">352</a><code>        elif stage[&quot;id&quot;] == &quot;offer&quot;:</code></span>
+<span class="line" id="L353"><a href="#L353" aria-label="Line 353">353</a><code>            stage[&quot;data&quot;][&quot;holders&quot;] = holders_tender</code></span>
+<span class="line" id="L354"><a href="#L354" aria-label="Line 354">354</a><code>        elif stage[&quot;id&quot;] == &quot;record&quot;:</code></span>
+<span class="line" id="L355"><a href="#L355" aria-label="Line 355">355</a><code>            stage[&quot;data&quot;][&quot;saleKey&quot;] = next(key for key, value in evidence.items() if key.startswith(&quot;tx:&quot;) and value[&quot;refs&quot;][0][&quot;href&quot;] == c1[&quot;saleLink&quot;])</code></span>
+<span class="line" id="L356"><a href="#L356" aria-label="Line 356">356</a><code>            stage[&quot;data&quot;][&quot;payKey&quot;] = next(key for key, value in evidence.items() if key.startswith(&quot;tx:&quot;) and value[&quot;refs&quot;][0][&quot;href&quot;] == c1[&quot;payLink&quot;])</code></span>
+<span class="line" id="L357"><a href="#L357" aria-label="Line 357">357</a><code>    # Embed only evidence used by this page; the full registry remains available as a linked artifact.</code></span>
+<span class="line" id="L358"><a href="#L358" aria-label="Line 358">358</a><code>    keys = {&quot;program&quot;, &quot;keeper&quot;} | {f&quot;{kind}:{s[&#x27;id&#x27;]}&quot; for s in stages for kind in (&quot;stage&quot;, &quot;rule&quot;)}</code></span>
+<span class="line" id="L359"><a href="#L359" aria-label="Line 359">359</a><code>    keys |= {f&quot;attack:{a[&#x27;id&#x27;]}&quot; for a in H[&quot;attempts&quot;]}</code></span>
+<span class="line" id="L360"><a href="#L360" aria-label="Line 360">360</a><code>    keys |= {key for s in stages for key in s.get(&quot;data&quot;, {}).get(&quot;tradeKeys&quot;, [])}</code></span>
+<span class="line" id="L361"><a href="#L361" aria-label="Line 361">361</a><code>    keys |= {c[&quot;key&quot;] for s in stages for c in s.get(&quot;data&quot;, {}).get(&quot;cells&quot;, [])}</code></span>
+<span class="line" id="L362"><a href="#L362" aria-label="Line 362">362</a><code>    keys |= {f&quot;offer:{name}&quot; for name in holders_tender}</code></span>
+<span class="line" id="L363"><a href="#L363" aria-label="Line 363">363</a><code>    keys |= {f&quot;check:{i}&quot; for i in range(len(D[&quot;audit&quot;][&quot;checks&quot;]))}</code></span>
+<span class="line" id="L364"><a href="#L364" aria-label="Line 364">364</a><code>    keys |= {s[&quot;data&quot;][key] for s in stages for key in (&quot;saleKey&quot;, &quot;payKey&quot;) if key in s.get(&quot;data&quot;, {})}</code></span>
+<span class="line" id="L365"><a href="#L365" aria-label="Line 365">365</a><code>    keys |= {evidence[key][&quot;related&quot;] for key in list(keys) if evidence[key].get(&quot;related&quot;)}</code></span>
+<span class="line" id="L366"><a href="#L366" aria-label="Line 366">366</a><code>    previews = {key: evidence[key] for key in sorted(keys)}</code></span>
+<span class="line" id="L367"><a href="#L367" aria-label="Line 367">367</a><code>    # Repeated source/data URLs are stored once, rather than once per holder/assertion.</code></span>
+<span class="line" id="L368"><a href="#L368" aria-label="Line 368">368</a><code>    references, ref_ids = [], {}</code></span>
+<span class="line" id="L369"><a href="#L369" aria-label="Line 369">369</a><code>    for key, entry in previews.items():</code></span>
+<span class="line" id="L370"><a href="#L370" aria-label="Line 370">370</a><code>        entry = dict(entry)</code></span>
+<span class="line" id="L371"><a href="#L371" aria-label="Line 371">371</a><code>        ids = []</code></span>
+<span class="line" id="L372"><a href="#L372" aria-label="Line 372">372</a><code>        for r in entry[&quot;refs&quot;]:</code></span>
+<span class="line" id="L373"><a href="#L373" aria-label="Line 373">373</a><code>            identity = (r[&quot;label&quot;], r[&quot;href&quot;])</code></span>
+<span class="line" id="L374"><a href="#L374" aria-label="Line 374">374</a><code>            if identity not in ref_ids:</code></span>
+<span class="line" id="L375"><a href="#L375" aria-label="Line 375">375</a><code>                ref_ids[identity] = len(references)</code></span>
+<span class="line" id="L376"><a href="#L376" aria-label="Line 376">376</a><code>                references.append(r)</code></span>
+<span class="line" id="L377"><a href="#L377" aria-label="Line 377">377</a><code>            ids.append(ref_ids[identity])</code></span>
+<span class="line" id="L378"><a href="#L378" aria-label="Line 378">378</a><code>        entry[&quot;refs&quot;] = ids</code></span>
+<span class="line" id="L379"><a href="#L379" aria-label="Line 379">379</a><code>        previews[key] = entry</code></span>
+<span class="line" id="L380"><a href="#L380" aria-label="Line 380">380</a><code>    page = {&quot;stages&quot;: stages, &quot;programLink&quot;: D[&quot;programLink&quot;], &quot;generated&quot;: D[&quot;generated&quot;],</code></span>
+<span class="line" id="L381"><a href="#L381" aria-label="Line 381">381</a><code>            &quot;terms&quot;: {&quot;face&quot;: face, &quot;ratePct&quot;: T[&quot;rateBps&quot;] / 100, &quot;perYear&quot;: T[&quot;periodsPerYear&quot;], &quot;issue&quot;: T[&quot;issue&quot;],</code></span>
+<span class="line" id="L382"><a href="#L382" aria-label="Line 382">382</a><code>                      &quot;maturity&quot;: T[&quot;maturity&quot;], &quot;payDates&quot;: [g[&quot;payDate&quot;] for g in D[&quot;grid&quot;]]},</code></span>
+<span class="line" id="L383"><a href="#L383" aria-label="Line 383">383</a><code>            &quot;serviced&quot;: len(serviced), &quot;evidence&quot;: previews, &quot;references&quot;: references}</code></span>
+<span class="line" id="L384"><a href="#L384" aria-label="Line 384">384</a><code>    template = (ROOT / &quot;tools/demo/stages_template.html&quot;).read_text()</code></span>
+<span class="line" id="L385"><a href="#L385" aria-label="Line 385">385</a><code>    safe_json = json.dumps(page, ensure_ascii=False).replace(&quot;&lt;&quot;, &quot;\\u003c&quot;).replace(&quot;&gt;&quot;, &quot;\\u003e&quot;).replace(&quot;&amp;&quot;, &quot;\\u0026&quot;)</code></span>
+<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>    html = fill(template, {&quot;INDEX&quot;: index_html(stages), &quot;SCREENS&quot;: screens_html(stages, evidence),</code></span>
+<span class="line" id="L387"><a href="#L387" aria-label="Line 387">387</a><code>                           &quot;FOOT&quot;: foot_html(page), &quot;PAGE&quot;: safe_json})</code></span>
+<span class="line" id="L388"><a href="#L388" aria-label="Line 388">388</a><code>    Path(out_path).write_text(&quot;\n&quot;.join(line.rstrip() for line in html.splitlines()) + &quot;\n&quot;)</code></span>
+<span class="line" id="L389"><a href="#L389" aria-label="Line 389">389</a><code>    print(f&quot;wrote {out_path}: {len(stages)} stages&quot;)</code></span>
+<span class="line" id="L390"><a href="#L390" aria-label="Line 390">390</a><code></code></span>
+<span class="line" id="L391"><a href="#L391" aria-label="Line 391">391</a><code></code></span>
+<span class="line" id="L392"><a href="#L392" aria-label="Line 392">392</a><code>if __name__ == &quot;__main__&quot;:</code></span>
+<span class="line" id="L393"><a href="#L393" aria-label="Line 393">393</a><code>    if len(sys.argv) != 6:</code></span>
+<span class="line" id="L394"><a href="#L394" aria-label="Line 394">394</a><code>        print(&quot;usage: build_stages.py &lt;crowd.json&gt; &lt;keeper.json&gt; &lt;tamper-probe.json&gt; &lt;hostile-attempts.json&gt; &lt;out.html&gt;&quot;,</code></span>
+<span class="line" id="L395"><a href="#L395" aria-label="Line 395">395</a><code>              file=sys.stderr)</code></span>
+<span class="line" id="L396"><a href="#L396" aria-label="Line 396">396</a><code>        sys.exit(2)</code></span>
+<span class="line" id="L397"><a href="#L397" aria-label="Line 397">397</a><code>    main(*sys.argv[1:])</code></span></pre></html>

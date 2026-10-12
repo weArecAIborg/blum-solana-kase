@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · One bond through time</title>
+<meta name="description" content="One tokenized bond on Solana devnet from issue to redemption, step by step: the register, the vaults and the ledger at every moment, each figure linked to its transaction.">
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Each step's account of what happened is written in its ledger row (readable without JavaScript); the script shows
+   the current one above the tables. */
+.bs-log .why { display: none; }
+.bs-log li { grid-template-columns: 6.2rem minmax(0, 1fr); }
+.bs-log li .d { display: grid; gap: 0.3rem; }
+.bs-log .bs-links { gap: 0.25rem 0.3rem; }
+.bs-reg td.r { white-space: nowrap; }
+/* The register stretches to the ledger's height; its rows share the extra space. Holder names are written in full. */
+.bs-tl-grid { align-items: stretch; }
+.bs-tl-grid > .bs-col.kept { display: flex; flex-direction: column; }
+.bs-tl-grid > .bs-col.kept .bs-reg { flex: 1; }
+.bs-reg col.c-h { width: 21%; } .bs-reg col.c-b { width: 8%; } .bs-reg col.c-p { width: 24%; }
+.bs-reg col.c-s { width: 13%; } .bs-reg col.c-o { width: 15%; } .bs-reg col.c-c { width: 19%; }
+/* The account of the step: one height for every step (what the longest needs at this width, set by the script), the
+   text anchored at the top so it never moves. */
+#tl-now { height: auto; }
+/* Phones: the bars give their width to the numbers, and the account of the step is never cut. */
+@media (max-width: 600px) {
+  .bs-reg col.c-p { width: 0; }
+  .bs-reg th:nth-child(3), .bs-reg td:nth-child(3) { padding: 0; overflow: hidden; }
+  .bs-reg td:nth-child(3) .bs-pips { display: none; }
+  .bs-reg col.c-h { width: 25%; } .bs-reg col.c-b { width: 10%; } .bs-reg col.c-s { width: 14%; }
+  .bs-reg col.c-o { width: 22%; } .bs-reg col.c-c { width: 29%; }
+  .bs-reg td, .bs-reg th { padding-inline: 0.35rem; }
+  #tl-now { flex-direction: column; gap: 0.5rem; }
+  #tl-now b { width: auto; }
+}
+@media (max-width: 380px) { #tl-now { font-size: 0.92rem; } }
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Timeline</b><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html" aria-current="true">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header">
+    <p class="bs-eyebrow"><!--__EYEBROW__--></p>
+    <h1 class="bs-h1">One bond from issue to redemption</h1>
+    <p class="bs-lede">Move the slider or press play. The register, the vaults and the ledger show the bond at that moment. Trades are sent after each record moment and before its payment, so the 09:00 list and the holdings at payment differ.</p>
+  </header>
+
+  <div class="bs-clock" aria-live="polite"><!--__CLOCK__--></div>
+  <div class="bs-controls"><!--__CONTROLS__--></div>
+  <div class="bs-jumps" id="jumps"><!--__JUMPS__--></div>
+
+  <p class="bs-now" id="tl-now"><!--__NOW__--></p>
+
+  <div class="bs-tl-grid">
+    <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Register</span><span class="sub">holder records on chain</span></div>
+      <table class="bs-ledger bs-reg"><colgroup><col class="c-h"><col class="c-b"><col class="c-p"><col class="c-s"><col class="c-o"><col class="c-c"></colgroup>
+        <thead><tr><th>Holder</th><th class="r">Bonds</th><th></th><th class="r">At 09:00</th><th class="r">Owed</th><th class="r">Cash received</th></tr></thead>
+        <tbody id="reg"><!--__ROWS__--></tbody></table>
+    </div>
+    <div class="bs-col refused" style="border-top-color:var(--border)"><div class="bs-colhead" style="box-shadow:inset 0 -2px 0 var(--accent)"><span class="tag" style="background:var(--cell-sel)">Ledger</span><span class="sub"><!--__COUNT__--></span></div>
+      <ol class="bs-log" id="log"><!--__LEDGER__--></ol>
+    </div>
+  </div>
+
+  <div class="bs-strip" id="strip"><!--__STRIP__--></div>
+
+  <p class="bs-sim"><b>Simulated</b><span><!--__SIM__--></span></p>
+  <footer class="bs-footer"><!--__FOOT__--></footer>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  const S = DATA.steps, N = S.length, $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rows = [...$("reg").rows], logs = [...$("log").children], strip = [...$("strip").children];
+  const ORDER = ["Issue", "Trade", "Record", "Calculate", "Fund", "Pay", "Redeem", "Offer", "Audit"];
+  let k = 0, timer = null, speed = 1;
+  const KEY = "blum-timeline-step";
+  // Ticks under the slider: one per record moment.
+  const tk = $("ticks");
+  S.forEach((s, i) => { if (s.tick) { const el = document.createElement("span"); el.style.left = (i / (N - 1) * 100) + "%"; el.textContent = s.tick; tk.appendChild(el); } });
+  const tl = tk.lastElementChild; if (tl && parseFloat(tl.style.left) > 90) tl.style.transform = "translateX(-100%)";
+  // The step box takes the height its longest text needs at the current width, so it keeps one size on every step.
+  const nowBox = $("tl-now"), nowText = $("now"), whys = logs.map((li) => li.querySelector(".why").textContent);
+  let fittedWidth = 0;
+  function fitNow() {
+    if (nowBox.clientWidth === fittedWidth) return;
+    fittedWidth = nowBox.clientWidth;
+    const keep = nowText.textContent;
+    nowBox.style.height = "auto";
+    let tallest = 0;
+    for (const w of whys) { nowText.textContent = w; tallest = Math.max(tallest, nowBox.offsetHeight); }
+    nowText.textContent = keep;
+    nowBox.style.height = tallest + "px";
+  }
+  const pips = (free, locked, burned) => "<span class='bs-pips'>" + "<i></i>".repeat(free) + "<i class='locked'></i>".repeat(locked) + "<i class='burned'></i>".repeat(burned) + "</span>";
+  function render(i) {
+    k = Math.max(0, Math.min(N - 1, i)); const s = S[k];
+    $("slider").value = k;
+    $("clk").textContent = s.when; $("clk-s").textContent = "step " + (k + 1) + " of " + N + " · " + s.label;
+    $("sup").textContent = s.supply; $("vlt").textContent = fmt(s.vault); $("pd").textContent = fmt(s.paid);
+    $("stg").textContent = s.stage; $("now").textContent = logs[k].querySelector(".why").textContent;
+    rows.forEach((r, h) => {
+      const c = r.cells;
+      c[1].textContent = s.pos[h];
+      c[2].innerHTML = pips(s.pos[h] - s.locked[h], s.locked[h], s.burned[h]);
+      c[3].textContent = s.saved ? s.saved[h] : "–";
+      c[4].textContent = s.owed ? fmt(s.owed[h]) : "–";
+      c[5].textContent = fmt(s.cash[h]);
+      [...c].forEach((td) => td.classList.remove("chg", "paid"));
+      if (s.chgPos.includes(h)) { c[1].classList.add("chg"); c[2].classList.add("chg"); }
+      if (s.chgCash.includes(h)) c[5].classList.add("paid");
+      if (s.chgSaved) { c[3].classList.add("chg"); c[4].classList.add("chg"); }
+    });
+    logs.forEach((li, j) => { li.classList.toggle("cur", j === k); li.classList.toggle("future", j > k); });
+    const box = $("log"), cur = logs[k]; box.scrollTop = Math.max(0, cur.offsetTop - box.offsetTop - box.clientHeight / 2);
+    const reached = new Set(S.slice(0, k + 1).map((x) => x.stage)); if (reached.has("Fund")) reached.add("Calculate");
+    strip.forEach((el) => { const n = el.dataset.s; el.classList.toggle("on", n === s.stage || (s.stage === "Fund" && n === "Calculate")); el.classList.toggle("done", reached.has(n)); });
+    document.querySelectorAll("[data-go]").forEach((b) => b.setAttribute("aria-pressed", +b.dataset.go === k));
+    try { localStorage.setItem(KEY, k); } catch (e) {}
+  }
+  function stop() { clearInterval(timer); timer = null; $("play").textContent = "Play"; }
+  function play() { if (k >= N - 1) render(0); $("play").textContent = "Pause"; timer = setInterval(() => { if (k >= N - 1) return stop(); render(k + 1); }, 1600 / speed); }
+  $("play").onclick = () => (timer ? stop() : play());
+  $("prev").onclick = () => { stop(); render(k - 1); };
+  $("next").onclick = () => { stop(); render(k + 1); };
+  $("first").onclick = () => { stop(); render(0); };
+  $("last").onclick = () => { stop(); render(N - 1); };
+  $("slider").oninput = (e) => { stop(); render(+e.target.value); };
+  $("speed").onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 0.5 : 1; $("speed").textContent = (speed === 0.5 ? "½" : speed) + "×"; if (timer) { stop(); play(); } };
+  $("jumps").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) { stop(); render(+b.dataset.go); } });
+  logs.forEach((li, j) => li.addEventListener("click", (e) => { if (!e.target.closest("a")) { stop(); render(j); } }));
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" && e.key !== " ") return;
+    if (e.key === "ArrowRight") { stop(); render(k + 1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { stop(); render(k - 1); e.preventDefault(); }
+    else if (e.key === " ") { timer ? stop() : play(); e.preventDefault(); }
+  });
+  let start = 0; try { start = +localStorage.getItem(KEY) || 0; } catch (e) {}
+  render(start);
+  fitNow();
+  document.fonts.ready.then(() => { fittedWidth = 0; fitNow(); });
+  new ResizeObserver(fitNow).observe(nowBox);
+})();
+</script>
+</body></html>

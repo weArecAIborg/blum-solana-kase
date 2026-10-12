@@ -1,0 +1,19 @@
+{
+ "probe": "BH#1 sends 0.000001 cash straight into a bond vault (not through the program, not from the issuer)",
+ "network": "http://127.0.0.1:8899",
+ "signature": "jSm382LtQdzhKmEyx5DHsLcPnRQzpAgnAnCiwYL1eyR6crS2i59VFUwm2DVqpT9jmVEpR4fPD3so5gdRfhe5uB8",
+ "vault": "8KmqRDnyU8itqouKqoemfx41h4hc3Y7RDJtVsXLAtdg8",
+ "before": {
+  "passed": true,
+  "checks": 23,
+  "failed": []
+ },
+ "after": {
+  "passed": false,
+  "checks": 23,
+  "failed": [
+   "M4 cash enters the vaults only from the bank's mints",
+   "C4 vaults: inflow = outflow + final balance; outflow = calculated payments; final = calculated leftover"
+  ]
+ }
+}

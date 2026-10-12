@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Technical overview</title>
+<meta name="description" content="Architecture, record-date logic, entitlement calculations, settlement flow and Solana components of the bond_servicing program, and what is implemented versus simulated.">
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+.ov-body { display: grid; gap: var(--space-3); min-width: 0; }
+.ov-body > * { min-width: 0; margin: 0; }
+.ov-body p, .ov-body li { max-width: 80ch; text-wrap: pretty; color: var(--ink-2); }
+.ov-body strong { color: var(--ink); font-weight: 600; }
+.ov-body ul { display: grid; gap: 0.3rem; padding-left: 1.2rem; }
+.ov-body ul ul { margin-top: 0.3rem; }
+.ov-body h2 { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--grid); }
+.ov-body code { font: 400 0.85em/1 var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.ov-box { overflow-x: auto; }
+.ov-box .bs-ledger { min-width: 36rem; }
+.ov-box .bs-ledger td { color: var(--ink-2); font-family: var(--font-body); font-size: 0.85rem; line-height: 1.45; vertical-align: top; }
+.ov-box .bs-ledger td:first-child { color: var(--ink); overflow-wrap: normal; }
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Overview</b><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html" aria-current="true">Overview</a></div></nav>
+<main class="bs-page">
+  <header class="bs-header">
+    <p class="bs-eyebrow">bond_servicing · Solana devnet</p>
+    <h1 class="bs-h1">Technical overview</h1>
+  </header>
+  <article class="ov-body"><p>Corporate actions for tokenized bonds on Solana: coupon payment, redemption at maturity, and an issuer buyback and
+tender offer. Program <code>bond_servicing</code>, id <code>2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf</code>, deployed on devnet.</p>
+<p>The system services <strong>any bond</strong>: every market-specific value (record day and time, payment time, time zone, weekend,
+holiday calendar, coupon basis) is a bond parameter. The sample bond is the KASE listing's example (B1: face 1,000,
+10%, semi-annual, 2 years) with the Kazakh depository's rules: record list at 09:00 Almaty on the payment day,
+Saturday/Sunday weekend, Kazakh holiday calendar.</p>
+<p>Detail: <code>bond-processing.md</code> (every instruction, every guarantee and its test), <code>buyback-tender.md</code> (third action).</p>
+<h2 class="bs-h2">1. Architecture</h2>
+<div class="ov-box"><table class="bs-ledger">
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>On-chain program</td>
+<td><code>programs/bond_servicing</code> (Anchor 1.1.2)</td>
+<td>Bond token, holder registry, positions per record moment, entitlements, vaults, payments, redemption, buyback, tender. The program is the register and the paying agent</td>
+</tr>
+<tr>
+<td>Bond math</td>
+<td><code>crates/bond_math</code></td>
+<td>Schedule from the bond's calendar (payment and record days), day counts, amounts. Used by the program and off-chain; checked against QuantLib</td>
+</tr>
+<tr>
+<td>Operator</td>
+<td><code>ops/src/scenario.ts</code></td>
+<td>Sends the instructions on schedule. Servicing is permissionless: any wallet can do this job (<code>docs/devnet-evidence-keeper.md</code>)</td>
+</tr>
+<tr>
+<td>Reference check</td>
+<td><code>tools/reference/check_report.py</code></td>
+<td>Recomputes every amount in the operator's report with QuantLib and FinancePy</td>
+</tr>
+<tr>
+<td>Ledger-only audit</td>
+<td><code>tools/audit/audit.py</code></td>
+<td>Reads only the public ledger (no program accounts, no operator report) and checks balances and every payment against the terms and the run's scenario (its placements, trades and offers)</td>
+</tr>
+<tr>
+<td>Demonstration site</td>
+<td><code>tools/demo/build_app.py</code>, <code>build_stages.py</code>, <code>build_timeline.py</code>, <code>build_flow.py</code> -&gt; <code>docs/demo/</code> (blum.caiborg.ai)</td>
+<td>Pages built only from measured devnet data; <code>build_program.py</code> charts the program from its source</td>
+</tr>
+</tbody>
+</table></div>
+<p>Off-chain parts hold no rights and no keys that matter for payments: amounts and eligibility are decided on chain.</p>
+<h2 class="bs-h2">2. Record-date logic</h2>
+<p><strong>The rule.</strong> A coupon belongs to whoever held the bond at the record moment, whatever they hold when the money
+arrives. Trading stays open on coupon day; it closes at the final record moment for redemption.</p>
+<p><strong>Record moment</strong> = record day + record time (bond-local, with the bond's UTC offset).</p>
+<ul>
+<li>The record day is N business days before the payment day (N = 0 for the sample: 09:00 on the payment day).</li>
+<li>Payment and record days are computed off-chain from the terms and the bond's holiday calendar
+  (<code>bond_math::schedule</code>). <code>create_bond</code> does not trust them: it recomputes the regular schedule and checks each day
+  (within 14 days of its unadjusted date, not on the bond's weekend, record moments increasing, record not after
+  payment).</li>
+<li>The program reads the chain clock (<code>Clock</code> sysvar) and converts it to bond time:
+  <code>bond time = bond origin + (chain time - chain origin) x 86400 / chain seconds per bond day</code>.
+  Real time is 86400; devnet demos compress a two-year bond into minutes or hours.</li>
+</ul>
+<p><strong>Positions at the record moment, without a snapshot.</strong> A program sees only the accounts passed to a transaction, so it
+cannot list all holders at 09:00. Instead, every balance change saves the holder's quantity first:</p>
+<ul>
+<li><code>HolderRecord.position</code> (<code>PositionHistory</code>): the current quantity, how many record moments had passed at the last
+  change, and one saved quantity per record moment (up to 40);</li>
+<li>before each change, the quantity is written for every record moment passed since the previous change;</li>
+<li>quantity at record moment <code>e</code> = saved value if <code>e</code> passed before the last change, else the current quantity.</li>
+</ul>
+<p>Between two changes a quantity is constant, so the next change saves exactly the quantity each passed record moment
+had. Nothing expires; nobody has to act at the record moment.</p>
+<p><strong>Every balance change goes through the program.</strong></p>
+<ul>
+<li>Transfers: Token-2022 calls the program's transfer hook in the same transaction. The hook requires registered
+  holders on both sides (associated token accounts), checks the record matches the token balance, saves history,
+  refuses transfers below a tendered (locked) quantity, and refuses all transfers from the final record moment on.</li>
+<li>Placement, redemption, buyback and tender settlement are program instructions.</li>
+<li>Holders cannot burn: the mint's permissioned burn makes Token-2022 refuse any burn not signed by the Bond PDA.</li>
+</ul>
+<p>The bond's supply has the same history (<code>Bond.supply</code>), so an event's budget uses the supply at its record moment.</p>
+<h2 class="bs-h2">3. Entitlement calculations</h2>
+<p>All integer arithmetic in u128, rounded down, overflow reported as an error (<code>bond_servicing/src/state.rs</code>,
+<code>bond_math</code>).</p>
+<div class="ov-box"><table class="bs-ledger">
+<thead>
+<tr>
+<th>Amount</th>
+<th>Formula</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Coupon of a holder for period e</td>
+<td>position at record moment e x face x rate / periods per year (basis <code>FixedPerPeriod</code>), or by 30/360 (Bond Basis, European, USA) on the period's dates; rounded down once on the total position</td>
+</tr>
+<tr>
+<td>Principal at maturity</td>
+<td>position x face x redemption price; partial redemptions use principal(redeemed + now) - principal(redeemed), so they round exactly like one redemption</td>
+</tr>
+<tr>
+<td>Event budget</td>
+<td>the same formula on the supply at the record moment, rounded down once; the sum of holder amounts never exceeds it, and any residue stays visible in that event's vault</td>
+</tr>
+<tr>
+<td>Buyback</td>
+<td>price per bond x quantity sold, first come first served up to the offer maximum</td>
+</tr>
+<tr>
+<td>Tender</td>
+<td>everything tendered if the total fits the maximum; else tenders are resolved in the order they were made, each accepting floor(running total x maximum / total tendered) minus what the earlier ones accepted, so an oversubscribed offer buys exactly its maximum; paid at the offer price</td>
+</tr>
+</tbody>
+</table></div>
+<p>Sample (the listing's example): 10 bonds at the record moment -&gt; coupon 10 x 1,000 x 10% / 2 = 500. At maturity:
+10,000 principal plus the final coupon of 500. The ledger-only audit measures this example on chain (check C6).</p>
+<p>Amounts are checked against QuantLib and FinancePy: <code>crates/bond_math/tests/reference.rs</code> (fixtures generated by
+<code>tools/reference/generate_fixtures.py</code>) and, for every run, <code>tools/reference/check_report.py</code>.</p>
+<h2 class="bs-h2">4. Settlement flow</h2>
+<p>Each event (each coupon, and the redemption) has its own vault: a token account of the cash token whose authority is
+the Bond PDA. Cash in one vault can pay only that event.</p>
+<div class="ov-box"><table class="bs-ledger">
+<thead>
+<tr>
+<th>Step</th>
+<th>Instruction</th>
+<th>Who</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>create_bond</code></td>
+<td>registrar</td>
+<td>Mint (Token-2022, 0 decimals, extensions below), Bond account, transfer hook account list, in one transaction. Refuses cash tokens with transfer fees, transfer hooks, non-transferable extensions or a permanent delegate</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>register_holder</code></td>
+<td>registrar</td>
+<td>Holder registry: one <code>HolderRecord</code> per wallet per bond</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>place</code></td>
+<td>registrar</td>
+<td>Mints bonds to a registered holder, only before the first record moment and up to the issue size; refuses an issue whose budgets would not fit the cash token's u64 amounts</td>
+</tr>
+<tr>
+<td>4</td>
+<td>transfers</td>
+<td>holders</td>
+<td>Through the transfer hook (section 2)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>open_event</code></td>
+<td>anyone, after the record moment</td>
+<td>Creates the event and its vault; budget from the supply at the record moment</td>
+</tr>
+<tr>
+<td>6</td>
+<td>funding</td>
+<td>issuer</td>
+<td>Cash into the event vault; simulated: the test bank mints it there (section 6)</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>confirm_funding</code></td>
+<td>anyone</td>
+<td>Vault &gt;= budget -&gt; funded; nobody is paid from an event that cannot pay everyone</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>pay_coupon</code></td>
+<td>anyone, any order, after the payment moment</td>
+<td>Position from the holder's history, amount from the terms; transfer from the vault and the holder's paid bit in one transaction; creates the holder's cash account if missing</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>redeem_holder</code></td>
+<td>anyone, after the redemption's payment moment</td>
+<td>Burns the holder's free bonds (permissioned burn) and pays their principal in one transaction</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>create_offer</code>, funding, <code>confirm_offer_funding</code></td>
+<td>issuer; confirmation by anyone</td>
+<td>Buyback or tender: price, maximum, window closing by the final record moment; own vault funded with price x maximum first</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>sell_to_offer</code></td>
+<td>holder</td>
+<td>Buyback: burn and pay in one transaction</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>change_tender</code></td>
+<td>holder</td>
+<td>Tender or withdraw during the window; tendered bonds stay in the holder's account, locked by the hook, so coupons at record moments inside the window still go to the holder</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>resolve_tender</code>, <code>settle_tender</code></td>
+<td>anyone, after the window</td>
+<td>Fix the accepted part and release the rest (no cash needed); then burn and pay the accepted part</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Nothing depends on the operator.</strong> Steps 5, 7, 8, 9, 13 can be sent by any wallet at any later time; the amounts
+follow from the positions, so the sender cannot change them. Devnet run <code>devnet-keeper</code>: our operator stopped after
+coupon 0; a wallet with no role in the bond paid coupons 1-3 and redeemed everyone after the final record moment.</p>
+<p><strong>On-chain record of each action.</strong></p>
+<ul>
+<li>State: each holder's paid bit per coupon, position history, supply history, bonds burned at redemption and in
+  offers, event and offer records with their vaults.</li>
+<li>Program events in the transaction logs: <code>BondCreated</code>, <code>HolderRegistered</code>, <code>BondsPlaced</code>, <code>PositionsSaved</code>,
+  <code>EventOpened</code>, <code>EventFunded</code>, <code>CouponPaid</code>, <code>OfferCreated</code>, <code>OfferFunded</code>, <code>BondsBoughtBack</code>, <code>TenderChanged</code>,
+  <code>TenderResolved</code>, <code>BondsRedeemed</code>.</li>
+<li>Token movements recorded by the runtime (pre/post token balances), which the ledger-only audit reads.</li>
+</ul>
+<h2 class="bs-h2">5. Solana components</h2>
+<div class="ov-box"><table class="bs-ledger">
+<thead>
+<tr>
+<th>Component</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Anchor 1.1.2 program (Solana CLI 3.1.10)</td>
+<td>All instructions and accounts</td>
+</tr>
+<tr>
+<td>Token-2022 mint with <strong>transfer hook</strong> (-&gt; this program)</td>
+<td>Every transfer updates both holders' position histories in the same transaction</td>
+</tr>
+<tr>
+<td>Token-2022 <strong>permanent delegate</strong> and <strong>permissioned burn</strong> (Bond PDA)</td>
+<td>Redemption and offers burn the holder's bonds with the payment; holders cannot burn outside the program</td>
+</tr>
+<tr>
+<td><code>ExtraAccountMetaList</code> (transfer hook interface)</td>
+<td>Tells Token-2022 to pass the Bond and both holder records to the hook; seeds read from the token accounts' owner field</td>
+</tr>
+<tr>
+<td>Program-derived addresses</td>
+<td>Bond <code>["bond", mint]</code>, holder record <code>["holder", mint, owner]</code>, event <code>["event", bond, index]</code>, vaults <code>["vault", event or offer]</code>, offer <code>["offer", bond, id]</code>, tender <code>["tender", offer, owner]</code></td>
+</tr>
+<tr>
+<td>Associated token accounts</td>
+<td>One bond account and one cash account per holder</td>
+</tr>
+<tr>
+<td>SPL Token (cash)</td>
+<td>Test cash token, 6 decimals; Token-2022 cash is also supported (memo-required recipients get a Memo instruction); refused at bond creation: a transfer fee, a transfer hook, non-transferability, a permanent delegate</td>
+</tr>
+<tr>
+<td>SPL Memo</td>
+<td>For cash recipients that require memos</td>
+</tr>
+<tr>
+<td><code>Clock</code> sysvar</td>
+<td>Bond time (section 2)</td>
+</tr>
+</tbody>
+</table></div>
+<h2 class="bs-h2">6. Implemented vs simulated</h2>
+<div class="ov-box"><table class="bs-ledger">
+<thead>
+<tr>
+<th>Implemented (on chain, devnet)</th>
+<th>Simulated or outside the prototype</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Test bond as a Token-2022 token with the extensions above</td>
+<td>Cash rail: a test SPL token (6 decimals, mirrors USDC) minted by a test "bank" key, standing for fiat or a stablecoin</td>
+</tr>
+<tr>
+<td>Holder registry, positions at record moments, entitlements, event vaults, coupon payment, redemption with burn, buyback, tender offer</td>
+<td>Issuer funding: the bank key mints cash into the vaults</td>
+</tr>
+<tr>
+<td>On-chain record (state, program events, token movements)</td>
+<td>Investor onboarding and KYC: the registrar registers wallets; no identity checks</td>
+</tr>
+<tr>
+<td>Permissionless servicing: anyone can open, confirm, pay, redeem, settle</td>
+<td>Holders: generated keypairs, labelled BH#1, BH#2, ...; trades are direct bond transfers between registered holders: no order book, and no cash leg between buyer and seller</td>
+</tr>
+<tr>
+<td>Ledger-only audit from public ledger data</td>
+<td>Time: devnet runs compress bond time (1 bond day = 1 to 20 chain seconds); real time is 86400</td>
+</tr>
+<tr>
+<td></td>
+<td>No integration with KASE or the central securities depository; the Kazakh calendar and 09:00 rule are bond parameters, used as the sample</td>
+</tr>
+</tbody>
+</table></div>
+<h2 class="bs-h2">7. Evidence</h2>
+<p>Every run is on the program as deployed: a build of this repository gives it byte for byte (sha256 <code>327271f3...</code>).
+Each devnet run has its own bond and cash token.</p>
+<div class="ov-box"><table class="bs-ledger">
+<thead>
+<tr>
+<th>Run (devnet)</th>
+<th>Holders</th>
+<th>Transactions</th>
+<th>Report check</th>
+<th>Ledger-only audit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>devnet-crowd-1000</code>: 600 trades, buyback, tender bought exactly its maximum (410 of 441 tendered), 4 coupons, redemption</td>
+<td>1000</td>
+<td>2,318</td>
+<td>passed</td>
+<td>3,959 of 3,959</td>
+</tr>
+<tr>
+<td><code>devnet-full8</code>: 8 trades, buyback, tender bought exactly its maximum (6 of 10 tendered), 4 coupons, redemption</td>
+<td>8</td>
+<td>50</td>
+<td>passed</td>
+<td>43 of 43</td>
+</tr>
+<tr>
+<td><code>devnet-keeper</code>: operator stops after coupon 0, an outside wallet finishes</td>
+<td>3</td>
+<td>25</td>
+<td>passed</td>
+<td>23 of 23</td>
+</tr>
+<tr>
+<td><code>devnet-hostile</code>: an attacker at every step; 35 of 35 attempts refused, each a failed transaction</td>
+<td>6</td>
+<td>53</td>
+<td>passed</td>
+<td>35 of 35</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>Tests: 36 LiteSVM lifecycle tests (11 of them hostile attempts beyond the devnet attacker run) and 5
+  permissioned-burn probes (<code>programs/bond_servicing/tests</code>); every hostile attempt, devnet and local:
+  <code>docs/hostile-attempts.md</code>; bond math:
+  14 unit tests and 6 reference tests against QuantLib and FinancePy fixtures, including MUM108_0015's payment dates
+  as published by KASE (<code>crates/bond_math/tests/reference.rs</code>).</li>
+<li>Per-run accounts and transactions: <code>devnet-evidence-crowd-1000.md</code>, <code>devnet-evidence-keeper.md</code>; the 8-holder run,
+  transaction by transaction: the timeline and flow pages.</li>
+<li>Measured on the 1000-holder run (parties page; <code>devnet-evidence-crowd-1000.md</code>):<ul>
+<li>4,000 of 4,000 holder-coupon amounts equal the record-moment holdings; paying the holder at payment time would
+  have got 1,039 wrong;</li>
+<li>paying one holder one coupon costs 833-2,500 lamports, with no new storage (up to 6 holders share one
+  5,000-lamport transaction).</li>
+</ul>
+</li>
+<li>Probes of the audit, on a local network (sample bond B1, 3 holders; the audit passes 23 of 23 checks first):<ul>
+<li>an extra 0.000001 cash sent into a vault from outside makes 2 of 23 checks fail, M4 and C4 (nothing was taken;
+  the audit flags the unexpected deposit);</li>
+<li>expecting 10.01% instead of the bond's 10% makes 7 of 23 fail: C1 and C7 for each of the 3 holders, and C4.</li>
+</ul>
+</li>
+</ul>
+<h2 class="bs-h2">8. Limits</h2>
+<ul>
+<li>Bond types: fixed rate above zero; <code>FixedPerPeriod</code> and 30/360 only (no Actual/Actual, Actual/360, Actual/365);
+  regular schedules (no stub periods); at most 40 coupon periods; direct holders only (no omnibus custodians).</li>
+<li>The registrar is trusted to register holders and to place bonds up to the issue size before the first record
+  moment; everything after registration can be done by anyone.</li>
+<li>The cash token's issuer can freeze a vault or pause its token: payments stop until it acts again; nothing owed is
+  lost (<code>a_frozen_vault_pays_nobody_until_thawed</code>).</li>
+<li>Tender allocation: an oversubscribed offer buys exactly its maximum; which tenders receive a rounding bond follows
+  the order the tenders were made.</li>
+<li>The program's upgrade authority is a single wallet. A multisig or an immutable program, and any pause or
+  intervention path, are governance decisions not yet made.</li>
+<li>The audit checks the whole cash token (sum of balances = supply), which needs that token's full history. That fits
+  a test token; for a widely used stablecoin the cash checks must be scoped to the bond's vaults.</li>
+<li>Throughput: each payment of one coupon writes that event's vault. Measured on devnet (8-holder run, flow page,
+  step Pay): one transaction paying 5 holders used 119,365 compute units, about 24,000 per holder
+  paid, so with Solana's per-account limit per block (12 million units in the current cost model) one vault takes
+  about 500 holder payments per block. The devnet runs were slower for a
+  different reason: one operator sending one transaction at a time through the rate-limited public RPC.</li>
+</ul></article>
+  <footer class="bs-footer"><p>Built from <code>docs/technical-overview.md</code> in the repository by <code>tools/demo/build_overview.py</code>.</p></footer>
+</main>
+</body></html>

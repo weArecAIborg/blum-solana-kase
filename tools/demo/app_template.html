@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Bond servicing on Solana</title>
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Parties page in the Blum design system (blum/, from the Claude Design project). Every view is in the page (readable
+   without JavaScript); the script shows the one the address names. Below: only what the design system does not cover. */
+.view:not(.on), .stagebody:not(.on) { display: none; }
+.stagebody { display: grid; gap: 1.25rem; }
+.bs-cols.single { grid-template-columns: minmax(0, 1fr); }
+.bs-jumps .bs-btn.how { background: var(--navy); border: 1px solid var(--accent); color: var(--ink); }
+.bs-jumps .bs-btn.how[aria-selected="true"] { background: var(--cell-sel); color: #fff; }
+
+/* How it works: each process, abstract beside real */
+.stages { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 3px; }
+.stage { all: unset; cursor: pointer; display: grid; gap: 0.15rem; padding: 0.5rem 0.55rem; background: var(--chip); color: var(--chip-ink);
+  font: 600 0.78rem/1.2 var(--font-mono); min-width: 0; border-radius: 1px; }
+.stage .i { font: 500 0.66rem/1 var(--font-mono); opacity: 0.7; }
+.stage:hover { background: var(--cell-sel); color: #fff; }
+.stage:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.stage[aria-selected="true"] { background: var(--amber); color: var(--on-amber); }
+.pair, .why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.side { padding: 0.9rem 1rem 1rem; display: grid; gap: 0.45rem; align-content: start; border: 1px solid var(--border); }
+.side p { font-size: 1.05rem; }
+.side.abstract { background: var(--paper); color: var(--paper-ink); font-family: var(--font-book); }
+.side.real { background: var(--navy); border-top: var(--rule-top) solid var(--accent); }
+.side .tag, .why .tag { font: var(--label); letter-spacing: 0.1em; text-transform: uppercase; justify-self: start; padding: 0.2rem 0.45rem; }
+.side.abstract .tag { background: var(--amber); color: var(--on-amber); }
+.side.real .tag { background: var(--cell-sel); color: #fff; }
+.why > div { display: grid; gap: 0.35rem; align-content: start; padding: 0 0.2rem; }
+.why .tag { color: var(--amber); padding: 0; }
+.why p { color: var(--ink-2); }
+.trace { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem 1rem; margin: 0; padding: 0.75rem 1rem;
+  border: 1px solid var(--border); background: var(--surface); }
+.trace dt { font: var(--label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); }
+.trace dd { margin: 0.15rem 0 0; font-size: 0.92rem; }
+.bs-col ol.tight { border-top: 1px solid var(--grid); }
+.design { display: grid; gap: 0.8rem; border-top: 1px solid var(--grid); padding-top: 1.1rem; }
+.principles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; }
+.principles li { background: var(--surface); border: 1px solid var(--border); padding: 0.7rem 0.85rem; display: grid; gap: 0.25rem;
+  font-size: 0.9rem; color: var(--ink-2); opacity: 0.55; }
+.principles li.on { opacity: 1; border-color: var(--amber); }
+.principles b { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+.scroll { overflow-x: auto; }
+.matrix { border-collapse: collapse; width: 100%; font: 0.82rem/1.3 var(--font-mono); background: var(--surface); border: 1px solid var(--border); }
+.matrix th { font: var(--label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); text-align: left; background: var(--bar); }
+.matrix th, .matrix td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.matrix td.r { color: var(--muted); }
+.matrix td.w { color: var(--kept); font-weight: 600; }
+.eq { font-size: 1rem; display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; align-items: baseline; font-variant-numeric: tabular-nums; }
+.eq b { font: var(--label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); min-width: 3.5rem; }
+.eq i { font-style: normal; color: var(--muted); }
+.assumed { margin: 0; padding-left: 1.1rem; color: var(--ink-2); font-size: 0.92rem; display: grid; gap: 0.25rem; }
+@media (max-width: 1100px) {
+  .stages { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .principles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .pair, .why, .principles { grid-template-columns: minmax(0, 1fr); }
+  .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .trace { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Parties</b><a href="index.html" aria-current="true">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header"><!--__HEADER__--></header>
+  <div class="bs-clock c4"><!--__SUMMARY__--></div>
+  <nav class="bs-jumps" role="tablist" id="tabs" aria-label="Parties"><span class="bs-label" style="align-self:center;margin-right:.3rem">Party</span><!--__TABS__--></nav>
+  <!--__VIEWS__-->
+  <footer class="bs-footer" id="foot"><!--__FOOT__--></footer>
+</main>
+<script>
+// Every view is already in the page; the address names the one to show (#holder ... #auditor, #how, #how-<process>).
+function show() {
+  const id = location.hash.slice(1);
+  const how = id === "how" || id.startsWith("how-");
+  const views = [...document.querySelectorAll(".view")];
+  const view = how ? "how" : views.some((v) => v.dataset.view === id) ? id : views[0].dataset.view;
+  views.forEach((v) => v.classList.toggle("on", v.dataset.view === view));
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.id === view));
+  if (!how) return;
+  const bodies = [...document.querySelectorAll(".stagebody")];
+  const stage = bodies.some((b) => b.dataset.stage === id.slice(4)) ? id.slice(4) : bodies[0].dataset.stage;
+  bodies.forEach((b) => b.classList.toggle("on", b.dataset.stage === stage));
+  document.querySelectorAll(".stage").forEach((b) => b.setAttribute("aria-selected", b.dataset.stage === stage));
+  document.querySelectorAll(".principles li").forEach((li) => li.classList.toggle("on", li.dataset.stages.split(" ").includes(stage)));
+}
+document.addEventListener("click", (e) => {
+  const stage = e.target.closest(".stage");
+  if (stage) location.hash = `how-${stage.dataset.stage}`;
+  const tab = e.target.closest(".tab");
+  if (tab) location.hash = tab.dataset.id;
+});
+window.addEventListener("hashchange", show);
+show();
+</script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>programs/bond_servicing/src/instructions/open_event.rs · source</title><style>
+:root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
+header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
+.line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
+</style><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/open_event.rs</h1>
+<p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file a8db517b219ea888576d5cdc91793be6722aaee2cbae5f206e3403e84b4c6bcd</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Open a coupon (index &lt; periods) or the redemption (index = periods) once its record moment has passed.</code></span>
+<span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! Anyone may call it: everything it writes follows from the terms and the bond&#x27;s supply history.</code></span>
+<span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>//!   - supply at the record moment: from the supply history, no holder count needed;</code></span>
+<span class="line" id="L4"><a href="#L4" aria-label="Line 4">4</a><code>//!   - budget: the event&#x27;s amount for the whole supply, rounded down once (each holder&#x27;s amount is rounded</code></span>
+<span class="line" id="L5"><a href="#L5" aria-label="Line 5">5</a><code>//!     down on its own, so the holders&#x27; amounts never exceed it);</code></span>
+<span class="line" id="L6"><a href="#L6" aria-label="Line 6">6</a><code>//!   - vault: a cash account of this event alone, owned by the Bond PDA, so events cannot spend each other&#x27;s</code></span>
+<span class="line" id="L7"><a href="#L7" aria-label="Line 7">7</a><code>//!     cash.</code></span>
+<span class="line" id="L8"><a href="#L8" aria-label="Line 8">8</a><code></code></span>
+<span class="line" id="L9"><a href="#L9" aria-label="Line 9">9</a><code>use anchor_lang::prelude::*;</code></span>
+<span class="line" id="L10"><a href="#L10" aria-label="Line 10">10</a><code>use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};</code></span>
+<span class="line" id="L11"><a href="#L11" aria-label="Line 11">11</a><code></code></span>
+<span class="line" id="L12"><a href="#L12" aria-label="Line 12">12</a><code>use crate::constants::*;</code></span>
+<span class="line" id="L13"><a href="#L13" aria-label="Line 13">13</a><code>use crate::error::BondError;</code></span>
+<span class="line" id="L14"><a href="#L14" aria-label="Line 14">14</a><code>use crate::events::EventOpened;</code></span>
+<span class="line" id="L15"><a href="#L15" aria-label="Line 15">15</a><code>use crate::state::{Bond, Event, EventKind};</code></span>
+<span class="line" id="L16"><a href="#L16" aria-label="Line 16">16</a><code></code></span>
+<span class="line" id="L17"><a href="#L17" aria-label="Line 17">17</a><code>#[derive(Accounts)]</code></span>
+<span class="line" id="L18"><a href="#L18" aria-label="Line 18">18</a><code>#[instruction(index: u16)]</code></span>
+<span class="line" id="L19"><a href="#L19" aria-label="Line 19">19</a><code>pub struct OpenEvent&lt;&#x27;info&gt; {</code></span>
+<span class="line" id="L20"><a href="#L20" aria-label="Line 20">20</a><code>    #[account(mut)]</code></span>
+<span class="line" id="L21"><a href="#L21" aria-label="Line 21">21</a><code>    pub payer: Signer&lt;&#x27;info&gt;,</code></span>
+<span class="line" id="L22"><a href="#L22" aria-label="Line 22">22</a><code></code></span>
+<span class="line" id="L23"><a href="#L23" aria-label="Line 23">23</a><code>    #[account(has_one = cash_mint)]</code></span>
+<span class="line" id="L24"><a href="#L24" aria-label="Line 24">24</a><code>    pub bond: Box&lt;Account&lt;&#x27;info, Bond&gt;&gt;,</code></span>
+<span class="line" id="L25"><a href="#L25" aria-label="Line 25">25</a><code></code></span>
+<span class="line" id="L26"><a href="#L26" aria-label="Line 26">26</a><code>    #[account(</code></span>
+<span class="line" id="L27"><a href="#L27" aria-label="Line 27">27</a><code>        init,</code></span>
+<span class="line" id="L28"><a href="#L28" aria-label="Line 28">28</a><code>        payer = payer,</code></span>
+<span class="line" id="L29"><a href="#L29" aria-label="Line 29">29</a><code>        space = 8 + Event::INIT_SPACE,</code></span>
+<span class="line" id="L30"><a href="#L30" aria-label="Line 30">30</a><code>        seeds = [EVENT_SEED, bond.key().as_ref(), &amp;index.to_le_bytes()],</code></span>
+<span class="line" id="L31"><a href="#L31" aria-label="Line 31">31</a><code>        bump,</code></span>
+<span class="line" id="L32"><a href="#L32" aria-label="Line 32">32</a><code>    )]</code></span>
+<span class="line" id="L33"><a href="#L33" aria-label="Line 33">33</a><code>    pub event: Box&lt;Account&lt;&#x27;info, Event&gt;&gt;,</code></span>
+<span class="line" id="L34"><a href="#L34" aria-label="Line 34">34</a><code></code></span>
+<span class="line" id="L35"><a href="#L35" aria-label="Line 35">35</a><code>    pub cash_mint: Box&lt;InterfaceAccount&lt;&#x27;info, Mint&gt;&gt;,</code></span>
+<span class="line" id="L36"><a href="#L36" aria-label="Line 36">36</a><code></code></span>
+<span class="line" id="L37"><a href="#L37" aria-label="Line 37">37</a><code>    #[account(</code></span>
+<span class="line" id="L38"><a href="#L38" aria-label="Line 38">38</a><code>        init,</code></span>
+<span class="line" id="L39"><a href="#L39" aria-label="Line 39">39</a><code>        payer = payer,</code></span>
+<span class="line" id="L40"><a href="#L40" aria-label="Line 40">40</a><code>        seeds = [VAULT_SEED, event.key().as_ref()],</code></span>
+<span class="line" id="L41"><a href="#L41" aria-label="Line 41">41</a><code>        bump,</code></span>
+<span class="line" id="L42"><a href="#L42" aria-label="Line 42">42</a><code>        token::mint = cash_mint,</code></span>
+<span class="line" id="L43"><a href="#L43" aria-label="Line 43">43</a><code>        token::authority = bond,</code></span>
+<span class="line" id="L44"><a href="#L44" aria-label="Line 44">44</a><code>        token::token_program = cash_token_program,</code></span>
+<span class="line" id="L45"><a href="#L45" aria-label="Line 45">45</a><code>    )]</code></span>
+<span class="line" id="L46"><a href="#L46" aria-label="Line 46">46</a><code>    pub vault: Box&lt;InterfaceAccount&lt;&#x27;info, TokenAccount&gt;&gt;,</code></span>
+<span class="line" id="L47"><a href="#L47" aria-label="Line 47">47</a><code></code></span>
+<span class="line" id="L48"><a href="#L48" aria-label="Line 48">48</a><code>    pub cash_token_program: Interface&lt;&#x27;info, TokenInterface&gt;,</code></span>
+<span class="line" id="L49"><a href="#L49" aria-label="Line 49">49</a><code>    pub system_program: Program&lt;&#x27;info, System&gt;,</code></span>
+<span class="line" id="L50"><a href="#L50" aria-label="Line 50">50</a><code>}</code></span>
+<span class="line" id="L51"><a href="#L51" aria-label="Line 51">51</a><code></code></span>
+<span class="line" id="L52"><a href="#L52" aria-label="Line 52">52</a><code>pub fn handle_open_event(ctx: Context&lt;OpenEvent&gt;, index: u16) -&gt; Result&lt;()&gt; {</code></span>
+<span class="line" id="L53"><a href="#L53" aria-label="Line 53">53</a><code>    let bond = &amp;ctx.accounts.bond;</code></span>
+<span class="line" id="L54"><a href="#L54" aria-label="Line 54">54</a><code>    let period = bond.period_of(index)?;</code></span>
+<span class="line" id="L55"><a href="#L55" aria-label="Line 55">55</a><code>    let record_time = bond.record_time(index)?;</code></span>
+<span class="line" id="L56"><a href="#L56" aria-label="Line 56">56</a><code>    require!(bond.now()? &gt;= record_time, BondError::RecordMomentNotReached);</code></span>
+<span class="line" id="L57"><a href="#L57" aria-label="Line 57">57</a><code></code></span>
+<span class="line" id="L58"><a href="#L58" aria-label="Line 58">58</a><code>    let is_redemption = index == bond.redemption_event();</code></span>
+<span class="line" id="L59"><a href="#L59" aria-label="Line 59">59</a><code>    let supply = bond.supply.at_moment(period);</code></span>
+<span class="line" id="L60"><a href="#L60" aria-label="Line 60">60</a><code>    let budget = if is_redemption { bond.principal(supply)? } else { bond.coupon(supply, period)? };</code></span>
+<span class="line" id="L61"><a href="#L61" aria-label="Line 61">61</a><code></code></span>
+<span class="line" id="L62"><a href="#L62" aria-label="Line 62">62</a><code>    let event = &amp;mut ctx.accounts.event;</code></span>
+<span class="line" id="L63"><a href="#L63" aria-label="Line 63">63</a><code>    event.bond = bond.key();</code></span>
+<span class="line" id="L64"><a href="#L64" aria-label="Line 64">64</a><code>    event.index = index;</code></span>
+<span class="line" id="L65"><a href="#L65" aria-label="Line 65">65</a><code>    event.kind = if is_redemption { EventKind::Redemption } else { EventKind::Coupon };</code></span>
+<span class="line" id="L66"><a href="#L66" aria-label="Line 66">66</a><code>    event.record_time = record_time;</code></span>
+<span class="line" id="L67"><a href="#L67" aria-label="Line 67">67</a><code>    event.payment_time = bond.payment_time(index)?;</code></span>
+<span class="line" id="L68"><a href="#L68" aria-label="Line 68">68</a><code>    event.supply_at_record = supply;</code></span>
+<span class="line" id="L69"><a href="#L69" aria-label="Line 69">69</a><code>    event.budget = budget;</code></span>
+<span class="line" id="L70"><a href="#L70" aria-label="Line 70">70</a><code>    event.vault = ctx.accounts.vault.key();</code></span>
+<span class="line" id="L71"><a href="#L71" aria-label="Line 71">71</a><code>    event.funded = false;</code></span>
+<span class="line" id="L72"><a href="#L72" aria-label="Line 72">72</a><code>    event.bump = ctx.bumps.event;</code></span>
+<span class="line" id="L73"><a href="#L73" aria-label="Line 73">73</a><code>    emit!(EventOpened { bond: bond.key(), event: index, supply_at_record: supply, budget, vault: event.vault });</code></span>
+<span class="line" id="L74"><a href="#L74" aria-label="Line 74">74</a><code>    Ok(())</code></span>
+<span class="line" id="L75"><a href="#L75" aria-label="Line 75">75</a><code>}</code></span></pre></html>

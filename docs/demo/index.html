@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Bond servicing on Solana</title>
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Parties page in the Blum design system (blum/, from the Claude Design project). Every view is in the page (readable
+   without JavaScript); the script shows the one the address names. Below: only what the design system does not cover. */
+.view:not(.on), .stagebody:not(.on) { display: none; }
+.stagebody { display: grid; gap: 1.25rem; }
+.bs-cols.single { grid-template-columns: minmax(0, 1fr); }
+.bs-jumps .bs-btn.how { background: var(--navy); border: 1px solid var(--accent); color: var(--ink); }
+.bs-jumps .bs-btn.how[aria-selected="true"] { background: var(--cell-sel); color: #fff; }
+
+/* How it works: each process, abstract beside real */
+.stages { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 3px; }
+.stage { all: unset; cursor: pointer; display: grid; gap: 0.15rem; padding: 0.5rem 0.55rem; background: var(--chip); color: var(--chip-ink);
+  font: 600 0.78rem/1.2 var(--font-mono); min-width: 0; border-radius: 1px; }
+.stage .i { font: 500 0.66rem/1 var(--font-mono); opacity: 0.7; }
+.stage:hover { background: var(--cell-sel); color: #fff; }
+.stage:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.stage[aria-selected="true"] { background: var(--amber); color: var(--on-amber); }
+.pair, .why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.side { padding: 0.9rem 1rem 1rem; display: grid; gap: 0.45rem; align-content: start; border: 1px solid var(--border); }
+.side p { font-size: 1.05rem; }
+.side.abstract { background: var(--paper); color: var(--paper-ink); font-family: var(--font-book); }
+.side.real { background: var(--navy); border-top: var(--rule-top) solid var(--accent); }
+.side .tag, .why .tag { font: var(--label); letter-spacing: 0.1em; text-transform: uppercase; justify-self: start; padding: 0.2rem 0.45rem; }
+.side.abstract .tag { background: var(--amber); color: var(--on-amber); }
+.side.real .tag { background: var(--cell-sel); color: #fff; }
+.why > div { display: grid; gap: 0.35rem; align-content: start; padding: 0 0.2rem; }
+.why .tag { color: var(--amber); padding: 0; }
+.why p { color: var(--ink-2); }
+.trace { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem 1rem; margin: 0; padding: 0.75rem 1rem;
+  border: 1px solid var(--border); background: var(--surface); }
+.trace dt { font: var(--label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); }
+.trace dd { margin: 0.15rem 0 0; font-size: 0.92rem; }
+.bs-col ol.tight { border-top: 1px solid var(--grid); }
+.design { display: grid; gap: 0.8rem; border-top: 1px solid var(--grid); padding-top: 1.1rem; }
+.principles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; }
+.principles li { background: var(--surface); border: 1px solid var(--border); padding: 0.7rem 0.85rem; display: grid; gap: 0.25rem;
+  font-size: 0.9rem; color: var(--ink-2); opacity: 0.55; }
+.principles li.on { opacity: 1; border-color: var(--amber); }
+.principles b { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+.scroll { overflow-x: auto; }
+.matrix { border-collapse: collapse; width: 100%; font: 0.82rem/1.3 var(--font-mono); background: var(--surface); border: 1px solid var(--border); }
+.matrix th { font: var(--label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); text-align: left; background: var(--bar); }
+.matrix th, .matrix td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.matrix td.r { color: var(--muted); }
+.matrix td.w { color: var(--kept); font-weight: 600; }
+.eq { font-size: 1rem; display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; align-items: baseline; font-variant-numeric: tabular-nums; }
+.eq b { font: var(--label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); min-width: 3.5rem; }
+.eq i { font-style: normal; color: var(--muted); }
+.assumed { margin: 0; padding-left: 1.1rem; color: var(--ink-2); font-size: 0.92rem; display: grid; gap: 0.25rem; }
+@media (max-width: 1100px) {
+  .stages { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .principles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .pair, .why, .principles { grid-template-columns: minmax(0, 1fr); }
+  .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .trace { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>
+<script src="ask-ai.js" defer></script>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Parties</b><a href="index.html" aria-current="true">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header"><p class="bs-eyebrow">Measured on devnet · 1,000 holders, 2,318 transactions sent</p><h1 class="bs-h1">Who held the bond at 09:00, and was each holder paid exactly once?</h1><p class="bs-lede">A coupon belongs to whoever held the bond at the record moment. One Solana program finds those holders, pays them from the terms and records it. Pick a party: what it expects, what was kept, what was refused. Or see how it works.</p></header>
+  <div class="bs-clock c4"><div><span class="k">Paid on the 09:00 list</span><span class="t up">4,000 / 4,000</span><span class="s">1,039 wrong if paid by balance</span></div><div><span class="k">Audit from public data</span><span class="t up">3,959 / 3,959</span><span class="s">checks · <a class="bs-proof" href="#auditor">result</a></span></div><div><span class="k">Attacks</span><span class="t down">35 / 35</span><span class="s">refused, each a failed transaction</span></div><div><span class="k">Coupons paid</span><span class="t">2,003,300.00</span><span class="s">4 coupons · final supply 0</span></div></div>
+  <nav class="bs-jumps" role="tablist" id="tabs" aria-label="Parties"><span class="bs-label" style="align-self:center;margin-right:.3rem">Party</span><a class="bs-btn tab" role="tab" href="#holder" aria-selected="true" data-id="holder">Holder <span class="k">3 kept</span> · <span class="x">11 refused</span></a><a class="bs-btn tab" role="tab" href="#issuer" aria-selected="false" data-id="issuer">Issuer <span class="k">3 kept</span> · <span class="x">13 refused</span></a><a class="bs-btn tab" role="tab" href="#depository" aria-selected="false" data-id="depository">Depository <span class="k">3 kept</span> · <span class="x">8 refused</span></a><a class="bs-btn tab" role="tab" href="#bank" aria-selected="false" data-id="bank">Bank <span class="k">2 kept</span> · <span class="x">2 refused</span></a><a class="bs-btn tab" role="tab" href="#exchange" aria-selected="false" data-id="exchange">Exchange <span class="k">2 kept</span> · <span class="x">1 refused</span></a><a class="bs-btn tab" role="tab" href="#auditor" aria-selected="false" data-id="auditor">Auditor <span class="k">3 kept</span></a><a class="bs-btn tab how" role="tab" href="#how" aria-selected="false" data-id="how">How it works · 9 processes</a></nav>
+  <section class="bs-panel view on" role="tabpanel" data-view="holder" id="holder">
+    <div class="bs-phead"><h2 class="bs-h2">Holder</h2><span class="role">investor</span></div>
+    <p class="bs-now"><b>Expects</b><span>Paid exactly, on time, for what it held</span></p>
+    <div class="bs-cols"><div class="bs-col kept">
+    <div class="bs-colhead"><span class="tag">Kept</span><span class="sub">measured on devnet</span></div>
+    <ul><li class="bs-kept">
+      <div class="claim">Paid for the bonds held at the record moment</div>
+      <div class="bs-value">4,000 of 4,000</div>
+      <div class="detail">coupon payments exact, 1,000 holders; paying by holdings at payment time would have got 1,039 wrong</div>
+      <div class="bs-links"><a class="bs-proof" href="#auditor">audit</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Sells right after the record moment, keeps the coupon</div>
+      <div class="bs-value">BH#458: 4 s</div>
+      <div class="detail">sold 3 of 12 bonds 4 s after the record moment; paid on 12: 600.00</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet" target="_blank" rel="noopener">sale</a><a class="bs-proof" href="https://explorer.solana.com/tx/44MKrPkWDSKbNpnFuRAoKUHFQPuyZf3SbeGoVsRb5vwnPeWvx23UhFdVL9jD1aXDwMYK8fvsNYTuCCdamUhbiZht?cluster=devnet" target="_blank" rel="noopener">payment</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">The listing&#x27;s example</div>
+      <div class="bs-value">BH#1: 500.00</div>
+      <div class="detail">10 bonds x 1,000 x 10% / 2</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/fn7zRpQNKiCw3jVShksoUXChq3XJTtLg5XpQfP2881ounSPqbKHP5BPAvrF4FHz7ECSNJcm3N6Vep6cAm3rUd5E?cluster=devnet" target="_blank" rel="noopener">payment</a></div>
+    </li></ul></div><div class="bs-col refused">
+    <div class="bs-colhead"><span class="tag">Refused</span><span class="sub">11 of 11 attempts · failed transactions</span></div>
+    <ol><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves BH#1&#x27;s bonds to itself</span>
+    <span class="stop">only the owner moves its bonds · <a class="bs-proof" href="https://explorer.solana.com/tx/2fKzqobL1uhvEFzJrq6K9G3Ts3LtEv4DWeUVQjtdP5EhXt56geWR4GUWD6tAyFEWrv19PK3atYJ4giGmNBxfJs81?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses its bonds.</span><span>Logged: <code>owner does not match</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves BH#1&#x27;s bonds naming the program, the permanent delegate</span>
+    <span class="stop">only the program acts as permanent delegate · <a class="bs-proof" href="https://explorer.solana.com/tx/2V4Af4SVcjvPK9xCFymsjv9Heu4stz67pEDw8XhJLYSSBAMfgkvjgjjYPo9eoXpMmr39gVRWCkCqqsz8iMPzSvDV?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses its bonds.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> burns BH#1&#x27;s bonds</span>
+    <span class="stop">standard burns are disabled for this bond · <a class="bs-proof" href="https://explorer.solana.com/tx/5i5hd1y9jwSNJbNeVCU1nbe4cj83Y43ynCQbB7aiMpoVgpieQdQnjhgVfyn9eaZAkXoiwWnWqteHTpiBsZ9RQdJ7?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses coupons and principal.</span><span>Logged: <code>Invalid instruction</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> burns BH#1&#x27;s bonds with the permissioned burn, naming itself burn authority</span>
+    <span class="stop">only the program is burn authority · <a class="bs-proof" href="https://explorer.solana.com/tx/3JUYUn1nZkWWfDY2GqrMTWX4Q5XmDpBDAtPZQYuSDpxKsL8vsq3edvNnYvqHsvQWE8uiMNbKA7NjrBMsUFiUSLPd?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses coupons and principal.</span><span>Logged: <code>InvalidAccountData</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> burns BH#1&#x27;s bonds with the permissioned burn, naming the program, the burn authority</span>
+    <span class="stop">only the program signs as burn authority · <a class="bs-proof" href="https://explorer.solana.com/tx/4U2bieNTNDWDsmz6WSPRV3UVXFjAomquUhb2SChbbiysTpqqZkprvtB2bNyvmYXcrTWfqTZUg7y1A6qAsJT8ErUB?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses coupons and principal.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> freezes BH#1&#x27;s bond account</span>
+    <span class="stop">the bond has no freeze authority · <a class="bs-proof" href="https://explorer.solana.com/tx/SiWEENmKknQUggVoaHMWhqVnXVDsxqe9Bv1iH2mxewv85P7onm4xiBt6R8deKbXdRyRCRFare3GqTRxuhn2acHd?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 cannot sell.</span><span>Logged: <code>This token mint cannot freeze accounts</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1&#x27;s coupon into its own cash account</span>
+    <span class="stop">cash goes only to the holder&#x27;s own account · <a class="bs-proof" href="https://explorer.solana.com/tx/5Six9uRXdZkBfriTMfwVweNtWwy7SqM6DUH1oCyVn6kp3B8tUh2WqNY21g9qmLPsjSHRHoxNDK7ZTgk6WbdKvEUj?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s coupon.</span><span>Logged: <code>ConstraintTokenOwner: A token owner constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> presents BH#1&#x27;s holder record as its own</span>
+    <span class="stop">a holder record belongs to one wallet · <a class="bs-proof" href="https://explorer.solana.com/tx/adM2PAkx5KGtpxMajhKyJtheCQBp1CjeSkT4d5dJugMGWhSXDe8o4EQpyomvL9kSkHYEm2VyCnLVewuwzvQC4ma?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s coupon.</span><span>Logged: <code>ConstraintSeeds: A seeds constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> redeems BH#1&#x27;s bonds into its own cash account</span>
+    <span class="stop">principal goes only to the holder&#x27;s own account · <a class="bs-proof" href="https://explorer.solana.com/tx/aBbj6FtFiuaVBkP7v33Uc9em8U8eMFM8fYT8asAPfrrpS9n8nEtaC3KaTzpfZbDCD8DBGb31xpWir9nJZo8YjMA?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s principal.</span><span>Logged: <code>ConstraintTokenOwner: A token owner constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> sells BH#1&#x27;s bonds to the buyback</span>
+    <span class="stop">only the holder sells its bonds · <a class="bs-proof" href="https://explorer.solana.com/tx/4LyRjuw6JSxAeDAxGUqRpNFpXA5snch6XnXVeMpm8rpKemcFZ5KbU7JsZMJvkHKpK2b3mZKqKsEYNqvQuFqXJYoz?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s bonds sold without its consent.</span><span>Logged: <code>ConstraintRaw: A raw constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> creates a bond paid in a cash token whose permanent delegate is the attacker</span>
+    <span class="stop">cash tokens with a permanent delegate are refused · <a class="bs-proof" href="https://explorer.solana.com/tx/gSxKKA9NsgTq9TBRuCVH6TYMCoPJ7cwkp72kjSZw8tCgs8jhtFdofeSaS55riBEpy8kN7DssZAi8TrGsmKoySjU?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the delegate empties the vaults before holders are paid.</span><span>Logged: <code>UnsupportedCashToken: Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults&#x27; cash (permanent delegate), or one this program cannot read.</code></span></div>
+</details></li></ol></div></div>
+    <p class="bs-sim"><b>Simulated</b><span>Holders are generated wallets, labelled BH#1, BH#2, ...</span></p>
+    <p class="bs-now ok"><b>How</b><span>A transfer first saves both holders&#x27; positions at every record moment passed. The coupon is computed from that saved position and paid only to the holder&#x27;s own cash account.</span></p>
+  </section><section class="bs-panel view" role="tabpanel" data-view="issuer" id="issuer">
+    <div class="bs-phead"><h2 class="bs-h2">Issuer</h2><span class="role">borrower</span></div>
+    <p class="bs-now"><b>Expects</b><span>Pays what the terms say, not a unit more</span></p>
+    <div class="bs-cols"><div class="bs-col kept">
+    <div class="bs-colhead"><span class="tag">Kept</span><span class="sub">measured on devnet</span></div>
+    <ul><li class="bs-kept">
+      <div class="claim">Coupons paid = the terms</div>
+      <div class="bs-value">2,003,300.00</div>
+      <div class="detail">4 coupons to 1,000 holders; every vault: inflow = payments + leftover</div>
+      <div class="bs-links"><a class="bs-proof" href="#auditor">audit</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Bonds retired only against cash</div>
+      <div class="bs-value">948 of 948</div>
+      <div class="detail">holders&#x27; buyback, tender and redemption: bonds burned and cash paid in one transaction</div>
+      <div class="bs-links"><a class="bs-proof" href="#auditor">audit</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Its only task: deposit the cash</div>
+      <div class="bs-value">7 of 2,318</div>
+      <div class="detail">transactions in the 1000-holder run were the issuer&#x27;s</div>
+      
+    </li></ul></div><div class="bs-col refused">
+    <div class="bs-colhead"><span class="tag">Refused</span><span class="sub">13 of 13 attempts · failed transactions</span></div>
+    <ol><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> mints 1,000 bonds to itself</span>
+    <span class="stop">only the program mints bonds · <a class="bs-proof" href="https://explorer.solana.com/tx/4kHz8Q3F5iBS3TPeeCVJmHNfWyTdr6814sFpCTXvswDL7nytcjrTgkSmGvWzDAkKhXLppgHrDiqLnJW2GKi1AUnA?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer owes coupons and principal on bonds it never sold.</span><span>Logged: <code>owner does not match</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> mints 1,000 bonds naming the program as mint authority</span>
+    <span class="stop">only the program signs as the program · <a class="bs-proof" href="https://explorer.solana.com/tx/2wUBApJTdyXx1Se1qppSF87iyY5cPBo5tPKKNVKT9h3iKeU4Z3ogZxAG7oBSny1n8771bTKD8RoXQrogVMeDnEwA?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer owes coupons and principal on bonds it never sold.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> places 100 new bonds with BH#2</span>
+    <span class="stop">the issue closes at the first record moment · <a class="bs-proof" href="https://explorer.solana.com/tx/5QXqo4ar7Jq1TEt7yDjbEqpbPWdBT9ucfpXfHFcJ1dGQF8Lv6VS4cC9ypKQjwU12StduVHTKPVwrpGw2uFqn8gmf?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: bonds issued after the issue closed.</span><span>Logged: <code>PlacementClosed: Placement is allowed only before the first record moment.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> places 1 more bond with BH#2, past the issue size of 27</span>
+    <span class="stop">placement stops at the issue size · <a class="bs-proof" href="https://explorer.solana.com/tx/3ZpPPxy6t3zSX6haWwXrs1vMg9Vs6zRVVkTFUEnM3Gt5XRFukahnyCq2MpZhDuGjQtvkW6EbhiveJMu9d2Mc2wL3?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: bonds beyond the issue the terms announced.</span><span>Logged: <code>ExceedsIssueSize: Placement would exceed the bond&#x27;s issue size.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1&#x27;s coupon again</span>
+    <span class="stop">one payment per holder per coupon · <a class="bs-proof" href="https://explorer.solana.com/tx/5xay6pMkpuvJ9AuWcUyJQW36MWNPzsM1czQRLryZAbMbLpsfbzELe6UwTjFPJjy5j6WoEWVeB2amZr9TicdQihNE?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer pays a coupon twice; the last holders find the vault empty.</span><span>Logged: <code>AlreadyPaid: Already paid.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#3</b> bought after the record moment and asks for the coupon</span>
+    <span class="stop">the coupon follows the record moment · <a class="bs-proof" href="https://explorer.solana.com/tx/2Rf9ET9CJZr8ShaNDVehrrJ13ZH83YNdKfpS9qDmTsJStcpGVw3Nu9hyTVyFQa5xBDuKg2TxrBFPMkVahFbEfrtM?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the seller&#x27;s coupon paid again to the buyer.</span><span>Logged: <code>NothingToPay: Nothing to pay.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> redeems BH#1 again</span>
+    <span class="stop">redeemed bonds are burned · <a class="bs-proof" href="https://explorer.solana.com/tx/2UNSXXKdVfFnVM7kCqEFX8JEb7NbJHzqsrPugiHtC5G66V6tmFoSrA2S9ZqcHjEVkhdQzJnGyoa2PJnNXcnkRoFP?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: principal paid twice.</span><span>Logged: <code>NothingToPay: Nothing to pay.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1&#x27;s coupon 1 from coupon 0&#x27;s vault</span>
+    <span class="stop">each payment has its own vault · <a class="bs-proof" href="https://explorer.solana.com/tx/5WSuAifw8rTCXpTqY849Zea79Yts7aqHsy7864YB9B5MSEtfx4QKuncV9JtBtHhkX1Dw14GemWcCjQ4BUPg2jnCs?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: one coupon&#x27;s cash spent on another.</span><span>Logged: <code>ConstraintHasOne: A has one constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1 a coupon from the redemption vault</span>
+    <span class="stop">principal cash pays only principal · <a class="bs-proof" href="https://explorer.solana.com/tx/3tFEC6k3jjgw2JfBt3c3Srut439xGUdRxw3JmgDtrNGpCyHvt3P4qZPSDp4RCEyPd1uKcXEDeXQ4mABmsPpBYsjj?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: principal cash paid out as coupons.</span><span>Logged: <code>WrongEventKind: Instruction does not apply to this event type.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> sells 1 bond to the buyback after its maximum is reached</span>
+    <span class="stop">an offer buys up to its maximum · <a class="bs-proof" href="https://explorer.solana.com/tx/2bp1FWTThQzDh1zw6VkLHsHRPKEi6rj7BsjJ4XyFxotk1S3VUuSXdgsRuzB9XzUtAPB8omugG5Rdi9FW1mN64t9W?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer buys more bonds than it offered.</span><span>Logged: <code>ExceedsOffer: Quantity exceeds what the offer still accepts.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> transfers all its bonds to BH#2, including those tendered to the issuer</span>
+    <span class="stop">tendered bonds are locked · <a class="bs-proof" href="https://explorer.solana.com/tx/345NJWPmJRZ343jvWJmzT7PsoRNBc8khREiBLGGdsEWNdbYM3a763Vg35nJkfumjgsbPYPnZHFmmNYEAGPAYMCN7?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the same bonds sold twice: to the issuer and to a buyer.</span><span>Logged: <code>BondsLocked: Bonds are locked in a tender.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves the vault&#x27;s cash to itself</span>
+    <span class="stop">a vault pays only through the program · <a class="bs-proof" href="https://explorer.solana.com/tx/sijk72Rf1difQikgZvU8FWBSh6teoy8BTmMeqqxMRGNJTAq7b4EfpULVLXQyHbXMHDHp2CZz2jepBAL7VxaYWfH?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the coupon&#x27;s cash is gone.</span><span>Logged: <code>owner does not match</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves the vault&#x27;s cash to itself naming the program, the vault&#x27;s owner</span>
+    <span class="stop">only the program signs for a vault · <a class="bs-proof" href="https://explorer.solana.com/tx/3TCGLtmKGXY29yNB4X4WJpFc3fh51rQhuC9kCBE7BkNvaoVqcjUMfESUhR8Fb9txp6KNx7vXFQvubRDmziLbYPV5?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the coupon&#x27;s cash is gone.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li></ol></div></div>
+    
+    <p class="bs-now ok"><b>How</b><span>Each coupon and the redemption has its own vault, funded with exactly its budget. A payment and the holder&#x27;s paid flag are one transaction.</span></p>
+  </section><section class="bs-panel view" role="tabpanel" data-view="depository" id="depository">
+    <div class="bs-phead"><h2 class="bs-h2">Depository</h2><span class="role">registrar and paying agent</span></div>
+    <p class="bs-now"><b>Expects</b><span>A correct register, and no new problems</span></p>
+    <div class="bs-cols"><div class="bs-col kept">
+    <div class="bs-colhead"><span class="tag">Kept</span><span class="sub">measured on devnet</span></div>
+    <ul><li class="bs-kept">
+      <div class="claim">The register at every record moment, trading open</div>
+      <div class="bs-value">1,000 holders</div>
+      <div class="detail">600 trades 4 s to 8 min after record moments; cost per holder paid: 833 to 2,500 lamports</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/address/8YmKCK7xbUuaTmVWFxYiZD7gro7JLbLMxkKx8yK9hCWg?cluster=devnet" target="_blank" rel="noopener">bond</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Works when the operator stops</div>
+      <div class="bs-value">12 of 12</div>
+      <div class="detail">our operator stopped after coupon 0; a wallet with no role paid the rest and redeemed everyone</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/address/9epkkMCfXjFoDKMoBrG4mE1Pw9BRvPvmyhctxbrHFxGp?cluster=devnet" target="_blank" rel="noopener">that wallet</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Anyone can service; nobody can redirect</div>
+      <div class="bs-value">0 to the attacker</div>
+      <div class="detail">the attacker&#x27;s wallet paid coupons and principal in 4 transactions: all cash went to holders</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/2jkaB7X4GjVxHFMcLJ4ZdmiwiTt9k2tvg7xGsabhadb6X2H9JdwkSm7BTsM8RNUXQBJBZuc1fS75LyfeScshkDMP?cluster=devnet" target="_blank" rel="noopener">transaction</a></div>
+    </li></ul></div><div class="bs-col refused">
+    <div class="bs-colhead"><span class="tag">Refused</span><span class="sub">8 of 8 attempts · failed transactions</span></div>
+    <ol><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> registers itself as a holder, signing as registrar</span>
+    <span class="stop">only the registrar registers holders · <a class="bs-proof" href="https://explorer.solana.com/tx/5WDjripiJDyYPXyYbcenpS6ZTnbrtCouvVRuYM94daEXeHfXd8Q9TCguMXjLtYttmVLVt72sJcGAAyanaP2hTqr3?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: an unvetted wallet in the register.</span><span>Logged: <code>ConstraintHasOne: A has one constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> sends a bond to an unregistered wallet (the attacker)</span>
+    <span class="stop">bonds go only to registered holders · <a class="bs-proof" href="https://explorer.solana.com/tx/2RZZ181cPxuSw4sQWRqG57jwubi2uRCHdg1StpSK84akNcVX3zvUmX8ogHATMy9JzZVp3WDhkcpKkHx33hz85TfQ?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: bonds held outside the register.</span><span>Logged: <code>AccountOwnedByWrongProgram: The given account is owned by a different program than expected.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> moves a bond to a second account of its own</span>
+    <span class="stop">one bond account per holder · <a class="bs-proof" href="https://explorer.solana.com/tx/4cfaxez9p8M6c37BA7ZKa5cXEWer318pnEwuVZKZSqNzw1nwofZG7Ch9MK9VvgYX5By4p9ZSv343YP4WoKywiFN4?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a position the register does not see.</span><span>Logged: <code>NotAssociatedTokenAccount: Bonds may be held only in the owner&#x27;s associated token account.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> sends a bond to BH#2 with Token-2022&#x27;s plain Transfer instruction, which skips the transfer hook</span>
+    <span class="stop">every transfer must pass the program · <a class="bs-proof" href="https://explorer.solana.com/tx/2AcN3WN7FQu2Z9zUnDP5YPaWpSFKEysazfJMe8r1rg7U69JLyvsQgWMpApoz3pXtvoUp68zfmsGFohxhVKkSiP83?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a bond moves without its record-moment position being saved.</span><span>Logged: <code>custom program error: 0x1f</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> calls the transfer hook directly to add 5 bonds to BH#2&#x27;s record</span>
+    <span class="stop">the program&#x27;s hook runs only inside a real transfer · <a class="bs-proof" href="https://explorer.solana.com/tx/2iFCWWPDu6qe7NTMWVGM5eGLHkxypsUeKfAty2yDtF6j2egwbMQykmFH79mj6eWQKJtRc8anjX38rNoRbUm2YU1U?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: coupons paid on bonds nobody holds.</span><span>Logged: <code>NotTransferring: The hook was called outside a token transfer.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> confirms the coupon funded</span>
+    <span class="stop">funding must cover the whole budget · <a class="bs-proof" href="https://explorer.solana.com/tx/4ZRUD95evjq9drgjhq1RnAULLkN4DZZrAQei63ih34ZJf8PTVHCCHHKxVXJ8RUdoEs9LFABmzrmGBuzktRGJBMD4?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the last holders find the vault empty.</span><span>Logged: <code>InsufficientFunding: Vault balance does not cover the event&#x27;s budget.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1 from the unconfirmed vault</span>
+    <span class="stop">no payment before full funding · <a class="bs-proof" href="https://explorer.solana.com/tx/2EsUoxPudM5cSHsfYiZsjYRrxGZqsMVjCEpoYCL2qSbsXedPghAzRdpg77N49NPm5CbKzhYWNjAzpcHivYpwdZuc?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the last holders find the vault empty.</span><span>Logged: <code>NotFunded: The event is not funded.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> makes itself the program&#x27;s upgrade authority</span>
+    <span class="stop">only the upgrade authority changes the program · <a class="bs-proof" href="https://explorer.solana.com/tx/VCLVP9r8beMLCpJKA5JBLnwoC9ww3vWGW7bAJpZ5SeSWZDKYis6naYnjSZfJrTRYbwQFnnEQZNYvtdbdBe1uWQ4?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a replaced program could empty every vault.</span><span>Logged: <code>Incorrect authority provided</code></span></div>
+</details></li></ol></div></div>
+    <p class="bs-sim"><b>Simulated</b><span>Holder onboarding and KYC is a registrar key.</span></p>
+    <p class="bs-now ok"><b>How</b><span>The program is the register and the paying agent. Opening, funding confirmation, payment and redemption can be sent by any wallet; none can change who is paid or how much.</span></p>
+  </section><section class="bs-panel view" role="tabpanel" data-view="bank" id="bank">
+    <div class="bs-phead"><h2 class="bs-h2">Bank</h2><span class="role">cash rail</span></div>
+    <p class="bs-now"><b>Expects</b><span>Its money and its controls respected</span></p>
+    <div class="bs-cols"><div class="bs-col kept">
+    <div class="bs-colhead"><span class="tag">Kept</span><span class="sub">measured on devnet</span></div>
+    <ul><li class="bs-kept">
+      <div class="claim">Cash enters a vault only from the bank</div>
+      <div class="bs-value">4 of 4</div>
+      <div class="detail">vault checks: deposits only from the bank&#x27;s mints, payments only to holders</div>
+      <div class="bs-links"><a class="bs-proof" href="#auditor">audit</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Its freeze holds; the bond keeps paying</div>
+      <div class="bs-value">BH#5 waits</div>
+      <div class="detail">the bank froze BH#5&#x27;s cash account for coupon 1: the others were paid, BH#5 after the thaw</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/tddRDsBodPWfY22XrwPuvacUocqLYJXe1iKa9XnXZVzEBpxQpd13TQarrXMVSFt2pCFNUb5NFfaBPr9hU5v8UW7?cluster=devnet" target="_blank" rel="noopener">refused while frozen</a></div>
+    </li></ul></div><div class="bs-col refused">
+    <div class="bs-colhead"><span class="tag">Refused</span><span class="sub">2 of 2 attempts · failed transactions</span></div>
+    <ol><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> creates a bond paid in a cash token that keeps a 1% fee on every transfer</span>
+    <span class="stop">cash tokens that change amounts are refused · <a class="bs-proof" href="https://explorer.solana.com/tx/63Ma2XhYghAgrvLiHVwEMm6qRz2F8CsLK1nPhBgSBqJoJjTEPuSVNSbGzfbGFcJBwR9W5coNdZ6V1YhSKsVZ5MtG?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: holders receive 1% less than the terms.</span><span>Logged: <code>UnsupportedCashToken: Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults&#x27; cash (permanent delegate), or one this program cannot read.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Anyone</b> pays BH#5, whose cash account the bank froze</span>
+    <span class="stop">the bank&#x27;s freeze holds; the others were paid first · <a class="bs-proof" href="https://explorer.solana.com/tx/tddRDsBodPWfY22XrwPuvacUocqLYJXe1iKa9XnXZVzEBpxQpd13TQarrXMVSFt2pCFNUb5NFfaBPr9hU5v8UW7?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: nothing: the others are already paid, and the right stays open.</span><span>Logged: <code>Account is frozen</code></span></div>
+</details></li></ol></div></div>
+    <p class="bs-sim"><b>Simulated</b><span>The cash is a test token (6 decimals) minted by a test bank key, standing for fiat or a stablecoin.</span></p>
+    <p class="bs-now ok"><b>How</b><span>The program moves cash only with the cash token&#x27;s own transfer: it cannot pass a frozen account. At bond creation it refuses cash tokens that change amounts or let a third party move a vault&#x27;s cash.</span></p>
+  </section><section class="bs-panel view" role="tabpanel" data-view="exchange" id="exchange">
+    <div class="bs-phead"><h2 class="bs-h2">Exchange</h2><span class="role">trading venue</span></div>
+    <p class="bs-now"><b>Expects</b><span>Trading open every day until maturity</span></p>
+    <div class="bs-cols"><div class="bs-col kept">
+    <div class="bs-colhead"><span class="tag">Kept</span><span class="sub">measured on devnet</span></div>
+    <ul><li class="bs-kept">
+      <div class="claim">Open through every record moment</div>
+      <div class="bs-value">600 trades</div>
+      <div class="detail">4 s to 8 min after record moments, 1,000 holders</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet" target="_blank" rel="noopener">first sale</a></div>
+    </li><li class="bs-kept">
+      <div class="claim">Nobody can freeze a holder</div>
+      <div class="bs-value">No freeze authority</div>
+      <div class="detail">the bond token was created without one</div>
+      <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/address/8YmKCK7xbUuaTmVWFxYiZD7gro7JLbLMxkKx8yK9hCWg?cluster=devnet" target="_blank" rel="noopener">bond token</a></div>
+    </li></ul></div><div class="bs-col refused">
+    <div class="bs-colhead"><span class="tag">Refused</span><span class="sub">1 of 1 attempts · failed transactions</span></div>
+    <ol><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#2</b> sells 1 bond to BH#1</span>
+    <span class="stop">trading closes at the final record moment · <a class="bs-proof" href="https://explorer.solana.com/tx/6kT7VRwvjVPm7jNGrzPG7p4Ft8LgS8hRfhEokYF488KmY6uUvXPY7JYKiXHzLdAccfa16Hi5CxkS4n7S9xRseGz?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a bond changes hands while its principal is being paid.</span><span>Logged: <code>TransfersClosedAtMaturity: Transfers are closed from the final record moment (redemption).</code></span></div>
+</details></li></ol></div></div>
+    <p class="bs-sim"><b>Simulated</b><span>Trades are direct transfers between registered holders; there is no order book.</span></p>
+    <p class="bs-now ok"><b>How</b><span>No snapshot and no freeze: the hook saves positions as bonds move, so a record moment needs no pause. Trading stays open for transfers through the bond token&#x27;s transfer hook (Solana Token-2022), so a venue has to support it.</span></p>
+  </section><section class="bs-panel view" role="tabpanel" data-view="auditor" id="auditor">
+    <div class="bs-phead"><h2 class="bs-h2">Auditor</h2><span class="role">or regulator</span></div>
+    <p class="bs-now"><b>Expects</b><span>Every payment checkable from public data</span></p>
+    <div class="bs-cols single"><div class="bs-col kept">
+    <div class="bs-colhead"><span class="tag">Kept</span><span class="sub">measured on devnet</span></div>
+    <ul><li class="bs-kept">
+      <div class="claim">Every payment recomputed from the ledger</div>
+      <div class="bs-value">3,959 of 3,959</div>
+      <div class="detail">checks over 2,319 ledger transactions read (every one touching the bond token, the cash token, the bond&#x27;s authority or its vaults); 1,000 of 1,000 holders&#x27; cash equals the terms to the unit</div>
+      
+    </li><li class="bs-kept">
+      <div class="claim">Tampering is caught</div>
+      <div class="bs-value">2 checks fail</div>
+      <div class="detail">after 0.000001 is sent into a vault from outside (local network)</div>
+      
+    </li><li class="bs-kept">
+      <div class="claim">The attacker run, audited the same way</div>
+      <div class="bs-value">35 of 35</div>
+      <div class="detail">checks pass; 35 of 35 attacks refused, each a failed transaction anyone can open</div>
+      
+    </li></ul></div></div>
+    <p class="bs-sim"><b>Simulated</b><span>The tampering probe ran on a local network, not devnet.</span></p>
+    <p class="bs-now ok"><b>How</b><span>The audit is independent in its input: it reads the public ledger only, not program accounts or our operator&#x27;s report. It checks every amount against the bond&#x27;s terms and the run&#x27;s scenario.</span></p>
+  </section><section class="bs-panel view" role="tabpanel" data-view="how" id="how">
+    <div class="bs-phead"><h2 class="bs-h2">How it works</h2>
+      <span class="role">Every bond needs the same processes. The program runs them under real constraints; where it has to differ, the outcome must not.</span></div>
+    <nav class="stages" aria-label="Processes"><button class="stage" aria-selected="true" data-stage="issue"><span class="i">1</span>Issue</button><button class="stage" aria-selected="false" data-stage="trade"><span class="i">2</span>Trade</button><button class="stage" aria-selected="false" data-stage="record"><span class="i">3</span>Record</button><button class="stage" aria-selected="false" data-stage="calculate"><span class="i">4</span>Calculate</button><button class="stage" aria-selected="false" data-stage="fund"><span class="i">5</span>Fund</button><button class="stage" aria-selected="false" data-stage="pay"><span class="i">6</span>Pay</button><button class="stage" aria-selected="false" data-stage="redeem"><span class="i">7</span>Redeem</button><button class="stage" aria-selected="false" data-stage="offer"><span class="i">8</span>Buy back</button><button class="stage" aria-selected="false" data-stage="audit"><span class="i">9</span>Audit</button></nav>
+    <div class="stagebody on" data-stage="issue">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>The issuer sells bonds on fixed terms. Each buyer holds what it bought, and the supply is fixed.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>create_bond writes the terms and creates the bond token with the program as its only mint and burn authority and no freeze authority. register_holder admits a wallet; place mints bonds to it, only before the first record moment.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>Anyone can open a token account. A bond needs known holders and a supply nobody can inflate.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>Only the program changes the supply, and it records every change, so the supply at any record moment is known without counting holders.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>registrar</dd></div><div><dt>Reads</dt><dd>terms</dd></div>
+      <div><dt>Writes</dt><dd>bond, holder records</dd></div><div><dt>Moves</dt><dd>bonds minted to holders</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">10,251 bonds</div><div class="detail">placed with 1,000 registered holders</div>
+  <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/address/8YmKCK7xbUuaTmVWFxYiZD7gro7JLbLMxkKx8yK9hCWg?cluster=devnet" target="_blank" rel="noopener">bond</a></div></li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">7 of 7 attacks refused</span></div>
+      <ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> registers itself as a holder, signing as registrar</span>
+    <span class="stop">only the registrar registers holders · <a class="bs-proof" href="https://explorer.solana.com/tx/5WDjripiJDyYPXyYbcenpS6ZTnbrtCouvVRuYM94daEXeHfXd8Q9TCguMXjLtYttmVLVt72sJcGAAyanaP2hTqr3?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: an unvetted wallet in the register.</span><span>Logged: <code>ConstraintHasOne: A has one constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> mints 1,000 bonds to itself</span>
+    <span class="stop">only the program mints bonds · <a class="bs-proof" href="https://explorer.solana.com/tx/4kHz8Q3F5iBS3TPeeCVJmHNfWyTdr6814sFpCTXvswDL7nytcjrTgkSmGvWzDAkKhXLppgHrDiqLnJW2GKi1AUnA?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer owes coupons and principal on bonds it never sold.</span><span>Logged: <code>owner does not match</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> mints 1,000 bonds naming the program as mint authority</span>
+    <span class="stop">only the program signs as the program · <a class="bs-proof" href="https://explorer.solana.com/tx/2wUBApJTdyXx1Se1qppSF87iyY5cPBo5tPKKNVKT9h3iKeU4Z3ogZxAG7oBSny1n8771bTKD8RoXQrogVMeDnEwA?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer owes coupons and principal on bonds it never sold.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> places 100 new bonds with BH#2</span>
+    <span class="stop">the issue closes at the first record moment · <a class="bs-proof" href="https://explorer.solana.com/tx/5QXqo4ar7Jq1TEt7yDjbEqpbPWdBT9ucfpXfHFcJ1dGQF8Lv6VS4cC9ypKQjwU12StduVHTKPVwrpGw2uFqn8gmf?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: bonds issued after the issue closed.</span><span>Logged: <code>PlacementClosed: Placement is allowed only before the first record moment.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> places 1 more bond with BH#2, past the issue size of 27</span>
+    <span class="stop">placement stops at the issue size · <a class="bs-proof" href="https://explorer.solana.com/tx/3ZpPPxy6t3zSX6haWwXrs1vMg9Vs6zRVVkTFUEnM3Gt5XRFukahnyCq2MpZhDuGjQtvkW6EbhiveJMu9d2Mc2wL3?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: bonds beyond the issue the terms announced.</span><span>Logged: <code>ExceedsIssueSize: Placement would exceed the bond&#x27;s issue size.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> creates a bond paid in a cash token that keeps a 1% fee on every transfer</span>
+    <span class="stop">cash tokens that change amounts are refused · <a class="bs-proof" href="https://explorer.solana.com/tx/63Ma2XhYghAgrvLiHVwEMm6qRz2F8CsLK1nPhBgSBqJoJjTEPuSVNSbGzfbGFcJBwR9W5coNdZ6V1YhSKsVZ5MtG?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: holders receive 1% less than the terms.</span><span>Logged: <code>UnsupportedCashToken: Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults&#x27; cash (permanent delegate), or one this program cannot read.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Registrar</b> creates a bond paid in a cash token whose permanent delegate is the attacker</span>
+    <span class="stop">cash tokens with a permanent delegate are refused · <a class="bs-proof" href="https://explorer.solana.com/tx/gSxKKA9NsgTq9TBRuCVH6TYMCoPJ7cwkp72kjSZw8tCgs8jhtFdofeSaS55riBEpy8kN7DssZAi8TrGsmKoySjU?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the delegate empties the vaults before holders are paid.</span><span>Logged: <code>UnsupportedCashToken: Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults&#x27; cash (permanent delegate), or one this program cannot read.</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="trade">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>A trade changes ownership at once. The register always says who holds what.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>Every transfer runs the program&#x27;s transfer hook in the same transaction. Both sides must be registered; the hook saves their holdings at the record moments passed, then updates both holder records.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>Transfers run in the token program, not in ours, and one holder could open several accounts.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>If the hook fails, the transfer fails. One account per holder, and a transfer is refused if a holder record ever disagrees with its balance.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>holder; the token program calls the hook</dd></div><div><dt>Reads</dt><dd>bond time</dd></div>
+      <div><dt>Writes</dt><dd>both holder records</dd></div><div><dt>Moves</dt><dd>bonds, seller to buyer</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">600 trades</div><div class="detail">between 1,000 holders, every one through the hook</div>
+  <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet" target="_blank" rel="noopener">first</a></div></li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">8 of 8 attacks refused</span></div>
+      <ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves BH#1&#x27;s bonds to itself</span>
+    <span class="stop">only the owner moves its bonds · <a class="bs-proof" href="https://explorer.solana.com/tx/2fKzqobL1uhvEFzJrq6K9G3Ts3LtEv4DWeUVQjtdP5EhXt56geWR4GUWD6tAyFEWrv19PK3atYJ4giGmNBxfJs81?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses its bonds.</span><span>Logged: <code>owner does not match</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves BH#1&#x27;s bonds naming the program, the permanent delegate</span>
+    <span class="stop">only the program acts as permanent delegate · <a class="bs-proof" href="https://explorer.solana.com/tx/2V4Af4SVcjvPK9xCFymsjv9Heu4stz67pEDw8XhJLYSSBAMfgkvjgjjYPo9eoXpMmr39gVRWCkCqqsz8iMPzSvDV?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses its bonds.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> freezes BH#1&#x27;s bond account</span>
+    <span class="stop">the bond has no freeze authority · <a class="bs-proof" href="https://explorer.solana.com/tx/SiWEENmKknQUggVoaHMWhqVnXVDsxqe9Bv1iH2mxewv85P7onm4xiBt6R8deKbXdRyRCRFare3GqTRxuhn2acHd?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 cannot sell.</span><span>Logged: <code>This token mint cannot freeze accounts</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> sends a bond to an unregistered wallet (the attacker)</span>
+    <span class="stop">bonds go only to registered holders · <a class="bs-proof" href="https://explorer.solana.com/tx/2RZZ181cPxuSw4sQWRqG57jwubi2uRCHdg1StpSK84akNcVX3zvUmX8ogHATMy9JzZVp3WDhkcpKkHx33hz85TfQ?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: bonds held outside the register.</span><span>Logged: <code>AccountOwnedByWrongProgram: The given account is owned by a different program than expected.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> moves a bond to a second account of its own</span>
+    <span class="stop">one bond account per holder · <a class="bs-proof" href="https://explorer.solana.com/tx/4cfaxez9p8M6c37BA7ZKa5cXEWer318pnEwuVZKZSqNzw1nwofZG7Ch9MK9VvgYX5By4p9ZSv343YP4WoKywiFN4?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a position the register does not see.</span><span>Logged: <code>NotAssociatedTokenAccount: Bonds may be held only in the owner&#x27;s associated token account.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> sends a bond to BH#2 with Token-2022&#x27;s plain Transfer instruction, which skips the transfer hook</span>
+    <span class="stop">every transfer must pass the program · <a class="bs-proof" href="https://explorer.solana.com/tx/2AcN3WN7FQu2Z9zUnDP5YPaWpSFKEysazfJMe8r1rg7U69JLyvsQgWMpApoz3pXtvoUp68zfmsGFohxhVKkSiP83?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a bond moves without its record-moment position being saved.</span><span>Logged: <code>custom program error: 0x1f</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> transfers all its bonds to BH#2, including those tendered to the issuer</span>
+    <span class="stop">tendered bonds are locked · <a class="bs-proof" href="https://explorer.solana.com/tx/345NJWPmJRZ343jvWJmzT7PsoRNBc8khREiBLGGdsEWNdbYM3a763Vg35nJkfumjgsbPYPnZHFmmNYEAGPAYMCN7?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the same bonds sold twice: to the issuer and to a buyer.</span><span>Logged: <code>BondsLocked: Bonds are locked in a tender.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#2</b> sells 1 bond to BH#1</span>
+    <span class="stop">trading closes at the final record moment · <a class="bs-proof" href="https://explorer.solana.com/tx/6kT7VRwvjVPm7jNGrzPG7p4Ft8LgS8hRfhEokYF488KmY6uUvXPY7JYKiXHzLdAccfa16Hi5CxkS4n7S9xRseGz?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: a bond changes hands while its principal is being paid.</span><span>Logged: <code>TransfersClosedAtMaturity: Transfers are closed from the final record moment (redemption).</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="record">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>At the record moment the register is fixed: each holder is owed for what it holds at that instant.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>Nothing runs at the record moment. The first change to a holding after it saves the holding it replaces; a holding that never changed is still the one held then.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>A program sees only the accounts in a transaction and runs only when one is sent: it cannot read every holder at 09:00, and nothing is sent at 09:00 by itself.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>Between two changes a holding is constant, so what the next change saves is exactly the holding at the record moment, however late anyone looks. No freeze, no deadline.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>nobody: it happens inside the next transfer</dd></div><div><dt>Reads</dt><dd>bond time, record moments</dd></div>
+      <div><dt>Writes</dt><dd>holding history, supply history</dd></div><div><dt>Moves</dt><dd>nothing</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">4,000 of 4,000</div><div class="detail">payments on the saved holdings equal the ledger-only audit&#x27;s register at the record moments</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">1 of 1 attacks refused</span></div>
+      <ul><li class="bs-kept"><div class="bs-value">600 trades</div><div class="detail">4 s to 8 min after record moments; paying by holdings at payment time: 1,039 wrong</div>
+  <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/5oUxsP1w9KFFzG8oRzZyaRkdu56kpsMa4yUMUTfnJNBXJBJXq8bQeDyGG1bxzottpMxqUWKBNg3j3em1nqAtHFZ5?cluster=devnet" target="_blank" rel="noopener">sale</a><a class="bs-proof" href="https://explorer.solana.com/tx/44MKrPkWDSKbNpnFuRAoKUHFQPuyZf3SbeGoVsRb5vwnPeWvx23UhFdVL9jD1aXDwMYK8fvsNYTuCCdamUhbiZht?cluster=devnet" target="_blank" rel="noopener">its payment</a></div></li></ul><ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> calls the transfer hook directly to add 5 bonds to BH#2&#x27;s record</span>
+    <span class="stop">the program&#x27;s hook runs only inside a real transfer · <a class="bs-proof" href="https://explorer.solana.com/tx/2iFCWWPDu6qe7NTMWVGM5eGLHkxypsUeKfAty2yDtF6j2egwbMQykmFH79mj6eWQKJtRc8anjX38rNoRbUm2YU1U?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: coupons paid on bonds nobody holds.</span><span>Logged: <code>NotTransferring: The hook was called outside a token transfer.</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="calculate">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>Owed = holding at the record moment x face x rate / periods, as the terms say.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>Computed inside each payment from the saved holding and the terms, in integers, rounded down once per holder. The event&#x27;s budget is the same formula on the supply at the record moment.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>Token amounts are whole smallest units; there are no fractions on chain.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>Rounding once on each holder&#x27;s total keeps the sum within the budget; any residue stays visible in the event&#x27;s vault.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>part of each payment</dd></div><div><dt>Reads</dt><dd>terms, saved holding</dd></div>
+      <div><dt>Writes</dt><dd>nothing</dd></div><div><dt>Moves</dt><dd>nothing</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">BH#1: 500.00</div><div class="detail">10 bonds x 1,000 x 10% / 2, the listing&#x27;s example</div>
+  </li><li class="bs-kept"><div class="bs-value">passed</div><div class="detail">every amount checked against QuantLib and FinancePy</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">1 of 1 attacks refused</span></div>
+      <ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#3</b> bought after the record moment and asks for the coupon</span>
+    <span class="stop">the coupon follows the record moment · <a class="bs-proof" href="https://explorer.solana.com/tx/2Rf9ET9CJZr8ShaNDVehrrJ13ZH83YNdKfpS9qDmTsJStcpGVw3Nu9hyTVyFQa5xBDuKg2TxrBFPMkVahFbEfrtM?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the seller&#x27;s coupon paid again to the buyer.</span><span>Logged: <code>NothingToPay: Nothing to pay.</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="fund">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>The issuer provides the full amount before payment.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>After the record moment anyone opens the event: it gets its own vault and a budget fixed by the supply at the record moment. The issuer deposits; anyone confirms, accepted only if the vault covers the budget.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>Cash is a separate token that the issuer moves outside the program, at its own pace.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>No holder is paid from an event that cannot pay all, and one event&#x27;s cash cannot pay another. The issuer&#x27;s only action is the deposit.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>anyone (open, confirm); issuer (deposit)</dd></div><div><dt>Reads</dt><dd>supply history, vault balance</dd></div>
+      <div><dt>Writes</dt><dd>event, its vault</dd></div><div><dt>Moves</dt><dd>cash, issuer to the event&#x27;s vault</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">7 of 2,318</div><div class="detail">transactions were the issuer&#x27;s deposits</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">4 of 4 attacks refused</span></div>
+      <ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> confirms the coupon funded</span>
+    <span class="stop">funding must cover the whole budget · <a class="bs-proof" href="https://explorer.solana.com/tx/4ZRUD95evjq9drgjhq1RnAULLkN4DZZrAQei63ih34ZJf8PTVHCCHHKxVXJ8RUdoEs9LFABmzrmGBuzktRGJBMD4?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the last holders find the vault empty.</span><span>Logged: <code>InsufficientFunding: Vault balance does not cover the event&#x27;s budget.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1 from the unconfirmed vault</span>
+    <span class="stop">no payment before full funding · <a class="bs-proof" href="https://explorer.solana.com/tx/2EsUoxPudM5cSHsfYiZsjYRrxGZqsMVjCEpoYCL2qSbsXedPghAzRdpg77N49NPm5CbKzhYWNjAzpcHivYpwdZuc?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the last holders find the vault empty.</span><span>Logged: <code>NotFunded: The event is not funded.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves the vault&#x27;s cash to itself</span>
+    <span class="stop">a vault pays only through the program · <a class="bs-proof" href="https://explorer.solana.com/tx/sijk72Rf1difQikgZvU8FWBSh6teoy8BTmMeqqxMRGNJTAq7b4EfpULVLXQyHbXMHDHp2CZz2jepBAL7VxaYWfH?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the coupon&#x27;s cash is gone.</span><span>Logged: <code>owner does not match</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> moves the vault&#x27;s cash to itself naming the program, the vault&#x27;s owner</span>
+    <span class="stop">only the program signs for a vault · <a class="bs-proof" href="https://explorer.solana.com/tx/3TCGLtmKGXY29yNB4X4WJpFc3fh51rQhuC9kCBE7BkNvaoVqcjUMfESUhR8Fb9txp6KNx7vXFQvubRDmziLbYPV5?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the coupon&#x27;s cash is gone.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="pay">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>On the payment date each entitled holder receives its amount, exactly once.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>Any wallet, any time after payment opens, in any order, pays one holder: cash from the event&#x27;s vault to the holder&#x27;s own cash account and the holder&#x27;s paid flag, in one transaction.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>Paying 1,000 holders takes many transactions; someone must send them; the operator may stop; a holder&#x27;s cash account may be frozen.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>Whoever sends it and whenever, state fixes the amount and the recipient; the paid flag makes it once; rights never expire; one holder&#x27;s failure blocks nobody.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>anyone</dd></div><div><dt>Reads</dt><dd>bond, event, holder record</dd></div>
+      <div><dt>Writes</dt><dd>holder&#x27;s paid flag</dd></div><div><dt>Moves</dt><dd>cash, event vault to the holder&#x27;s own account</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">2,003,300.00</div><div class="detail">4 coupons to 1,000 holders, exact</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">6 of 6 attacks refused</span></div>
+      <ul><li class="bs-kept"><div class="bs-value">12 of 12</div><div class="detail">operator stopped after coupon 0; a wallet with no role paid the rest</div>
+  <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/address/9epkkMCfXjFoDKMoBrG4mE1Pw9BRvPvmyhctxbrHFxGp?cluster=devnet" target="_blank" rel="noopener">that wallet</a></div></li><li class="bs-kept"><div class="bs-value">0 to itself</div><div class="detail">the attacker&#x27;s wallet paid coupons and principal in 4 transactions</div>
+  <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/2jkaB7X4GjVxHFMcLJ4ZdmiwiTt9k2tvg7xGsabhadb6X2H9JdwkSm7BTsM8RNUXQBJBZuc1fS75LyfeScshkDMP?cluster=devnet" target="_blank" rel="noopener">one</a></div></li><li class="bs-kept"><div class="bs-value">BH#5 waited</div><div class="detail">its cash account frozen by the bank: the others were paid first, BH#5 after the thaw</div>
+  <div class="bs-links"><a class="bs-proof" href="https://explorer.solana.com/tx/tddRDsBodPWfY22XrwPuvacUocqLYJXe1iKa9XnXZVzEBpxQpd13TQarrXMVSFt2pCFNUb5NFfaBPr9hU5v8UW7?cluster=devnet" target="_blank" rel="noopener">refused while frozen</a></div></li></ul><ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1&#x27;s coupon into its own cash account</span>
+    <span class="stop">cash goes only to the holder&#x27;s own account · <a class="bs-proof" href="https://explorer.solana.com/tx/5Six9uRXdZkBfriTMfwVweNtWwy7SqM6DUH1oCyVn6kp3B8tUh2WqNY21g9qmLPsjSHRHoxNDK7ZTgk6WbdKvEUj?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s coupon.</span><span>Logged: <code>ConstraintTokenOwner: A token owner constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> presents BH#1&#x27;s holder record as its own</span>
+    <span class="stop">a holder record belongs to one wallet · <a class="bs-proof" href="https://explorer.solana.com/tx/adM2PAkx5KGtpxMajhKyJtheCQBp1CjeSkT4d5dJugMGWhSXDe8o4EQpyomvL9kSkHYEm2VyCnLVewuwzvQC4ma?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s coupon.</span><span>Logged: <code>ConstraintSeeds: A seeds constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1&#x27;s coupon again</span>
+    <span class="stop">one payment per holder per coupon · <a class="bs-proof" href="https://explorer.solana.com/tx/5xay6pMkpuvJ9AuWcUyJQW36MWNPzsM1czQRLryZAbMbLpsfbzELe6UwTjFPJjy5j6WoEWVeB2amZr9TicdQihNE?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer pays a coupon twice; the last holders find the vault empty.</span><span>Logged: <code>AlreadyPaid: Already paid.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1&#x27;s coupon 1 from coupon 0&#x27;s vault</span>
+    <span class="stop">each payment has its own vault · <a class="bs-proof" href="https://explorer.solana.com/tx/5WSuAifw8rTCXpTqY849Zea79Yts7aqHsy7864YB9B5MSEtfx4QKuncV9JtBtHhkX1Dw14GemWcCjQ4BUPg2jnCs?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: one coupon&#x27;s cash spent on another.</span><span>Logged: <code>ConstraintHasOne: A has one constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> pays BH#1 a coupon from the redemption vault</span>
+    <span class="stop">principal cash pays only principal · <a class="bs-proof" href="https://explorer.solana.com/tx/3tFEC6k3jjgw2JfBt3c3Srut439xGUdRxw3JmgDtrNGpCyHvt3P4qZPSDp4RCEyPd1uKcXEDeXQ4mABmsPpBYsjj?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: principal cash paid out as coupons.</span><span>Logged: <code>WrongEventKind: Instruction does not apply to this event type.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Anyone</b> pays BH#5, whose cash account the bank froze</span>
+    <span class="stop">the bank&#x27;s freeze holds; the others were paid first · <a class="bs-proof" href="https://explorer.solana.com/tx/tddRDsBodPWfY22XrwPuvacUocqLYJXe1iKa9XnXZVzEBpxQpd13TQarrXMVSFt2pCFNUb5NFfaBPr9hU5v8UW7?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: nothing: the others are already paid, and the right stays open.</span><span>Logged: <code>Account is frozen</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="redeem">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>At maturity holders receive the principal and the bonds cease to exist.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>Transfers close at the final record moment. Any wallet redeems a holder: its bonds are burned and the principal paid in one transaction.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>Redemption takes one transaction per few holders, and bonds tendered to an open offer are not free.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>Burn and payment are one transaction: no bond is burned unpaid and no principal is paid for a live bond. Bonds committed to an offer are left to it.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>anyone</dd></div><div><dt>Reads</dt><dd>bond, event, holder record</dd></div>
+      <div><dt>Writes</dt><dd>holder record, supply</dd></div><div><dt>Moves</dt><dd>bonds burned; cash, vault to holder</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">9,665 bonds</div><div class="detail">redeemed from 918 holders; final supply 0</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">5 of 5 attacks refused</span></div>
+      <ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> redeems BH#1&#x27;s bonds into its own cash account</span>
+    <span class="stop">principal goes only to the holder&#x27;s own account · <a class="bs-proof" href="https://explorer.solana.com/tx/aBbj6FtFiuaVBkP7v33Uc9em8U8eMFM8fYT8asAPfrrpS9n8nEtaC3KaTzpfZbDCD8DBGb31xpWir9nJZo8YjMA?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s principal.</span><span>Logged: <code>ConstraintTokenOwner: A token owner constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> redeems BH#1 again</span>
+    <span class="stop">redeemed bonds are burned · <a class="bs-proof" href="https://explorer.solana.com/tx/2UNSXXKdVfFnVM7kCqEFX8JEb7NbJHzqsrPugiHtC5G66V6tmFoSrA2S9ZqcHjEVkhdQzJnGyoa2PJnNXcnkRoFP?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: principal paid twice.</span><span>Logged: <code>NothingToPay: Nothing to pay.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> burns BH#1&#x27;s bonds</span>
+    <span class="stop">standard burns are disabled for this bond · <a class="bs-proof" href="https://explorer.solana.com/tx/5i5hd1y9jwSNJbNeVCU1nbe4cj83Y43ynCQbB7aiMpoVgpieQdQnjhgVfyn9eaZAkXoiwWnWqteHTpiBsZ9RQdJ7?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses coupons and principal.</span><span>Logged: <code>Invalid instruction</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> burns BH#1&#x27;s bonds with the permissioned burn, naming itself burn authority</span>
+    <span class="stop">only the program is burn authority · <a class="bs-proof" href="https://explorer.solana.com/tx/3JUYUn1nZkWWfDY2GqrMTWX4Q5XmDpBDAtPZQYuSDpxKsL8vsq3edvNnYvqHsvQWE8uiMNbKA7NjrBMsUFiUSLPd?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses coupons and principal.</span><span>Logged: <code>InvalidAccountData</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> burns BH#1&#x27;s bonds with the permissioned burn, naming the program, the burn authority</span>
+    <span class="stop">only the program signs as burn authority · <a class="bs-proof" href="https://explorer.solana.com/tx/4U2bieNTNDWDsmz6WSPRV3UVXFjAomquUhb2SChbbiysTpqqZkprvtB2bNyvmYXcrTWfqTZUg7y1A6qAsJT8ErUB?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1 loses coupons and principal.</span><span>Logged: <code>MissingRequiredSignature</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="offer">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>The issuer buys bonds back at a price: first come up to a maximum, or pro rata among tenders. Bought bonds cease to exist.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>The registrar opens an offer with its own funded vault. A sale burns and pays at once. A tender locks bonds in the holder&#x27;s own account; after the window anyone resolves the tenders in the order they were made, each taking the pro-rata share of the running total, rounded down, minus what the earlier ones took, then settles each accepted part.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>The tender window spans a record moment, and bonds come in whole units.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>Tendered bonds never move, so they keep the coupon whose record moment falls in the window. An oversubscribed offer buys exactly its maximum; each tender gets at least its own share rounded down and never more than it tendered. If fewer are tendered, the unspent cash stays in the offer&#x27;s vault.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>registrar (offer); holder (sell, tender); anyone (settle)</dd></div><div><dt>Reads</dt><dd>offer, holder record</dd></div>
+      <div><dt>Writes</dt><dd>offer, tender, holder record, supply</dd></div><div><dt>Moves</dt><dd>bonds burned; cash, offer vault to holder</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">176 bonds</div><div class="detail">bought back first come, maximum 410</div>
+  </li><li class="bs-kept"><div class="bs-value">410 bonds</div><div class="detail">accepted pro rata from tenders, maximum 410</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">2 of 2 attacks refused</span></div>
+      <ul><li class="bs-kept"><div class="bs-value">132 of 132</div><div class="detail">tendering holders paid coupon 2 on their tendered bonds</div>
+  </li></ul><ol class="tight"><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>Attacker</b> sells BH#1&#x27;s bonds to the buyback</span>
+    <span class="stop">only the holder sells its bonds · <a class="bs-proof" href="https://explorer.solana.com/tx/4LyRjuw6JSxAeDAxGUqRpNFpXA5snch6XnXVeMpm8rpKemcFZ5KbU7JsZMJvkHKpK2b3mZKqKsEYNqvQuFqXJYoz?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: BH#1&#x27;s bonds sold without its consent.</span><span>Logged: <code>ConstraintRaw: A raw constraint was violated.</code></span></div>
+</details></li><li><details class="bs-attempt">
+  <summary><span class="bs-mark refused">Refused</span>
+    <span class="what"><b>BH#1</b> sells 1 bond to the buyback after its maximum is reached</span>
+    <span class="stop">an offer buys up to its maximum · <a class="bs-proof" href="https://explorer.solana.com/tx/2bp1FWTThQzDh1zw6VkLHsHRPKEi6rj7BsjJ4XyFxotk1S3VUuSXdgsRuzB9XzUtAPB8omugG5Rdi9FW1mN64t9W?cluster=devnet" target="_blank" rel="noopener">transaction</a></span></summary>
+  <div class="more"><span>Would cost: the issuer buys more bonds than it offered.</span><span>Logged: <code>ExceedsOffer: Quantity exceeds what the offer still accepts.</code></span></div>
+</details></li></ol></div>
+    </div>
+    </div><div class="stagebody" data-stage="audit">
+    <div class="pair">
+      <div class="side abstract"><span class="tag">Abstract</span><p>Anyone can reconcile the register and every payment.</p></div>
+      <div class="side real"><span class="tag">Real</span><p>Every change is a ledger transaction. A ledger-only audit reads only the public ledger and recomputes every amount from the terms.</p></div>
+    </div>
+    <div class="why">
+      <div><span class="tag">Real-world constraint</span><p>A ledger shows transactions, not obligations: the auditor must rebuild the obligations itself.</p></div>
+      <div><span class="tag">Why the outcome is the same</span><p>The audit needs no operator report and no program accounts, and it fails on one unit out of place.</p></div>
+    </div>
+    <dl class="trace"><div><dt>Sent by</dt><dd>anyone, off chain</dd></div><div><dt>Reads</dt><dd>public ledger, terms</dd></div>
+      <div><dt>Writes</dt><dd>nothing</dd></div><div><dt>Moves</dt><dd>nothing</dd></div></dl>
+    <div class="bs-cols">
+      <div class="bs-col kept"><div class="bs-colhead"><span class="tag">Same outcome</span><span class="sub">measured on devnet</span></div><ul><li class="bs-kept"><div class="bs-value">3,959 of 3,959</div><div class="detail">checks over 2,319 ledger transactions read</div>
+  </li><li class="bs-kept"><div class="bs-value">35 of 35</div><div class="detail">checks on the attacker run</div>
+  </li></ul></div>
+      <div class="bs-col refused"><div class="bs-colhead"><span class="tag">Under stress</span>
+      <span class="sub">measured</span></div>
+      <ul><li class="bs-kept"><div class="bs-value">2 checks fail</div><div class="detail">after 0.000001 is sent into a vault from outside (local network)</div>
+  </li></ul></div>
+    </div>
+    </div>
+    <section class="design">
+      <h3 class="bs-h3">The design that follows</h3>
+      <ol class="principles"><li data-stages="trade record">
+    <b>Record on write, not by snapshot</b><span>Holdings at record moments are saved by the next change, so the market never stops and nothing has a deadline.</span></li><li data-stages="issue trade redeem" class="on">
+    <b>Every balance change passes the program</b><span>Transfer hook, the program as only mint and burn authority, no freeze authority; records checked against balances.</span></li><li data-stages="fund pay redeem offer">
+    <b>Outcomes follow from state, so anyone may act</b><span>Opening, confirming, paying, redeeming and settling need no authority: the sender cannot change who gets what.</span></li><li data-stages="fund pay">
+    <b>Each obligation isolated</b><span>One vault per event and offer, one paid flag per holder per coupon; a payment writes only that holder&#x27;s record and that vault.</span></li><li data-stages="pay redeem offer">
+    <b>Value moves only with its counterpart</b><span>Cash and paid flag in one transaction; burn and payment in one transaction.</span></li><li data-stages="audit">
+    <b>Checked from outside</b><span>An audit from the public ledger alone, failing on one unit out of place.</span></li></ol>
+      <div class="scroll"><table class="matrix"><thead><tr><th>Process</th><th>Sent by</th><th>Bond: terms, supply</th><th>Holder record</th><th>Event</th><th>Offer, tender</th><th>Vault (cash)</th><th>Bond token</th></tr></thead>
+    <tbody><tr><td><code>create_bond</code></td><td>registrar</td><td class="w">create</td><td class=""></td><td class=""></td><td class=""></td><td class=""></td><td class="w">create</td></tr><tr><td><code>register_holder</code></td><td>registrar</td><td class="r">read</td><td class="w">create</td><td class=""></td><td class=""></td><td class=""></td><td class=""></td></tr><tr><td><code>place</code></td><td>registrar</td><td class="w">supply</td><td class="w">write</td><td class=""></td><td class=""></td><td class=""></td><td class="w">mint</td></tr><tr><td><code>transfer + hook</code></td><td>holder</td><td class="r">read</td><td class="w">write both</td><td class=""></td><td class=""></td><td class=""></td><td class="w">move</td></tr><tr><td><code>open_event</code></td><td>anyone</td><td class="r">read</td><td class=""></td><td class="w">create</td><td class=""></td><td class="w">create</td><td class=""></td></tr><tr><td><code>deposit</code></td><td>issuer</td><td class=""></td><td class=""></td><td class=""></td><td class=""></td><td class="w">cash in</td><td class=""></td></tr><tr><td><code>confirm_funding</code></td><td>anyone</td><td class=""></td><td class=""></td><td class="w">write</td><td class=""></td><td class="r">read</td><td class=""></td></tr><tr><td><code>pay_coupon</code></td><td>anyone</td><td class="r">read</td><td class="w">paid flag</td><td class="r">read</td><td class=""></td><td class="w">cash out</td><td class=""></td></tr><tr><td><code>redeem_holder</code></td><td>anyone</td><td class="w">supply</td><td class="w">write</td><td class="r">read</td><td class=""></td><td class="w">cash out</td><td class="w">burn</td></tr><tr><td><code>create_offer</code></td><td>registrar</td><td class="r">read</td><td class=""></td><td class=""></td><td class="w">create</td><td class="w">create</td><td class=""></td></tr><tr><td><code>sell_to_offer</code></td><td>holder</td><td class="w">supply</td><td class="w">write</td><td class=""></td><td class="w">write</td><td class="w">cash out</td><td class="w">burn</td></tr><tr><td><code>change_tender</code></td><td>holder</td><td class="r">read</td><td class="w">lock</td><td class=""></td><td class="w">write</td><td class=""></td><td class=""></td></tr><tr><td><code>settle_tender</code></td><td>anyone</td><td class="w">supply</td><td class="w">write</td><td class=""></td><td class="r">read</td><td class="w">cash out</td><td class="w">burn</td></tr></tbody></table></div>
+    </section>
+    <section class="design">
+      <h3 class="bs-h3">Outcome of the 1000-holder run</h3>
+      <p class="eq"><b>Bonds</b>10,251 placed <i>=</i> 176 bought back <i>+</i> 410 tendered <i>+</i> 9,665 redeemed <i>;</i> 0 left</p>
+      <p class="eq"><b>Cash</b>12,484,200.00 deposited <i>=</i> 12,252,540.00 to holders <i>+</i> 231,660.00 unspent offer cash, still in its vaults <i>;</i> 0.00 left in coupon and redemption vaults</p>
+    </section>
+    <section class="design">
+      <h3 class="bs-h3">Assumed, not proven here</h3>
+      <ul class="assumed"><li>Time is the chain&#x27;s clock; devnet runs compress a bond day to 1-20 seconds.</li><li>The registrar registers only vetted wallets (investor onboarding is simulated).</li><li>The program&#x27;s upgrade authority is one wallet: an attacker cannot take it (refused), but its holder could replace the program.</li><li>Cash is a test token minted by a test bank; holders hold directly, with no custodians.</li></ul>
+    </section>
+  </section>
+  <footer class="bs-footer" id="foot"><p>Program <a class="bs-proof" href="https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet" target="_blank" rel="noopener">2UkTKYYz...8sHf</a> on Solana devnet. 35 of 35 attacks refused; 1,000 holders in the largest run.</p><p><a href="timeline.html">Timeline: one bond from issue to redemption →</a></p><p>Built from ledger data only: the 1000-holder run (2026-10-11 08:46 UTC); the attacker run, measured 2026-10-11 08:49 UTC.</p></footer>
+</main>
+<script>
+// Every view is already in the page; the address names the one to show (#holder ... #auditor, #how, #how-<process>).
+function show() {
+  const id = location.hash.slice(1);
+  const how = id === "how" || id.startsWith("how-");
+  const views = [...document.querySelectorAll(".view")];
+  const view = how ? "how" : views.some((v) => v.dataset.view === id) ? id : views[0].dataset.view;
+  views.forEach((v) => v.classList.toggle("on", v.dataset.view === view));
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.id === view));
+  if (!how) return;
+  const bodies = [...document.querySelectorAll(".stagebody")];
+  const stage = bodies.some((b) => b.dataset.stage === id.slice(4)) ? id.slice(4) : bodies[0].dataset.stage;
+  bodies.forEach((b) => b.classList.toggle("on", b.dataset.stage === stage));
+  document.querySelectorAll(".stage").forEach((b) => b.setAttribute("aria-selected", b.dataset.stage === stage));
+  document.querySelectorAll(".principles li").forEach((li) => li.classList.toggle("on", li.dataset.stages.split(" ").includes(stage)));
+}
+document.addEventListener("click", (e) => {
+  const stage = e.target.closest(".stage");
+  if (stage) location.hash = `how-${stage.dataset.stage}`;
+  const tab = e.target.closest(".tab");
+  if (tab) location.hash = tab.dataset.id;
+});
+window.addEventListener("hashchange", show);
+show();
+</script>
+</body>
+</html>

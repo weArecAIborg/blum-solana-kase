@@ -1,0 +1,6 @@
+:root {
+  --page-max: 72rem; --page-max-wide: 78rem; --gutter: max(16px, 3vw);
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-5: 1.25rem; --space-6: 1.75rem; --space-7: 2.25rem;
+  --radius-xs: 2px; --radius-sm: 2px; --radius: 3px; --radius-lg: 4px;
+  --rule-top: 3px; --rule-col: 4px;
+}

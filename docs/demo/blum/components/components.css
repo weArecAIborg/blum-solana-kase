@@ -286,3 +286,4 @@ p { margin: 0; }
 .bs-ask a:hover, .bs-ask a:focus-visible { border-color: var(--accent); }
 .bs-ask svg { width: 1rem; height: 1rem; flex: none; fill: currentColor; }
 .bs-ask .claude svg { fill: #d97757; }
+.bs-ask .youtube svg { fill: #ff0000; }

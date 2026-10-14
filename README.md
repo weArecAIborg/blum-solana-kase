@@ -20,7 +20,7 @@ serviced by the Kazakh depository's rules (record list at 09:00 Almaty on the pa
 **Deck and demo video:** [blum.caiborg.ai/deck.html](https://blum.caiborg.ai/deck.html) (17 slides in plain English,
 one per requirement of the listing, each claim linked to its devnet transaction, line of code and site page) and
 [blum.caiborg.ai/video.html](https://blum.caiborg.ai/video.html) (the demo video: the deck in 2:32, silent, each diagram
-built in reading order).
+built in reading order; also on [YouTube](https://www.youtube.com/watch?v=ZaIaKe03jds)).
 
 **Live demonstration:** [blum.caiborg.ai](https://blum.caiborg.ai) (what each party expects, what was kept and what
 was refused, measured on devnet), [blum.caiborg.ai/stages.html](https://blum.caiborg.ai/stages.html) (nine stages of a

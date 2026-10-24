@@ -75,10 +75,10 @@ pub fn handle_redeem_holder(ctx: Context<RedeemHolder>) -> Result<()> {
     require!(a.event.kind == EventKind::Redemption, BondError::WrongEventKind);
     require!(a.event.funded, BondError::NotFunded);
     require!(a.bond.now()? >= a.event.payment_time, BondError::PaymentNotOpen);
+    require!(!a.holder.is_escrow(), BondError::EscrowRecord);
     let passed = a.bond.periods();
-    let position = a.holder.position.quantity;
-    require!(a.holder_bonds.amount == position, BondError::PositionMismatch);
-    let free = position.checked_sub(a.holder.locked).ok_or(BondError::Overflow)?;
+    require!(a.holder_bonds.amount == a.holder.expected_balance(), BondError::PositionMismatch);
+    let free = a.holder.unlocked();
     require!(free > 0, BondError::NothingToPay);
     let before = a.holder.redeemed;
     let after = before.checked_add(free).ok_or(BondError::Overflow)?;

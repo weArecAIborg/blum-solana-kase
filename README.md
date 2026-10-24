@@ -3,6 +3,17 @@
 Built for the Superteam Kazakhstan x KASE Side Track, "Corporate Actions on Blockchain" (Colosseum Crypto World's
 Fair).
 
+**This branch (`demo-day-prep`) is work after the submission deadline**, for the Superteam Kazakhstan Demo Day on
+27 Oct 2026. The judged state is `main` and the tag `submitted-2026-10-12`. The branch adds secondary trades settled
+delivery versus payment through the Solana Foundation's DvP program, deployed on devnet under its own program ID
+`tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i` (the submitted program `2UkTK...` is unchanged). The run of 23 Oct 2026:
+[docs/devnet-evidence-demo.md](docs/devnet-evidence-demo.md). Anyone can repeat its ledger-only audit from public
+devnet data with Python 3 alone; `scenarios/devnet-demo.public.json` names the run's accounts by public key:
+
+```bash
+python3 tools/audit/audit.py scenarios/devnet-demo.public.json https://api.devnet.solana.com history-accounts
+```
+
 A Solana program that services a tokenized bond through its whole life:
 
 **identify eligible holders -> calculate entitlements -> execute -> record the outcome on chain**

@@ -16,7 +16,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf");
+declare_id!("tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i");
 
 #[program]
 pub mod bond_servicing {
@@ -85,5 +85,9 @@ pub mod bond_servicing {
 
     pub fn settle_tender(ctx: Context<SettleTender>) -> Result<()> {
         instructions::offer::handle_settle_tender(ctx)
+    }
+
+    pub fn admit_trade(ctx: Context<AdmitTrade>) -> Result<()> {
+        instructions::admit_trade::handle_admit_trade(ctx)
     }
 }

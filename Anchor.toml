@@ -9,7 +9,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-bond_servicing = "2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf"
+bond_servicing = "tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i"
 
 [provider]
 cluster = "localnet"
@@ -21,4 +21,4 @@ test = "cargo test"
 [hooks]
 
 [programs.devnet]
-bond_servicing = "2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf"
+bond_servicing = "tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i"

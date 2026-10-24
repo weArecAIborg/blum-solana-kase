@@ -61,6 +61,7 @@ pub fn handle_pay_coupon(ctx: Context<PayCoupon>) -> Result<()> {
     require!(event.funded, BondError::NotFunded);
     require!(bond.now()? >= event.payment_time, BondError::PaymentNotOpen);
     let e = event.index;
+    require!(!ctx.accounts.holder.is_escrow(), BondError::EscrowRecord);
     require!(!ctx.accounts.holder.is_paid(e), BondError::AlreadyPaid);
     let position = ctx.accounts.holder.position.at_moment(e);
     let amount = bond.coupon(position, e)?;

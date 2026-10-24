@@ -107,6 +107,29 @@ pub struct TenderResolved {
     pub rejected: u64,
 }
 
+/// A Solana DvP trade admitted: its escrow may hold `quantity` of the seller's bonds, which stay the seller's position
+/// (locked) until the trade settles to the buyer or unwinds.
+#[event]
+pub struct TradeAdmitted {
+    pub bond: Pubkey,
+    pub swap_dvp: Pubkey,
+    pub seller: Pubkey,
+    pub buyer: Pubkey,
+    pub quantity: u64,
+    pub cash: u64,
+}
+
+/// Bonds moved through a trade escrow: into it (locked for the seller), to the buyer (settled) or back to the seller.
+#[event]
+pub struct TradeMoved {
+    pub bond: Pubkey,
+    pub swap_dvp: Pubkey,
+    pub seller: Pubkey,
+    pub to: Pubkey,
+    pub quantity: u64,
+    pub settled: bool,
+}
+
 #[event]
 pub struct BondsRedeemed {
     pub bond: Pubkey,

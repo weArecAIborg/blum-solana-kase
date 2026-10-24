@@ -5,14 +5,18 @@
 //!   5: Bond PDA           ["bond", mint]
 //!   6: source holder      ["holder", mint, source.owner]       (owner = token account bytes 32..64)
 //!   7: destination holder ["holder", mint, destination.owner]
+//!   8: seller holder      ["holder", mint, source_holder.escrow_of]: the seller of a trade whose escrow is the
+//!      source (settle, cancel, reclaim). For any other transfer `escrow_of` is zero and the seed resolves to a
+//!      record that does not exist; it is passed read-only and the hook does not read it.
 
 use anchor_lang::prelude::*;
 use spl_tlv_account_resolution::{account::ExtraAccountMeta, seeds::Seed, state::ExtraAccountMetaList};
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
 use crate::constants::*;
+use crate::state::HolderRecord;
 
-pub const EXTRA_ACCOUNT_COUNT: usize = 3;
+pub const EXTRA_ACCOUNT_COUNT: usize = 4;
 
 pub fn extra_account_metas() -> Result<Vec<ExtraAccountMeta>> {
     let holder = |token_account_index: u8| {
@@ -26,6 +30,15 @@ pub fn extra_account_metas() -> Result<Vec<ExtraAccountMeta>> {
             true,
         )
     };
+    let seller = ExtraAccountMeta::new_with_seeds(
+        &[
+            Seed::Literal { bytes: HOLDER_SEED.to_vec() },
+            Seed::AccountKey { index: 1 },
+            Seed::AccountData { account_index: 6, data_index: HolderRecord::ESCROW_OF_OFFSET as u8, length: 32 },
+        ],
+        false,
+        true,
+    );
     Ok(vec![
         ExtraAccountMeta::new_with_seeds(
             &[Seed::Literal { bytes: BOND_SEED.to_vec() }, Seed::AccountKey { index: 1 }],
@@ -35,6 +48,7 @@ pub fn extra_account_metas() -> Result<Vec<ExtraAccountMeta>> {
         .map_err(|_| ProgramError::InvalidArgument)?,
         holder(0).map_err(|_| ProgramError::InvalidArgument)?,
         holder(2).map_err(|_| ProgramError::InvalidArgument)?,
+        seller.map_err(|_| ProgramError::InvalidArgument)?,
     ])
 }
 

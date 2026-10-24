@@ -170,7 +170,8 @@ pub struct Retirement<'info> {
 /// Burn `quantity` of the holder's bonds, pay quantity x price from the offer's vault, save histories and update
 /// quantities.
 fn buy_back(r: &mut Retirement, offer_id: u16, price_units: u64, quantity: u64) -> Result<u64> {
-    require!(r.holder_bonds.amount == r.holder.position.quantity, BondError::PositionMismatch);
+    require!(!r.holder.is_escrow(), BondError::EscrowRecord);
+    require!(r.holder_bonds.amount == r.holder.expected_balance(), BondError::PositionMismatch);
     let paid = quantity.checked_mul(price_units).ok_or(BondError::Overflow)?;
     let passed = r.bond.passed_record_moments(r.bond.now()?)?;
     let mint_key = r.bond.mint;
@@ -271,6 +272,7 @@ pub fn handle_change_tender(ctx: Context<ChangeTender>, quantity: u64, withdraw:
     let a = &mut *ctx.accounts;
     let now = a.bond.now()?;
     require!(a.offer.kind == OfferKind::ProRata, BondError::WrongOfferKind);
+    require!(!a.holder.is_escrow(), BondError::EscrowRecord);
     require!(a.offer.funded, BondError::OfferNotFunded);
     require!(a.offer.open_time <= now && now < a.offer.close_time, BondError::OfferNotOpen);
     require!(quantity > 0, BondError::ExceedsOffer);

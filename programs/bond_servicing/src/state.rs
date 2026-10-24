@@ -223,6 +223,11 @@ impl Bond {
 pub struct HolderRecord {
     pub bond: Pubkey,
     pub owner: Pubkey,
+    /// A trade escrow's record (`admit_trade`): the seller whose bonds it holds. Bonds in a DvP escrow stay in the
+    /// seller's position (locked) until the trade settles, so a record moment inside an open trade still pays the
+    /// seller. Zero for a holder's own record. Third field, so the transfer hook's extra-account list can read it
+    /// at a one-byte offset (`HolderRecord::ESCROW_OF_OFFSET`).
+    pub escrow_of: Pubkey,
     pub position: PositionHistory,
     /// Bit `e` set = coupon `e` paid.
     pub paid: u64,
@@ -234,15 +239,33 @@ pub struct HolderRecord {
     /// on the cumulative quantity, so several partial redemptions round exactly like one.
     pub redeemed: u64,
     pub bump: u8,
+    /// Bonds the holder has put into open DvP trade escrows (`admit_trade`). They are part of the holder's position
+    /// (quantity = token balance + escrowed) until a trade settles; like locked bonds they cannot be transferred,
+    /// tendered or redeemed meanwhile.
+    pub escrowed: u64,
 }
 
 impl HolderRecord {
+    /// Byte offset of `escrow_of` in the account data: discriminator 8, bond 32, owner 32.
+    pub const ESCROW_OF_OFFSET: usize = 8 + 32 + 32;
+
     pub fn is_paid(&self, event: u16) -> bool {
         self.paid & (1u64 << event) != 0
     }
 
+    /// Bonds free to transfer, tender or redeem: the position less what is locked in tenders and in trade escrows.
     pub fn unlocked(&self) -> u64 {
-        self.position.quantity.saturating_sub(self.locked)
+        self.position.quantity.saturating_sub(self.locked).saturating_sub(self.escrowed)
+    }
+
+    /// The token balance the position implies: the position less what sits in trade escrows.
+    pub fn expected_balance(&self) -> u64 {
+        self.position.quantity.saturating_sub(self.escrowed)
+    }
+
+    /// A trade escrow's record, not a holder's.
+    pub fn is_escrow(&self) -> bool {
+        self.escrow_of != Pubkey::default()
     }
 }
 

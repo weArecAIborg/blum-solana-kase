@@ -22,6 +22,12 @@ pub const TENDER_SEED: &[u8] = b"tender";
 /// Seed fixed by the transfer-hook interface.
 pub const EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
 
+/// Solana DvP (solana-foundation/dvp): atomic delivery-versus-payment settlement. A secondary trade's bonds wait in
+/// the trade's escrow (the `SwapDvp` PDA's associated token account) until the DvP program settles or unwinds it.
+pub const DVP_PROGRAM_ID: Pubkey = pubkey!("dvp34bdbcEm4f4FCUjGV4mDAkDshaQR4LkK8fdcsyZq");
+/// `SwapDvp` account (dvp v1.0.0, `program/src/state/swap_dvp.rs`): fixed size, no discriminator.
+pub const SWAP_DVP_LEN: usize = 458;
+
 /// Up to 40 coupon periods (20 years semi-annual, 40 years annual).
 pub const MAX_PERIODS: usize = 40;
 

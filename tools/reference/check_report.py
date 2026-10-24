@@ -13,6 +13,7 @@ Exit code 1 on any mismatch.
 
 import json
 import sys
+from collections import defaultdict
 from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 
@@ -75,7 +76,7 @@ def main(report_path):
     ql_dates = [iso(c.date()) for c in ql_coupons]
     check("payment dates = QuantLib (bond calendar, Following)", ql_dates == t["paymentDates"],
           ", ".join(t["paymentDates"]))
-    freq = {1: FrequencyTypes.ANNUAL, 2: FrequencyTypes.SEMI_ANNUAL}[per_year]
+    freq = {1: FrequencyTypes.ANNUAL, 2: FrequencyTypes.SEMI_ANNUAL, 4: FrequencyTypes.QUARTERLY, 12: FrequencyTypes.MONTHLY}[per_year]
     y, m, d = map(int, t["issue"].split("-"))
     y2, m2, d2 = map(int, t["maturity"].split("-"))
     fp = FpBond(FpDate(d, m, y), FpDate(d2, m2, y2), float(rate), freq, DayCountTypes.THIRTY_360_BOND,
@@ -164,10 +165,20 @@ def main(report_path):
     # What this bond delivered = final cash - cash before the run (holders may hold the cash token from elsewhere).
     initial = r.get("initialCash")
     check("report carries initialCash", initial is not None, "" if initial is not None else "report predates initialCash; rerun the scenario")
+    # Cash moved by secondary trades settled delivery versus payment (a trade's `cash` leg: buyer to seller) and the
+    # bank's top-ups that funded buyers are the parties' own business, outside this bond's payments: what this bond
+    # delivered = final - initial - received in trades + paid in trades - bank top-ups.
+    outside = defaultdict(Decimal)
+    for tr in r["trades"]:
+        if tr.get("cash") is not None:
+            outside[tr["from"]] += Decimal(tr["cash"])
+            outside[tr["to"]] -= Decimal(tr["cash"])
+    for h, v in (r.get("bankTopUps") or {}).items():
+        outside[h] += Decimal(v)
     for h, exp in expected_cash.items():
         if initial is None:
             continue
-        got = Decimal(r["final"]["cash"][h]) - Decimal(initial[h])
+        got = Decimal(r["final"]["cash"][h]) - Decimal(initial[h]) - outside[h]
         check(f"cash {h}", got == exp, f"{got / unit} vs {exp / unit} (final {Decimal(r['final']['cash'][h]) / unit}, "
                                        f"initial {Decimal(initial[h]) / unit})")
 

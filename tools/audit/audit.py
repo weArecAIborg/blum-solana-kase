@@ -23,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+DVP_PROGRAM = "dvp34bdbcEm4f4FCUjGV4mDAkDshaQR4LkK8fdcsyZq"  # Solana DvP (solana-foundation/dvp): trade escrows
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 results = []
@@ -58,9 +59,14 @@ def b58decode(text: str) -> bytes:
 PERMISSIONED_BURN = 46
 
 
-def pubkey_of(keypair_file: str) -> str:
-    """A Solana keypair file is 64 bytes: secret seed, then public key."""
-    data = json.loads((ROOT / keypair_file).read_text())
+def pubkey_of(key: str) -> str:
+    """A wallet or mint in the scenario: its public key (base58), or a Solana keypair file (64 bytes: secret seed,
+    then public key). Public keys let anyone run the audit without the run's key files (scenarios/*.public.json)."""
+    if not key.endswith(".json"):
+        if len(b58decode(key)) != 32:
+            raise SystemExit(f"not a public key: {key}")
+        return key
+    data = json.loads((ROOT / key).read_text())
     return b58encode(bytes(data[32:64]))
 
 
@@ -216,6 +222,7 @@ def measure_history(rpc, addresses):
             "deltas": {acct: {"owner": b["owner"], "mint": b["mint"], "delta": b["post"] - b["pre"]}
                        for acct, b in balances.items()},
             "minted": dict(minted), "burned": dict(burned),
+            "programs": {ix.get("programId") for ix in instructions if ix.get("programId")},
         })
     txs.sort(key=lambda t: (t["slot"], t["blockTime"] or 0))
     return txs
@@ -315,7 +322,7 @@ def calculate(scn):
     pay_dates = [f"{d.year():04d}-{d.month():02d}-{d.dayOfMonth():02d}" for d in pay_dates]
     record_dates = [f"{d.year():04d}-{d.month():02d}-{d.dayOfMonth():02d}" for d in record_dates]
 
-    freq = {1: FrequencyTypes.ANNUAL, 2: FrequencyTypes.SEMI_ANNUAL}[t["periodsPerYear"]]
+    freq = {1: FrequencyTypes.ANNUAL, 2: FrequencyTypes.SEMI_ANNUAL, 4: FrequencyTypes.QUARTERLY, 12: FrequencyTypes.MONTHLY}[t["periodsPerYear"]]
     y, m, d = map(int, t["issue"].split("-"))
     y2, m2, d2 = map(int, t["maturity"].split("-"))
     fp = FpBond(FpDate(d, m, y), FpDate(d2, m2, y2), t["rateBps"] / 10_000, freq, DayCountTypes.THIRTY_360_BOND,
@@ -436,9 +443,26 @@ def main(scenario_path, rpc_url, state_source):
              for a, d in t["deltas"].items() if d["mint"] == cash_mint and d["delta"] > 0 and a not in vault_set
              and d["owner"] not in wallets]
     check("M4", "cash leaves the vaults only to scenario wallets", bool(vaults) and not leaks, "; ".join(leaks[:3]))
+    # A secondary trade settled by Solana DvP (solana-foundation/dvp) escrows the bonds in an account owned by the
+    # trade's SwapDvp record, which that program owns. Read from the ledger: the owner of an unknown bond account is
+    # an account owned by the DvP program. Bonds may leave such an escrow only to scenario wallets.
+    # The SwapDvp record is closed at settlement, so its owner cannot be read afterwards; the ledger still shows
+    # which program moved the escrow's bonds out: SettleDvp, CancelDvp and ReclaimDvp are DvP instructions.
+    unknown_owners = {d["owner"] for t in txs for d in t["deltas"].values()
+                      if d["mint"] == bond_mint and d["delta"] != 0 and d["owner"] not in wallets}
+    dvp_escrow_owners = {o for o in unknown_owners
+                         if all(DVP_PROGRAM in t["programs"] for t in txs
+                                if any(d["owner"] == o and d["mint"] == bond_mint and d["delta"] < 0 for d in t["deltas"].values()))
+                         and any(d["owner"] == o and d["mint"] == bond_mint and d["delta"] < 0 for t in txs for d in t["deltas"].values())}
     bond_strangers = [f"{a} (owner {d['owner']})" for t in txs for a, d in t["deltas"].items()
-                      if d["mint"] == bond_mint and d["delta"] != 0 and d["owner"] not in wallets]
-    check("M4", "no account outside the scenario wallets moved bonds", not bond_strangers, "; ".join(bond_strangers[:3]))
+                      if d["mint"] == bond_mint and d["delta"] != 0 and d["owner"] not in wallets and d["owner"] not in dvp_escrow_owners]
+    check("M4", "no account outside the scenario wallets moved bonds, except Solana DvP trade escrows"
+          + (f" ({len(dvp_escrow_owners)} escrows)" if dvp_escrow_owners else ""), not bond_strangers, "; ".join(bond_strangers[:3]))
+    escrow_leaks = [f"{a} (owner {d['owner']})" for t in txs
+                    if any(d["mint"] == bond_mint and d["delta"] < 0 and d["owner"] in dvp_escrow_owners for d in t["deltas"].values())
+                    for a, d in t["deltas"].items() if d["mint"] == bond_mint and d["delta"] > 0 and d["owner"] not in wallets]
+    if dvp_escrow_owners:
+        check("M4", "bonds leave a DvP escrow only to scenario wallets", not escrow_leaks, "; ".join(escrow_leaks[:3]))
 
     print("\nMeasured vs calculated (exact integers, base units)")
     calc = calculate(scn)
@@ -553,7 +577,7 @@ def main(scenario_path, rpc_url, state_source):
                     f"{scale} s, so the 8-hour 09:00-17:00 window is {scale / 3:.1f} s and is not checked)",
               not late, "; ".join(late[:3]))
 
-    if 10 in scn["placements"].values():
+    if 10 in scn["placements"].values() and (scn["terms"]["periodsPerYear"], scn["terms"]["rateBps"], scn["terms"]["faceUnits"]) == (2, 1000, "1000000000"):
         h = next(name for name, n in scn["placements"].items() if n == 10)
         first = cash_in[h][0][1] if cash_in[h] else None
         check("C6", f"listing example: {h} held 10 bonds at the first record moment, measured first coupon = 500",

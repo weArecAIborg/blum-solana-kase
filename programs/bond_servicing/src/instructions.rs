@@ -1,3 +1,4 @@
+pub mod admit_trade;
 pub mod confirm_funding;
 pub mod create_bond;
 pub mod hook_accounts;
@@ -9,6 +10,7 @@ pub mod redeem_holder;
 pub mod register_holder;
 pub mod transfer_hook;
 
+pub use admit_trade::*;
 pub use confirm_funding::*;
 pub use create_bond::*;
 pub use hook_accounts::*;

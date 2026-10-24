@@ -22,7 +22,8 @@ use bond_math::schedule::regular_schedule;
 use bond_math::time::local_time_to_unix;
 use bond_servicing::state::{CouponBasis, Event, HolderRecord};
 use bond_servicing::{
-    BondTerms, BOND_SEED, EVENT_SEED, EXTRA_ACCOUNT_METAS_SEED, HOLDER_SEED, OFFER_SEED, TENDER_SEED, VAULT_SEED,
+    BondTerms, BOND_SEED, DVP_PROGRAM_ID, EVENT_SEED, EXTRA_ACCOUNT_METAS_SEED, HOLDER_SEED, OFFER_SEED, TENDER_SEED,
+    VAULT_SEED,
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -35,6 +36,9 @@ const UTC_OFFSET: i32 = 5 * 3_600;
 const RECORD_TIME_LOCAL: i32 = 9 * 3_600;
 const SATURDAY_SUNDAY: u8 = 0b110_0000;
 const TOKEN_2022_DEVNET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/spl_token_2022_devnet.so");
+/// Solana DvP (solana-foundation/dvp) as deployed on devnet (`solana program dump dvp34bdb...`, slot 479376863).
+const DVP_DEVNET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/dvp_swap_devnet.so");
+const MEMO_PROGRAM: Pubkey = bond_servicing::settlement::MEMO_PROGRAM_ID;
 
 fn token_2022() -> Pubkey {
     spl_token_2022_interface::ID
@@ -284,10 +288,18 @@ impl Env {
         self.send(&[ix], &[&registrar])
     }
 
-    /// Token-2022 transfer_checked plus the hook's extra accounts.
+    /// Token-2022 transfer_checked plus the hook's extra accounts: bond, source holder, destination holder, and the
+    /// seller's record when the source is a trade escrow (`escrow_of` of the source record; zero for a holder, which
+    /// resolves to a record that does not exist).
     fn transfer_ix(&self, from: &Pubkey, to: &Pubkey, amount: u64) -> Instruction {
         let source = ata(from, &self.mint, &token_2022());
         let destination = ata(to, &self.mint, &token_2022());
+        let escrow_of = self
+            .svm
+            .get_account(&self.holder_record(from))
+            .and_then(|a| HolderRecord::try_deserialize(&mut &a.data[..]).ok())
+            .map(|r| r.escrow_of)
+            .unwrap_or_default();
         let mut ix = spl_token_2022_interface::instruction::transfer_checked(
             &token_2022(),
             &source,
@@ -305,6 +317,7 @@ impl Env {
             AccountMeta::new_readonly(self.bond, false),
             AccountMeta::new(self.holder_record(from), false),
             AccountMeta::new(self.holder_record(to), false),
+            AccountMeta::new(self.holder_record(&escrow_of), false),
             AccountMeta::new_readonly(self.program, false),
             AccountMeta::new_readonly(extra_metas, false),
         ]);
@@ -572,6 +585,163 @@ impl Env {
         self.send(&[ix], &[&keeper])
     }
 
+    // ---------- Solana DvP trades (solana-foundation/dvp): raw instructions by discriminator ----------
+
+    /// The trade's `SwapDvp` PDA and its two escrow associated token accounts.
+    fn dvp_pda(&self, seller: &Pubkey, buyer: &Pubkey, nonce: u64) -> Pubkey {
+        Pubkey::find_program_address(
+            &[b"dvp", self.registrar.pubkey().as_ref(), seller.as_ref(), buyer.as_ref(), self.mint.as_ref(), self.cash_mint.as_ref(), &nonce.to_le_bytes()],
+            &DVP_PROGRAM_ID,
+        )
+        .0
+    }
+
+    /// `CreateDvp` (discriminator 0) by the registrar as payer and settlement authority: the seller delivers `quantity`
+    /// bonds, the buyer `cash`; then `admit_trade`, in the same transaction, so the escrow may hold bonds.
+    fn dvp_create_and_admit(&mut self, seller: &str, buyer: &str, nonce: u64, quantity: u64, cash: u64) -> Result<Pubkey, String> {
+        let (a, b) = (self.holder(seller), self.holder(buyer));
+        let swap = self.dvp_pda(&a, &b, nonce);
+        let tombstone = Pubkey::find_program_address(&[b"nonce", swap.as_ref()], &DVP_PROGRAM_ID).0;
+        let expiry = self.now() + 365 * DAY - 60;
+        let mut data = vec![0u8];
+        data.extend_from_slice(&quantity.to_le_bytes());
+        data.extend_from_slice(&cash.to_le_bytes());
+        data.extend_from_slice(&expiry.to_le_bytes());
+        data.extend_from_slice(&nonce.to_le_bytes());
+        data.extend_from_slice(&[0, 0, 0, 0]); // ref_string, destinations, earliest: all None
+        let create = Instruction {
+            program_id: DVP_PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new(self.registrar.pubkey(), true),
+                AccountMeta::new(swap, false),
+                AccountMeta::new(tombstone, false),
+                AccountMeta::new_readonly(self.registrar.pubkey(), false),
+                AccountMeta::new_readonly(a, false),
+                AccountMeta::new_readonly(b, false),
+                AccountMeta::new_readonly(self.mint, false),
+                AccountMeta::new_readonly(self.cash_mint, false),
+                AccountMeta::new(ata(&swap, &self.mint, &token_2022()), false),
+                AccountMeta::new(ata(&swap, &self.cash_mint, &self.cash_program), false),
+                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(token_2022(), false),
+                AccountMeta::new_readonly(self.cash_program, false),
+                AccountMeta::new_readonly(spl_associated_token_account_interface::program::ID, false),
+            ],
+            data,
+        };
+        let admit = Instruction {
+            program_id: self.program,
+            accounts: bond_servicing::accounts::AdmitTrade {
+                registrar: self.registrar.pubkey(),
+                bond: self.bond,
+                swap_dvp: swap,
+                seller: self.holder_record(&a),
+                buyer: self.holder_record(&b),
+                escrow: self.holder_record(&swap),
+                system_program: system_program::ID,
+            }
+            .to_account_metas(None),
+            data: bond_servicing::instruction::AdmitTrade {}.data(),
+        };
+        let registrar = self.registrar.insecure_clone();
+        self.send(&[create, admit], &[&registrar])?;
+        Ok(swap)
+    }
+
+    /// The seller funds the bond leg: a plain hooked transfer to the escrow.
+    fn dvp_fund_bonds(&mut self, seller: &str, swap: &Pubkey, quantity: u64) -> Result<Vec<String>, String> {
+        let ix = self.transfer_ix(&self.holder(seller), swap, quantity);
+        let signer = self.holders[seller].insecure_clone();
+        self.send(&[ix], &[&signer])
+    }
+
+    /// The buyer funds the cash leg: a plain transfer to the escrow.
+    fn dvp_fund_cash(&mut self, buyer: &str, swap: &Pubkey, cash: u64) -> Result<Vec<String>, String> {
+        let owner = self.holder(buyer);
+        let ix = spl_token_2022_interface::instruction::transfer_checked(
+            &self.cash_program, &ata(&owner, &self.cash_mint, &self.cash_program), &self.cash_mint,
+            &ata(swap, &self.cash_mint, &self.cash_program), &owner, &[], cash, 6,
+        )
+        .unwrap();
+        let signer = self.holders[buyer].insecure_clone();
+        self.send(&[ix], &[&signer])
+    }
+
+    /// The hook's extra accounts for a transfer out of the escrow: bond, escrow record, destination record, seller record.
+    fn dvp_hook_extras(&self, swap: &Pubkey, to: &Pubkey, seller: &Pubkey) -> Vec<AccountMeta> {
+        let extra_metas = Pubkey::find_program_address(&[EXTRA_ACCOUNT_METAS_SEED, self.mint.as_ref()], &self.program).0;
+        vec![
+            AccountMeta::new_readonly(self.bond, false),
+            AccountMeta::new(self.holder_record(swap), false),
+            AccountMeta::new(self.holder_record(to), false),
+            AccountMeta::new(self.holder_record(seller), false),
+            AccountMeta::new_readonly(self.program, false),
+            AccountMeta::new_readonly(extra_metas, false),
+        ]
+    }
+
+    /// `SettleDvp` (discriminator 2) by the registrar: bonds to the buyer and cash to the seller, atomically. The bond
+    /// leg (A) carries the hook's extras; the cash leg (B) none.
+    fn dvp_settle(&mut self, seller: &str, buyer: &str, swap: &Pubkey) -> Result<Vec<String>, String> {
+        let (a, b) = (self.holder(seller), self.holder(buyer));
+        let extras = self.dvp_hook_extras(swap, &b, &a);
+        let mut accounts = vec![
+            AccountMeta::new(self.registrar.pubkey(), true),
+            AccountMeta::new(*swap, false),
+            AccountMeta::new_readonly(self.mint, false),
+            AccountMeta::new_readonly(self.cash_mint, false),
+            AccountMeta::new(ata(swap, &self.mint, &token_2022()), false),
+            AccountMeta::new(ata(swap, &self.cash_mint, &self.cash_program), false),
+            AccountMeta::new(ata(&a, &self.cash_mint, &self.cash_program), false),
+            AccountMeta::new(ata(&b, &self.mint, &token_2022()), false),
+            AccountMeta::new(ata(&a, &self.mint, &token_2022()), false),
+            AccountMeta::new(ata(&b, &self.cash_mint, &self.cash_program), false),
+            AccountMeta::new_readonly(token_2022(), false),
+            AccountMeta::new_readonly(self.cash_program, false),
+            AccountMeta::new_readonly(MEMO_PROGRAM, false),
+        ];
+        let data = vec![2u8, extras.len() as u8];
+        accounts.extend(extras);
+        let ix = Instruction { program_id: DVP_PROGRAM_ID, accounts, data };
+        let registrar = self.registrar.insecure_clone();
+        self.send(&[ix], &[&registrar])
+    }
+
+    /// `CancelDvp` (discriminator 3) by the registrar: both legs back to their depositors.
+    fn dvp_cancel(&mut self, seller: &str, buyer: &str, swap: &Pubkey) -> Result<Vec<String>, String> {
+        let (a, b) = (self.holder(seller), self.holder(buyer));
+        let extras = self.dvp_hook_extras(swap, &a, &a);
+        let mut accounts = vec![
+            AccountMeta::new(self.registrar.pubkey(), true),
+            AccountMeta::new(*swap, false),
+            AccountMeta::new_readonly(self.mint, false),
+            AccountMeta::new_readonly(self.cash_mint, false),
+            AccountMeta::new(ata(swap, &self.mint, &token_2022()), false),
+            AccountMeta::new(ata(swap, &self.cash_mint, &self.cash_program), false),
+            AccountMeta::new(ata(&a, &self.mint, &token_2022()), false),
+            AccountMeta::new(ata(&b, &self.cash_mint, &self.cash_program), false),
+            AccountMeta::new_readonly(token_2022(), false),
+            AccountMeta::new_readonly(self.cash_program, false),
+            AccountMeta::new_readonly(MEMO_PROGRAM, false),
+        ];
+        let data = vec![3u8, extras.len() as u8];
+        accounts.extend(extras);
+        let ix = Instruction { program_id: DVP_PROGRAM_ID, accounts, data };
+        let registrar = self.registrar.insecure_clone();
+        self.send(&[ix], &[&registrar])
+    }
+
+    /// Give a holder cash from the bank (the cash token's mint authority).
+    fn give_cash(&mut self, name: &str, amount: u64) {
+        let owner = self.holder(name);
+        let ix = spl_token_2022_interface::instruction::mint_to(
+            &self.cash_program, &self.cash_mint, &ata(&owner, &self.cash_mint, &self.cash_program), &self.cash_authority.pubkey(), &[], amount,
+        )
+        .unwrap();
+        let bank = self.cash_authority.insecure_clone();
+        self.send(&[ix], &[&bank]).unwrap();
+    }
+
     fn now(&self) -> i64 {
         self.svm.get_sysvar::<Clock>().unix_timestamp
     }
@@ -622,6 +792,7 @@ fn create_cash_mint(svm: &mut LiteSVM, payer: &Keypair, bank: &Pubkey, program: 
 fn new_svm() -> LiteSVM {
     let mut svm = LiteSVM::new();
     svm.add_program_from_file(token_2022(), TOKEN_2022_DEVNET).unwrap();
+    svm.add_program_from_file(DVP_PROGRAM_ID, DVP_DEVNET).unwrap();
     let bytes = include_bytes!(concat!(env!("CARGO_TARGET_TMPDIR"), "/../deploy/bond_servicing.so"));
     svm.add_program(bond_servicing::id(), bytes).unwrap();
     svm
@@ -1856,4 +2027,141 @@ fn cash_issuer_pause() {
     let pause = spl_token_2022_interface::extension::pausable::instruction::pause(&token_2022(), &env.cash_mint, &bank.pubkey(), &[]).unwrap();
     env.send(&[pause], &[&bank]).unwrap();
     println!("coupon paid while the cash token is paused: {}", if env.pay_coupon(0, "BH#1").is_ok() { "yes" } else { "no" });
+}
+
+// ---------- secondary trades settled by Solana DvP ----------
+
+/// A trade settles delivery versus payment through the Solana DvP program: the buyer's cash and the seller's bonds
+/// move in one transaction, the hook runs inside it, and the positions follow.
+#[test]
+fn dvp_trade_settles_bonds_against_cash_in_one_transaction() {
+    let mut env = setup();
+    env.register("BH#1");
+    env.register("BH#2");
+    env.place("BH#1", 10).unwrap();
+    env.place("BH#2", 5).unwrap();
+    env.give_cash("BH#2", 3_000 * USD);
+
+    let swap = env.dvp_create_and_admit("BH#1", "BH#2", 1, 3, 3_000 * USD).unwrap();
+    env.dvp_fund_bonds("BH#1", &swap, 3).unwrap();
+    assert_eq!(env.bonds_of("BH#1"), 7);
+    let seller = env.record("BH#1");
+    assert_eq!((seller.position.quantity, seller.escrowed, seller.locked), (10, 3, 0), "escrowed bonds stay the seller's position");
+    env.transfer("BH#1", "BH#2", 7).unwrap(); // the 7 free bonds may move
+    env.transfer("BH#2", "BH#1", 7).unwrap();
+    let err = env.transfer("BH#1", "BH#2", 8).unwrap_err();
+    assert!(err.contains("insufficient funds"), "only 7 are in the account: {err}");
+    env.dvp_fund_cash("BH#2", &swap, 3_000 * USD).unwrap();
+
+    let logs = env.dvp_settle("BH#1", "BH#2", &swap).unwrap();
+    assert!(logs.iter().any(|l| l.contains("Instruction: TransferHook")), "the hook ran inside the DvP settlement: {logs:?}");
+    assert_eq!(env.bonds_of("BH#1"), 7);
+    assert_eq!(env.bonds_of("BH#2"), 8);
+    assert_eq!(env.cash_of("BH#1"), 3_000 * USD);
+    assert_eq!(env.cash_of("BH#2"), 0);
+    let seller = env.record("BH#1");
+    assert_eq!((seller.position.quantity, seller.escrowed), (7, 0));
+    assert_eq!(env.record("BH#2").position.quantity, 8);
+    assert!(env.svm.get_account(&ata(&swap, &env.mint, &token_2022())).is_none(), "escrow closed");
+
+    env.set_time(env.record_moment(0) + 60);
+    env.run_coupon(0, &["BH#1", "BH#2"]);
+    assert_eq!(env.cash_of("BH#1"), (3_000 + 7 * 50) * USD);
+    assert_eq!(env.cash_of("BH#2"), 8 * 50 * USD);
+}
+
+/// A record moment inside an open trade pays the seller: the bonds in the escrow are still the seller's position.
+/// Settled after it, the buyer's position starts from the settlement, and the seller's history keeps the record.
+#[test]
+fn dvp_record_moment_inside_an_open_trade_pays_the_seller() {
+    let mut env = setup();
+    env.register("BH#1");
+    env.register("BH#2");
+    env.place("BH#1", 10).unwrap();
+    env.place("BH#2", 5).unwrap();
+    env.give_cash("BH#2", 4_000 * USD);
+
+    let swap = env.dvp_create_and_admit("BH#1", "BH#2", 7, 4, 4_000 * USD).unwrap();
+    env.dvp_fund_bonds("BH#1", &swap, 4).unwrap();
+
+    env.set_time(env.record_moment(0) + 60);
+    env.run_coupon(0, &["BH#1", "BH#2"]);
+    assert_eq!(env.cash_of("BH#1"), 10 * 50 * USD, "the seller is paid on all 10, 4 of them in the escrow");
+    assert_eq!(env.cash_of("BH#2"), (4_000 + 5 * 50) * USD);
+    let err = env.pay_coupon(0, "BH#1").unwrap_err();
+    assert!(err.contains("AlreadyPaid"), "{err}");
+
+    env.dvp_fund_cash("BH#2", &swap, 4_000 * USD).unwrap();
+    env.dvp_settle("BH#1", "BH#2", &swap).unwrap();
+    assert_eq!(env.record("BH#1").position.at_moment(0), 10, "the seller's record-moment position is kept");
+    assert_eq!(env.record("BH#2").position.at_moment(0), 5);
+    assert_eq!((env.record("BH#1").position.quantity, env.record("BH#2").position.quantity), (6, 9));
+
+    env.set_time(env.record_moment(1) + 60);
+    env.run_coupon(1, &["BH#1", "BH#2"]);
+    assert_eq!(env.cash_of("BH#1"), (500 + 4_000 + 6 * 50) * USD);
+    assert_eq!(env.cash_of("BH#2"), (250 + 9 * 50) * USD);
+}
+
+/// A cancelled trade returns the bonds to the seller: the lock is released, the position never moved.
+#[test]
+fn dvp_cancel_returns_the_bonds_and_releases_the_lock() {
+    let mut env = setup();
+    env.register("BH#1");
+    env.register("BH#2");
+    env.place("BH#1", 10).unwrap();
+    env.place("BH#2", 5).unwrap();
+    env.give_cash("BH#2", 2_000 * USD);
+
+    let swap = env.dvp_create_and_admit("BH#1", "BH#2", 3, 2, 2_000 * USD).unwrap();
+    env.dvp_fund_bonds("BH#1", &swap, 2).unwrap();
+    env.dvp_fund_cash("BH#2", &swap, 2_000 * USD).unwrap();
+    env.dvp_cancel("BH#1", "BH#2", &swap).unwrap();
+    assert_eq!(env.bonds_of("BH#1"), 10);
+    assert_eq!(env.cash_of("BH#2"), 2_000 * USD);
+    let seller = env.record("BH#1");
+    assert_eq!((seller.position.quantity, seller.escrowed), (10, 0));
+    env.transfer("BH#1", "BH#2", 10).unwrap();
+}
+
+/// The escrow's record is not a holder: it is paid nothing, and only the trade's seller can put bonds into it.
+#[test]
+fn dvp_escrow_is_not_a_holder_and_takes_bonds_only_from_its_seller() {
+    let mut env = setup();
+    env.register("BH#1");
+    env.register("BH#2");
+    env.register("BH#3");
+    env.place("BH#1", 10).unwrap();
+    env.place("BH#2", 5).unwrap();
+    env.place("BH#3", 5).unwrap();
+    env.give_cash("BH#2", 1_000 * USD);
+
+    let swap = env.dvp_create_and_admit("BH#1", "BH#2", 11, 1, 1_000 * USD).unwrap();
+    let ix = env.transfer_ix(&env.holder("BH#3"), &swap, 1);
+    let bh3 = env.holders["BH#3"].insecure_clone();
+    let err = env.send(&[ix], &[&bh3]).unwrap_err();
+    assert!(err.contains("EscrowDestination"), "{err}");
+    env.dvp_fund_bonds("BH#1", &swap, 1).unwrap();
+
+    env.set_time(env.record_moment(0) + 60);
+    env.open_and_fund(0);
+    assert_eq!(env.event(0).supply_at_record, 20);
+    env.pay_coupon(0, "BH#1").unwrap();
+    env.pay_coupon(0, "BH#2").unwrap();
+    env.pay_coupon(0, "BH#3").unwrap();
+    assert_eq!(env.balance(&env.vault(0)), 0, "the escrow is owed nothing: the seller was paid on all 10");
+}
+
+/// A trade is admitted only for this bond's tokens against its cash, between registered holders, delivered to
+/// themselves.
+#[test]
+fn dvp_trade_between_unregistered_parties_is_not_admitted() {
+    let mut env = setup();
+    env.register("BH#1");
+    env.place("BH#1", 10).unwrap();
+    let outsider = Keypair::new();
+    env.svm.airdrop(&outsider.pubkey(), 1_000_000_000).unwrap();
+    env.holders.insert("outsider", outsider);
+    let err = env.dvp_create_and_admit("BH#1", "outsider", 5, 1, 1_000 * USD).unwrap_err();
+    assert!(err.contains("AccountNotInitialized") || err.contains("AccountOwnedByWrongProgram"), "no holder record for the buyer: {err}");
 }

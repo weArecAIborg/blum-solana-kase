@@ -40,6 +40,8 @@ pub fn handle_register_holder(ctx: Context<RegisterHolder>, owner: Pubkey) -> Re
     holder.locked = 0;
     holder.redeemed = 0;
     holder.bump = ctx.bumps.holder;
+    holder.escrow_of = Pubkey::default();
+    holder.escrowed = 0;
     emit!(HolderRegistered { bond: bond.key(), owner });
     Ok(())
 }

@@ -3,8 +3,12 @@
 //!   - closes trading from the final record moment (balances are frozen for redemption);
 //!   - keeps bonds in associated token accounts only, so one holder record = one position;
 //!   - before moving the two holders' quantities, keeps each holder's quantity for every record moment passed
-//!     since its last change (PositionHistory::save), so no record-moment position is ever lost.
-//! It writes only the two holders' records: transfers between different holders run in parallel.
+//!     since its last change (PositionHistory::save), so no record-moment position is ever lost;
+//!   - routes bonds through a trade escrow (Solana DvP, `admit_trade`): into the escrow they stay the seller's
+//!     position (`escrowed`); out of it they settle to the buyer or return to the seller.
+//! A holder's position is its token balance plus what its open trade escrows hold. A transfer between holders
+//! writes only the two holders' records: transfers between different holders run in parallel. A settlement out of
+//! an escrow also writes the seller's record.
 
 use std::cell::RefMut;
 
@@ -18,7 +22,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 
 use crate::constants::*;
 use crate::error::BondError;
-use crate::events::PositionsSaved;
+use crate::events::{PositionsSaved, TradeMoved};
 use crate::state::{Bond, HolderRecord};
 
 #[derive(Accounts)]
@@ -49,6 +53,11 @@ pub struct TransferHook<'info> {
     /// CHECK: holder record of the destination owner (see above).
     #[account(mut, seeds = [HOLDER_SEED, mint.key().as_ref(), destination_token.owner.as_ref()], bump)]
     pub destination_holder: UncheckedAccount<'info>,
+
+    /// CHECK: the seller's record when the source is a trade escrow (seeds from the escrow record's `escrow_of`);
+    /// otherwise an address no record exists at, not read. Checked by hand against the escrow record.
+    #[account(mut)]
+    pub seller_holder: UncheckedAccount<'info>,
 }
 
 pub fn handle_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<()> {
@@ -64,12 +73,73 @@ pub fn handle_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<(
     require!(now < bond.final_record_time()?, BondError::TransfersClosedAtMaturity);
     if same { return Ok(()); }
     let destination = destination.as_mut().unwrap();
-    let passed = bond.passed_record_moments_from(now, source.position.live_from.max(destination.position.live_from))?;
+    // Balances before this transfer (Token-2022 has already moved `amount`).
     let source_before = a.source_token.amount.checked_add(amount).ok_or(BondError::Overflow)?;
     let destination_before = a.destination_token.amount.checked_sub(amount).ok_or(BondError::Overflow)?;
-    update_record(&mut source, bond.key(), passed, source_before, a.source_token.amount)?;
-    require!(source.locked <= a.source_token.amount, BondError::BondsLocked);
-    update_record(destination, bond.key(), passed, destination_before, a.destination_token.amount)?;
+
+    if source.is_escrow() {
+        // Out of a trade escrow: to the buyer (settle) or back to the seller (cancel, reclaim, surplus refund).
+        // The escrow's quantity tracks its own balance; the bonds' position is the seller's.
+        require!(!destination.is_escrow(), BondError::EscrowDestination);
+        require!(source.position.quantity == source_before, BondError::PositionMismatch);
+        source.position.quantity = a.source_token.amount;
+        let settled = destination.owner != source.escrow_of;
+        if settled {
+            let seller_info = a.seller_holder.to_account_info();
+            let expected = Pubkey::find_program_address(&[HOLDER_SEED, a.mint.key().as_ref(), source.escrow_of.as_ref()], &crate::ID).0;
+            require_keys_eq!(seller_info.key(), expected, BondError::EscrowDestination);
+            let mut seller = read_record(&seller_info)?;
+            require_keys_eq!(seller.owner, source.escrow_of, BondError::EscrowDestination);
+            let passed = bond.passed_record_moments_from(now, seller.position.live_from.max(destination.position.live_from))?;
+            // The seller's position loses the bonds; what it holds in escrows shrinks by the same amount.
+            seller.escrowed = seller.escrowed.checked_sub(amount).ok_or(BondError::Overflow)?;
+            let seller_before = seller.position.quantity;
+            let seller_after = seller_before.checked_sub(amount).ok_or(BondError::Overflow)?;
+            save_and_set(&mut seller, bond.key(), passed, seller_after)?;
+            check_balance(&seller, seller.expected_balance())?; // unchanged balance, consistent position
+            let destination_after = destination.position.quantity.checked_add(amount).ok_or(BondError::Overflow)?;
+            save_and_set(destination, bond.key(), passed, destination_after)?;
+            check_balance(destination, a.destination_token.amount)?;
+            seller.try_serialize(&mut &mut seller_info.try_borrow_mut_data()?[..])?;
+        } else {
+            // Back to the seller: the position never left; only its escrowed part shrinks.
+            destination.escrowed = destination.escrowed.checked_sub(amount).ok_or(BondError::Overflow)?;
+            check_balance(destination, a.destination_token.amount)?;
+        }
+        emit!(TradeMoved { bond: bond.key(), swap_dvp: source.owner, seller: source.escrow_of, to: destination.owner, quantity: amount, settled });
+        source.try_serialize(&mut &mut a.source_holder.try_borrow_mut_data()?[..])?;
+        destination.try_serialize(&mut &mut a.destination_holder.try_borrow_mut_data()?[..])?;
+        return Ok(());
+    }
+
+    if destination.is_escrow() {
+        // Into a trade escrow: only the trade's seller may fund it, with bonds free of tenders and other escrows.
+        // The bonds stay in the seller's position, so a record moment inside the open trade still pays the seller.
+        require_keys_eq!(destination.escrow_of, source.owner, BondError::EscrowDestination);
+        require!(source.expected_balance() == source_before, BondError::PositionMismatch);
+        require!(amount <= source.unlocked(), BondError::BondsLocked);
+        let passed = bond.passed_record_moments_from(now, source.position.live_from)?;
+        if let Some((from_event, to_event)) = source.position.save(passed) {
+            emit!(PositionsSaved { bond: bond.key(), owner: source.owner, from_event, to_event, quantity: source.position.quantity });
+        }
+        source.escrowed = source.escrowed.checked_add(amount).ok_or(BondError::Overflow)?;
+        require!(destination.position.quantity == destination_before, BondError::PositionMismatch);
+        destination.position.quantity = a.destination_token.amount;
+        emit!(TradeMoved { bond: bond.key(), swap_dvp: destination.owner, seller: source.owner, to: destination.owner, quantity: amount, settled: false });
+        source.try_serialize(&mut &mut a.source_holder.try_borrow_mut_data()?[..])?;
+        destination.try_serialize(&mut &mut a.destination_holder.try_borrow_mut_data()?[..])?;
+        return Ok(());
+    }
+
+    // Between two holders: each position follows its balance; bonds in tenders or escrows cannot move.
+    require!(source.expected_balance() == source_before, BondError::PositionMismatch);
+    require!(amount <= source.unlocked(), BondError::BondsLocked);
+    require!(destination.expected_balance() == destination_before, BondError::PositionMismatch);
+    let passed = bond.passed_record_moments_from(now, source.position.live_from.max(destination.position.live_from))?;
+    let source_after = source.position.quantity.checked_sub(amount).ok_or(BondError::Overflow)?;
+    let destination_after = destination.position.quantity.checked_add(amount).ok_or(BondError::Overflow)?;
+    save_and_set(&mut source, bond.key(), passed, source_after)?;
+    save_and_set(destination, bond.key(), passed, destination_after)?;
     source.try_serialize(&mut &mut a.source_holder.try_borrow_mut_data()?[..])?;
     destination.try_serialize(&mut &mut a.destination_holder.try_borrow_mut_data()?[..])?;
     Ok(())
@@ -80,12 +150,19 @@ fn read_record(info: &AccountInfo) -> Result<HolderRecord> {
     HolderRecord::try_deserialize(&mut &info.try_borrow_data()?[..])
 }
 
-fn update_record(record: &mut HolderRecord, bond: Pubkey, passed: u16, before: u64, after: u64) -> Result<()> {
-    require!(record.position.quantity == before, BondError::PositionMismatch);
+/// Keep the record's quantity for the record moments passed since its last change, then set the new quantity.
+fn save_and_set(record: &mut HolderRecord, bond: Pubkey, passed: u16, after: u64) -> Result<()> {
+    let before = record.position.quantity;
     if let Some((from_event, to_event)) = record.position.save(passed) {
         emit!(PositionsSaved { bond, owner: record.owner, from_event, to_event, quantity: before });
     }
     record.position.quantity = after;
+    Ok(())
+}
+
+/// The record's position must match the account's balance (plus what the holder's escrows hold).
+fn check_balance(record: &HolderRecord, balance: u64) -> Result<()> {
+    require!(record.expected_balance() == balance, BondError::PositionMismatch);
     Ok(())
 }
 

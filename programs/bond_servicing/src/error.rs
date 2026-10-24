@@ -64,4 +64,10 @@ pub enum BondError {
     ExceedsIssueSize,
     #[msg("Tenders are resolved in the order they were made: resolve the earlier ones first")]
     TenderOutOfOrder,
+    #[msg("Not a Solana DvP trade of this bond's tokens for its cash, between two registered holders, delivered to themselves")]
+    InvalidTrade,
+    #[msg("A trade escrow's record is not a holder: it is paid nothing, tenders nothing and redeems nothing")]
+    EscrowRecord,
+    #[msg("Bonds in a trade escrow may go only to the trade's buyer or back to its seller")]
+    EscrowDestination,
 }

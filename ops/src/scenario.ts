@@ -33,6 +33,7 @@ import {
 
 import BN from "bn.js";
 import { type HostileSpec, hostile } from "./attacks.ts";
+import { admitTradeInstruction, createDvpInstruction, fundBondLegInstruction, fundCashLegInstruction, randomNonce, settleDvpInstruction } from "./dvp.ts";
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const DAY = 86_400;
 // A holder's Tender record (paid by the holder): discriminator 8 + offer 32 + owner 32 + number 4 + quantity 8 +
@@ -44,7 +45,10 @@ const secondsOf = (hhmm: string) => {
   return h * 3_600 + m * 60;
 };
 
-type Trade = { afterRecordMoment: number; from: string; to: string; amount: number };
+// A trade with `cash` (cash-token base units) settles delivery versus payment through Solana DvP (ops/src/dvp.ts):
+// the seller's bonds and the buyer's cash wait in the trade's escrows and move in one transaction, settled by the
+// registrar. Without `cash` it is a plain hooked transfer (a gift, or a trade settled elsewhere).
+type Trade = { afterRecordMoment: number; from: string; to: string; amount: number; cash?: string };
 // Third corporate action (docs/buyback-tender.md). Window ends are bond times relative to record moments.
 type OfferAction = { afterRecordMoment: number; holder: string; sell?: number; tender?: number; withdraw?: number };
 type OfferSpec = {
@@ -501,6 +505,8 @@ async function main() {
     });
   };
   const deferred: number[] = [];
+  // Cash the bank gave buyers for DvP trades (simulated fiat): not this bond's payments, netted out by the checks.
+  const bankTopUps: Record<string, bigint> = {};
 
   // Coupons: at each record moment, the scenario's trades first (the market stays open), then the payments.
   for (let e = 0; e < periods; e++) {
@@ -515,10 +521,34 @@ async function main() {
     };
     for (const t of spec.trades.filter((t) => t.afterRecordMoment === e)) {
       await inPhase(`transfer ${t.from} -> ${t.to}`);
-      const ix = await createTransferCheckedWithTransferHookInstruction(
-        staticLookups, bondsAta(t.from), mint.publicKey, bondsAta(t.to), holders[t.from].publicKey, BigInt(t.amount), 0, [], "confirmed", TOKEN_2022_PROGRAM_ID,
-      );
-      await send(`transfer ${t.amount} ${t.from} -> ${t.to} (after record moment ${e})`, [ix], [registrar, holders[t.from]]);
+      if (t.cash === undefined) {
+        const ix = await createTransferCheckedWithTransferHookInstruction(
+          staticLookups, bondsAta(t.from), mint.publicKey, bondsAta(t.to), holders[t.from].publicKey, BigInt(t.amount), 0, [], "confirmed", TOKEN_2022_PROGRAM_ID,
+        );
+        await send(`transfer ${t.amount} ${t.from} -> ${t.to} (after record moment ${e})`, [ix], [registrar, holders[t.from]]);
+        continue;
+      }
+      // Delivery versus payment through Solana DvP: create the trade and admit it (one transaction), the seller funds
+      // the bond leg, the buyer the cash leg (the issuer's bank gives the buyer the cash: simulated fiat), then the
+      // registrar settles both legs in one transaction.
+      const quantity = BigInt(t.amount);
+      const cash = BigInt(t.cash);
+      const seller = holders[t.from].publicKey;
+      const buyer = holders[t.to].publicKey;
+      const nonce = randomNonce();
+      const expiry = BigInt((await chainNow()) + 86_400);
+      const { ix: create, swap } = createDvpInstruction(registrar.publicKey, seller, buyer, mint.publicKey, cashMint, TOKEN_PROGRAM_ID, quantity, cash, nonce, expiry);
+      const admit = await admitTradeInstruction(program, registrar.publicKey, bond, mint.publicKey, swap, seller, buyer);
+      await send(`dvp create + admit_trade: ${t.from} sells ${t.amount} to ${t.to} for ${t.cash} (after record moment ${e})`, [create, admit], [registrar]);
+      await send(`dvp fund bond leg: ${t.from} -> escrow ${t.amount}`, [await fundBondLegInstruction(connection, mint.publicKey, seller, swap, quantity)], [registrar, holders[t.from]]);
+      const have = await balance(cashAta(t.to));
+      if (have < cash) {
+        await send(`fund ${t.to}'s cash (issuer's bank, simulated fiat)`, [createMintToInstruction(cashMint, cashAta(t.to), bank.publicKey, cash - have, [], TOKEN_PROGRAM_ID)], [registrar, bank]);
+        bankTopUps[t.to] = (bankTopUps[t.to] ?? 0n) + (cash - have);
+      }
+      await send(`dvp fund cash leg: ${t.to} -> escrow ${t.cash}`, [fundCashLegInstruction(cashMint, TOKEN_PROGRAM_ID, spec.terms.cashDecimals, buyer, swap, cash)], [registrar, holders[t.to]]);
+      const trade = { swap, nonce, seller, buyer, quantity, cash };
+      await send(`dvp settle: ${t.amount} bonds -> ${t.to}, ${t.cash} cash -> ${t.from}, one transaction`, [await settleDvpInstruction(connection, program.programId, registrar.publicKey, trade, mint.publicKey, cashMint, TOKEN_PROGRAM_ID)], [registrar]);
     }
     await h?.afterRecordMoment(e);
     await offerActions(e);
@@ -581,6 +611,7 @@ async function main() {
       vault: redemptionVault.toBase58(), vaultLeft: (await balance(redemptionVault)).toString(), redemptions,
     },
     initialCash,
+    bankTopUps: Object.fromEntries(Object.entries(bankTopUps).map(([h, v]) => [h, v.toString()])),
     final: {
       supply: supply.toString(),
       vaults: Object.fromEntries(await Promise.all(vaults.map(async (v) => [v, (await balance(new PublicKey(v))).toString()]))),

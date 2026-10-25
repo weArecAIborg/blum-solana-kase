@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f788feea969f3d98b9331e4dee7f4a99835b6d7010c1e4fbb181e482b8fe2823 # shrinks to terms = Terms { periods_per_year: 12, years: 3, rate_bps: 1, face_units: 1000000, redemption_price_bps: 9950, record_days_before_payment: 0, max_supply: 15 }, ops = [Place { h: 0, qty: Zero, imposter: false }]
+cc 906dadf112caadab6f03f6b36676ee3fde2c6f4b02c0973e2162c08efe3899c1 # shrinks to terms = Terms { periods_per_year: 1, years: 1, rate_bps: 1, face_units: 1000000, redemption_price_bps: 9950, record_days_before_payment: 0, max_supply: 15 }, ops = [OfferCreate { pro_rata: false, price: 1, max: Max, opens_in_days: 0, open_days: 1, imposter: false }, Place { h: 0, qty: One, imposter: false }, OfferFund { o: 0, funding: Exact }]
+cc 40a657c9e7146d13302c95b2373f65c8731024718c7345a1ede7484718acb691 # shrinks to terms = Terms { periods_per_year: 1, years: 1, rate_bps: 1, face_units: 1000000, redemption_price_bps: 9950, record_days_before_payment: 0, max_supply: 15 }, ops = [Place { h: 1, qty: One, imposter: false }, Place { h: 0, qty: Zero, imposter: false }, TradeOpen { seller: 1, buyer: 0, qty: One, cash: 1, expiry_days: 1, imposter: false }, TradeFundBonds { t: 0, qty: One }, Advance { moment: 0, offset: 0 }, Advance { moment: 0, offset: 0 }]

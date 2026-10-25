@@ -79,7 +79,8 @@ funded and paid at any time after its moments, independently of every other coup
 1. checks the account was really being transferred (Token-2022's `transferring` flag);
 2. requires both sides to be associated token accounts, so one holder means one position;
 3. requires both sides to have a HolderRecord, so only registered wallets can hold bonds;
-4. refuses the transfer from the final record moment on (trading closed for redemption);
+4. refuses the transfer from the final record moment on (trading closed for redemption), except a trade escrow
+   returning bonds to their seller (cancel, reject, reclaim): that moves no position, and the seller is then redeemed;
 5. for each side:
    - checks the record agrees with the token account before the transfer; any disagreement means a balance changed
      outside the program, and the transfer is refused;

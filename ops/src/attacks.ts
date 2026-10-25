@@ -27,6 +27,7 @@ import {
   getMintLen,
 } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   Connection,
   Keypair,
   LAMPORTS_PER_SOL,
@@ -273,9 +274,11 @@ export function hostile(c: Ctx) {
       createInitializeMintInstruction(feeMint.publicKey, c.cashDecimals, c.registrar.publicKey, null, TOKEN_2022_PROGRAM_ID),
     ], [c.registrar, feeMint]);
     const newMint = Keypair.generate();
+    // Checking the schedule takes over 200,000 CU from 36 periods on; without this the guard would never be reached.
+    const createBondCompute = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
     await attempt({ id: "fee-cash-token", when, actor: "registrar", tries: "creates a bond paid in a cash token that keeps a 1% fee on every transfer",
       wouldCost: "holders receive 1% less than the terms", guard: "UnsupportedCashToken" },
-      [await c.program.methods.createBond(c.terms).accountsPartial({
+      [createBondCompute, await c.program.methods.createBond(c.terms).accountsPartial({
         registrar: c.registrar.publicKey, mint: newMint.publicKey, bond: c.pda(Buffer.from("bond"), newMint.publicKey.toBuffer()), cashMint: feeMint.publicKey,
         extraAccountMetaList: c.pda(Buffer.from("extra-account-metas"), newMint.publicKey.toBuffer()),
         tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
@@ -293,7 +296,7 @@ export function hostile(c: Ctx) {
     const delegateBondMint = Keypair.generate();
     await attempt({ id: "delegate-cash-token", when, actor: "registrar", tries: "creates a bond paid in a cash token whose permanent delegate is the attacker",
       wouldCost: "the delegate empties the vaults before holders are paid", guard: "UnsupportedCashToken" },
-      [await c.program.methods.createBond(c.terms).accountsPartial({
+      [createBondCompute, await c.program.methods.createBond(c.terms).accountsPartial({
         registrar: c.registrar.publicKey, mint: delegateBondMint.publicKey, bond: c.pda(Buffer.from("bond"), delegateBondMint.publicKey.toBuffer()),
         cashMint: delegateMint.publicKey, extraAccountMetaList: c.pda(Buffer.from("extra-account-metas"), delegateBondMint.publicKey.toBuffer()),
         tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,

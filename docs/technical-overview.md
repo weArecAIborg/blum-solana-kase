@@ -51,7 +51,8 @@ had. Nothing expires; nobody has to act at the record moment.
 **Every balance change goes through the program.**
 - Transfers: Token-2022 calls the program's transfer hook in the same transaction. The hook requires registered
   holders on both sides (associated token accounts), checks the record matches the token balance, saves history,
-  refuses transfers below a tendered (locked) quantity, and refuses all transfers from the final record moment on.
+  refuses transfers below a tendered (locked) quantity, and refuses all transfers from the final record moment on,
+  except a trade escrow returning bonds to their seller (cancel, reject, reclaim), which moves no position.
 - Placement, redemption, buyback and tender settlement are program instructions.
 - Holders cannot burn: the mint's permissioned burn makes Token-2022 refuse any burn not signed by the Bond PDA.
 

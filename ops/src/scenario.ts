@@ -250,6 +250,7 @@ async function main() {
         extraAccountMetaList: pda(Buffer.from("extra-account-metas"), mint.publicKey.toBuffer()),
         tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
       })
+      .preInstructions([computeLimit]) // checking the schedule takes over 200,000 CU from 36 periods on
       .signers([mint])
       .rpc()),
   );

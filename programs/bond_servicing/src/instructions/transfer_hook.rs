@@ -1,6 +1,7 @@
 //! Token-2022 calls this on every bond transfer, after both balances are updated (token-2022 `processor.rs`,
 //! `process_transfer`). It
-//!   - closes trading from the final record moment (balances are frozen for redemption);
+//!   - closes trading from the final record moment (balances are frozen for redemption); only an open trade's bonds
+//!     may still go back from its escrow to the seller, which moves no position;
 //!   - keeps bonds in associated token accounts only, so one holder record = one position;
 //!   - before moving the two holders' quantities, keeps each holder's quantity for every record moment passed
 //!     since its last change (PositionHistory::save), so no record-moment position is ever lost;
@@ -70,7 +71,10 @@ pub fn handle_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<(
     let mut destination = if same { None } else { Some(read_record(&a.destination_holder.to_account_info())?) };
     let bond = &a.bond;
     let now = bond.now()?;
-    require!(now < bond.final_record_time()?, BondError::TransfersClosedAtMaturity);
+    // A trade still open at the final record moment can no longer settle, but its bonds must get back to the seller
+    // (cancel, reject, reclaim) to be redeemed: the return keeps every position, so it stays open.
+    let returning = source.is_escrow() && destination.as_ref().is_some_and(|d| d.owner == source.escrow_of);
+    require!(returning || now < bond.final_record_time()?, BondError::TransfersClosedAtMaturity);
     if same { return Ok(()); }
     let destination = destination.as_mut().unwrap();
     // Balances before this transfer (Token-2022 has already moved `amount`).

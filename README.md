@@ -19,8 +19,12 @@ python3 tools/audit/audit.py scenarios/devnet-demo.public.json https://api.devne
 **Operator screen:** [blum.caiborg.ai/operator-screen](https://blum.caiborg.ai/operator-screen) issues a bond with
 your own terms on devnet (face, rate, coupons per year, term, holders, issue size). Every coupon and the redemption are
 known from the terms: each runs by itself at its moment when its "auto" box is ticked, or step by step by its buttons.
-The generated holders trade among themselves through Solana DvP (at most T trades each, with a propensity to trade at
-the start and at the end of the bond's life) and answer the buybacks and tenders the operator adds. The register shows
+The generated holders trade among themselves through Solana DvP as its documentation lays out
+([solana.com/docs/defi/dvp-program](https://solana.com/docs/defi/dvp-program)): the venue records each trade and is its
+settlement authority, the registrar as transfer agent admits the trade's escrow before it is funded, each party funds
+its own leg and pays its own fees. Every record moment has trades one day before it, at it and one day after it;
+besides those, each holder trades at random (at most T trades each, with a propensity to trade at the start and at the
+end of the bond's life). Holders answer the buybacks and tenders the operator adds. The register shows
 every holder's position at every record moment and every payment; after the redemption the ledger-only audit runs on
 the page, and the page prints one command that runs the same audit of that bond on your machine. Service:
 `ops/src/operator.ts`; the screen's wallet pays for every bond and is topped up from
@@ -86,7 +90,8 @@ each box linked to its line of source) and
 
 | Role | Can | Cannot |
 |---|---|---|
-| Registrar | Create the bond, register holders, place bonds up to the issue size before the first record moment, open a buyback or tender offer; admit a DvP trade's escrow and settle or cancel the trade (settlement authority) | Move or burn holders' bonds; move cash out of a vault; change any amount owed |
+| Registrar | Create the bond, register holders, place bonds up to the issue size before the first record moment, open a buyback or tender offer; admit a DvP trade's escrow (transfer agent) | Move or burn holders' bonds; move cash out of a vault; change any amount owed |
+| Venue (Solana DvP's settlement authority) | Record a trade and settle or cancel it (the DvP program; the 23 Oct run used the registrar's wallet in this role, the operator screen a venue of its own) | Redirect a trade's proceeds; move a holder's bonds outside a trade it funded |
 | Issuer | Deposit cash into a coupon's, the redemption's or an offer's vault (no key in the program) | Take cash back: a vault pays only holders' own cash accounts |
 | Holder | Transfer to registered holders until the final record moment; sell to a buyback; tender and withdraw during the window | Burn bonds; transfer tendered bonds; transfer from the final record moment |
 | Anyone | Open an event, confirm its funding, pay holders, redeem, settle a tender | Change who is paid or how much: amounts follow from the positions recorded on chain |

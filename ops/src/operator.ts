@@ -1,5 +1,8 @@
 // Operator service behind the operator screen (docs/demo/operator-screen.html, blum.caiborg.ai/operator-screen).
-// Anyone creates a bond on devnet with their own terms; the service signs as its registrar and:
+// Anyone creates a bond on devnet with their own terms. Three parties act, as in the Solana DvP documentation
+// (solana.com/docs/defi/dvp-program): the registrar (transfer agent: registers holders, places the issue, admits each
+// trade's escrow, services the corporate actions), the venue (creates each trade record and settles it: the
+// settlement authority) and the holders (each funds its own leg and pays its own fees). The service:
 //   - registers the generated holders BH#1..n and places the issue among them;
 //   - knows every corporate action from the terms (each coupon, the redemption) and runs each when its time comes
 //     if its "auto" box is ticked, or step by step when the operator presses the step;
@@ -10,7 +13,8 @@
 // 1 bond day = 1 chain second. Market rules are the sample's (KASE, docs/bond-mechanics.md).
 // Usage (from ops/): npx tsx src/operator.ts
 //   env OPERATOR_RPC (cluster RPC), OPERATOR_PORT (HTTP port, localhost), OPERATOR_DATA (state directory),
-//   OPERATOR_REGISTRAR (keypair: registrar and fee payer), OPERATOR_BANK (keypair: the test cash token's authority),
+//   OPERATOR_REGISTRAR (keypair: registrar; also the service's wallet, topped up from the faucet), OPERATOR_VENUE
+//   (keypair: the venue, settlement authority of every trade), OPERATOR_BANK (keypair: the test cash token's authority),
 //   OPERATOR_SCHEDULE (bond_math's `schedule` example binary), OPERATOR_PYTHON (python with QuantLib and FinancePy).
 // HTTP: /api/... (below); any other GET serves docs/demo, so the page and the API share one origin. Anyone may watch any
 // bond; only its creator acts on it: creating a bond returns a secret token, and every action on the bond must carry it
@@ -60,6 +64,7 @@ const PYTHON = env("OPERATOR_PYTHON");
 const readKeypair = (file: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(file, "utf8"))));
 const registrar = readKeypair(env("OPERATOR_REGISTRAR"));
 const bank = readKeypair(env("OPERATOR_BANK"));
+const venue = readKeypair(env("OPERATOR_VENUE"));
 const FAUCET = "https://faucet.solana.com";
 
 const DAY = 86_400;
@@ -71,8 +76,9 @@ const RULES = {
 };
 const CASH_DECIMALS = 6;
 const UNIT = 10n ** BigInt(CASH_DECIMALS);
-// No trade starts closer than this to a record moment: a DvP trade is five transactions, about 10 chain seconds.
-const MARGIN_DAYS = 10;
+// Generated holders stand for investors with wallets of their own: each gets this much SOL for its own fees and
+// deposits (a tender record) when the bond is issued.
+const HOLDER_SOL = 0.01;
 // A holder's Tender record (paid by the holder): see ops/src/scenario.ts.
 const TENDER_ACCOUNT_SIZE = 8 + 32 + 32 + 4 + 8 + 1 + 8 + 1 + 1;
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -116,14 +122,14 @@ type EventState = {
   open?: string; fund?: string; confirm?: string; budget?: string; supplyAtRecord?: number;
   paid: Record<string, { amount: string; sig: string }>; done: boolean; error?: string;
 };
-type OfferAction = { phase: number; holder: string; sell?: number; tender?: number; sig: string; paid?: string };
+type OfferAction = { phase: number; holder: string; sell?: number; tender?: number; sig: string; paid?: string; slot?: number };
 type OfferState = {
   id: number; kind: "buyback" | "tender"; priceUnits: string; maxQuantity: number; open: number; close: number; auto: boolean;
-  create?: string; fund?: string; confirm?: string; settled: boolean; done: boolean; error?: string;
+  create?: string; fund?: string; confirm?: string; settled: boolean; settledPhase?: number; done: boolean; error?: string;
   plans: { holder: string; at: number; share: number }[]; actions: OfferAction[];
-  settlements: { holder: string; tendered: number; burned: number; paid: string; sig: string }[];
+  settlements: { holder: string; tendered: number; burned: number; paid: string; sig: string; slot?: number }[];
 };
-type TradeState = { phase: number; from: string; to: string; amount: number; cash: string; settled: boolean; sigs: string[]; at: number };
+type TradeState = { phase: number; from: string; to: string; amount: number; cash: string; settled: boolean; sigs: string[]; at: number; around?: string; refused?: string; slot?: number };
 type LedgerRow = { chain: number; bond: number; text: string; sig?: string; kind: string };
 type BondState = {
   id: string; createdAt: string; params: Params; title: string; status: "creating" | "live" | "done" | "error"; error?: string;
@@ -131,11 +137,15 @@ type BondState = {
   bondOrigin: number; chainOrigin?: number; issueTime: number; maturityTime: number;
   schedule: { payment_days: number[]; payment_dates: string[]; record_days: number[]; record_dates: string[] };
   recordTimes: number[]; events: EventState[]; offers: OfferState[]; trades: TradeState[]; ledger: LedgerRow[];
-  tradesUsed: Record<string, number>; decidedDay: number; pending: { from: string; to: string }[]; rng: number;
+  tradesUsed: Record<string, number>; decidedDay: number; pending: { from: string; to: string; around?: string }[]; rng: number;
+  // trades every record moment must have: one day before it, at it, one day after (keys "k:-1", "k:0", "k:1")
+  aroundDone: string[];
   bankTopUps: Record<string, string>; audit?: any; auditError?: string; auditRunning?: boolean; token: string;
 };
 type Keys = { bondMint: number[]; cashMint: number[]; holders: Record<string, number[]> };
 type Runtime = { b: BondState; keys: { bondMint: Keypair; cashMint: Keypair; holders: Record<string, Keypair> }; busy: boolean;
+  // holders now in a trade or answering an offer: the market runs beside the corporate actions, several trades at once
+  trading: Set<string>;
   queue: { run: () => Promise<unknown>; done: (v: unknown) => void; fail: (e: unknown) => void }[]; view?: any; viewAt: number };
 
 const bonds = new Map<string, Runtime>();
@@ -200,11 +210,15 @@ const note = async (b: BondState, kind: string, text: string, sig?: string) => {
   b.ledger.push({ chain, bond: b.chainOrigin === undefined ? b.bondOrigin : bondTimeOf(b, chain), text, sig, kind });
   save(b);
 };
-const send = async (b: BondState, kind: string, text: string, ixs: TransactionInstruction[], signers: Keypair[]) => {
-  const sig = await land(() => sendAndConfirmTransaction(connection, new Transaction().add(...ixs), [registrar, ...signers], { commitment: "confirmed" }));
+// The first signer pays the fee.
+const sendBy = async (b: BondState, kind: string, text: string, ixs: TransactionInstruction[], signers: Keypair[]) => {
+  const sig = await land(() => sendAndConfirmTransaction(connection, new Transaction().add(...ixs), signers, { commitment: "confirmed" }));
   await note(b, kind, text, sig);
   return sig;
 };
+const send = (b: BondState, kind: string, text: string, ixs: TransactionInstruction[], signers: Keypair[]) => sendBy(b, kind, text, ixs, [registrar, ...signers]);
+// The slot a transaction landed in: the audit replays a phase's trades, sales and settlements in ledger order.
+const slotOf = async (sig: string) => (await connection.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }))!.slot;
 const programEvents = async (sig: string) => {
   const tx = await connection.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
   return [...eventParser.parseLogs(tx!.meta!.logMessages!)];
@@ -239,7 +253,10 @@ const validate = (p: Params) => {
 };
 // SOL the registrar spends on one bond, from the 23 Oct devnet run (0.0455 SOL for 3 holders and 5 events) and the
 // 1000-holder run (0.0059 SOL per holder): accounts' deposits and fees.
-const estimateSol = (p: Params) => 0.02 + 0.006 * p.holders + 0.004 * (p.years * p.periodsPerYear + 1) + 0.004 * p.holders * p.maxTradesPerHolder;
+// Trades: the registrar pays each admitted escrow's record (about 0.002 SOL); the venue's trade records are returned to
+// it at settlement.
+const estimateSol = (p: Params) => 0.02 + (0.006 + HOLDER_SOL) * p.holders + 0.004 * (p.years * p.periodsPerYear + 1)
+  + 0.002 * (p.holders * p.maxTradesPerHolder + 3 * p.years * p.periodsPerYear);
 
 async function createBond(p: Params): Promise<Runtime> {
   const months = 12 / p.periodsPerYear;
@@ -258,7 +275,7 @@ async function createBond(p: Params): Promise<Runtime> {
     bondOrigin: Date.parse(`${p.issue}T12:00:00+05:00`) / 1000 - 3 * DAY,
     issueTime: dayNumber(p.issue) * DAY, maturityTime: dayNumber(maturity) * DAY, schedule,
     recordTimes: schedule.record_days.map((d: number) => d * DAY + secondsOf(RULES.recordTimeLocal) - RULES.utcOffsetHours * 3_600),
-    events: [], offers: [], trades: [], ledger: [], tradesUsed: {}, decidedDay: 0, pending: [], rng: rngSeed, bankTopUps: {},
+    events: [], offers: [], trades: [], ledger: [], tradesUsed: {}, decidedDay: 0, pending: [], aroundDone: [], rng: rngSeed, bankTopUps: {},
     token: crypto.randomBytes(16).toString("hex"),
   };
   // The issue split among the holders at random weights, at least one bond each.
@@ -280,7 +297,7 @@ async function createBond(p: Params): Promise<Runtime> {
   const keys: Keys = { bondMint: [...mintKp.secretKey], cashMint: [...cashKp.secretKey], holders: Object.fromEntries(Object.entries(holderKps).map(([n, kp]) => [n, [...kp.secretKey]])) };
   fs.writeFileSync(path.join(dirOf(id), "keys.json"), JSON.stringify(keys), { mode: 0o600 });
   save(b);
-  const rt: Runtime = { b, keys: { bondMint: mintKp, cashMint: cashKp, holders: holderKps }, busy: false, queue: [], viewAt: 0 };
+  const rt: Runtime = { b, keys: { bondMint: mintKp, cashMint: cashKp, holders: holderKps }, busy: false, trading: new Set(), queue: [], viewAt: 0 };
   bonds.set(id, rt);
   rt.busy = true;
   issue(rt).catch(async (e) => { console.error(id, "issue", e); b.status = "error"; b.error = reason(e); await note(b, "error", `выпуск не создан: ${b.error}`); }).finally(() => { rt.busy = false; save(b); });
@@ -329,6 +346,9 @@ async function issue(rt: Runtime) {
     }
     await send(b, "setup", `register_holder, place: ${batch.map((h) => `${h} ${b.placements[h]}`).join(", ")}`, ixs, []);
   }
+  for (const batch of chunks(b.holders.map((h) => h.name), 10))
+    await send(b, "setup", `симуляция: у держателей свои кошельки с SOL на комиссии, по ${HOLDER_SOL} (${batch[0]}..${batch[batch.length - 1]})`,
+      batch.map((h) => SystemProgram.transfer({ fromPubkey: registrar.publicKey, toPubkey: a.owner(h), lamports: HOLDER_SOL * LAMPORTS_PER_SOL })), []);
   b.status = "live";
   save(b);
 }
@@ -414,7 +434,6 @@ async function addOffer(rt: Runtime, o: { kind: "buyback" | "tender"; price: num
   if (close <= now) throw new Error("окно уже закрылось");
   if (close >= finalRecord) throw new Error(`окно должно закрыться до последней отсечки ${localIso(finalRecord)}`);
   // A tender settles right after its window, before the next record moment (the audit replays it in that phase).
-  if (o.kind === "tender" && nextRecordAfter(b, close) - close < MARGIN_DAYS * DAY) throw new Error(`окно tender должно закрыться не позже чем за ${MARGIN_DAYS} дней до отсечки`);
   const id = b.offers.length + 1;
   const priceUnits = BigInt(Math.round(o.price * 1e6)).toString();
   const offer = a.offer(id), vault = a.vault(offer);
@@ -453,9 +472,12 @@ async function offerStep(rt: Runtime, id: number, step: string) {
     for (const [h, q] of tendered) {
       const sig = await land(() => program.methods.settleTender().accountsPartial({ retirement: retirement(rt, id, h, registrar.publicKey), offer, tender: a.tender(id, h) }).rpc());
       const sold = (await programEvents(sig)).find((x) => x.name === "BondsBoughtBack");
-      o.settlements.push({ holder: h, tendered: q, burned: sold ? Number(sold.data.burned) : 0, paid: sold ? sold.data.paid.toString() : "0", sig });
+      o.settlements.push({ holder: h, tendered: q, burned: sold ? Number(sold.data.burned) : 0, paid: sold ? sold.data.paid.toString() : "0", sig, slot: await slotOf(sig) });
       await note(b, "offer", `settle_tender ${id}: ${h} заявил ${q}, выкуплено и сожжено ${sold ? Number(sold.data.burned) : 0} → ${fmtCash(sold ? sold.data.paid.toString() : "0")}`, sig);
     }
+    // the phase the program saw: a settled tender's holder record keeps positions for every record moment passed
+    const first = o.settlements.find((x) => x.burned > 0);
+    o.settledPhase = first ? Number((await program.account.holderRecord.fetch(a.record(first.holder)) as any).position.liveFrom) - 1 : phaseAt(b, bondTimeOf(b, await chainNow()));
     o.settled = true; o.done = true;
   } else throw new Error(`неизвестный шаг ${step}`);
   o.error = undefined;
@@ -481,19 +503,16 @@ async function answerOffer(rt: Runtime, o: OfferState, plan: OfferState["plans"]
   let q = Math.max(1, Math.round(plan.share * free));
   if (o.kind === "buyback") q = Math.min(q, o.maxQuantity - sold);
   if (free <= 0 || q <= 0) return;
-  const owner = a.owner(plan.holder), offer = a.offer(o.id);
-  let sig: string;
-  if (o.kind === "buyback") {
-    sig = await land(() => program.methods.sellToOffer(new BN(q)).accountsPartial({ retirement: retirement(rt, o.id, plan.holder, owner), seller: owner, offer }).signers([keys.holders[plan.holder]]).rpc());
-  } else {
-    const deposit = await connection.getMinimumBalanceForRentExemption(TENDER_ACCOUNT_SIZE), have = await connection.getBalance(owner);
-    const ixs: TransactionInstruction[] = have < deposit ? [SystemProgram.transfer({ fromPubkey: registrar.publicKey, toPubkey: owner, lamports: deposit - have })] : [];
-    ixs.push(await program.methods.changeTender(new BN(q), false).accountsPartial({ owner, bond: a.bond, offer, holder: a.record(plan.holder), tender: a.tender(o.id, plan.holder) }).instruction());
-    sig = await land(() => sendAndConfirmTransaction(connection, new Transaction().add(...ixs), [registrar, keys.holders[plan.holder]], { commitment: "confirmed" }));
-  }
-  const phase = phaseAt(b, bondTimeOf(b, (await connection.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }))!.blockTime!));
+  // The holder signs and pays its own fee and, for a tender, its tender record's deposit (ops/src/scenario.ts).
+  const holder = keys.holders[plan.holder], owner = holder.publicKey, offer = a.offer(o.id);
+  const ix = o.kind === "buyback"
+    ? await program.methods.sellToOffer(new BN(q)).accountsPartial({ retirement: retirement(rt, o.id, plan.holder, owner), seller: owner, offer }).instruction()
+    : await program.methods.changeTender(new BN(q), false).accountsPartial({ owner, bond: a.bond, offer, holder: a.record(plan.holder), tender: a.tender(o.id, plan.holder) }).instruction();
+  const sig = await land(() => sendAndConfirmTransaction(connection, new Transaction().add(ix), [holder], { commitment: "confirmed" }));
+  const landed = (await connection.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }))!;
+  const phase = phaseAt(b, bondTimeOf(b, landed.blockTime!));
   const paid = (await programEvents(sig)).find((x) => x.name === "BondsBoughtBack");
-  o.actions.push({ phase, holder: plan.holder, ...(o.kind === "buyback" ? { sell: q } : { tender: q }), sig, ...(paid ? { paid: paid.data.paid.toString() } : {}) });
+  o.actions.push({ phase, holder: plan.holder, ...(o.kind === "buyback" ? { sell: q } : { tender: q }), sig, slot: landed.slot, ...(paid ? { paid: paid.data.paid.toString() } : {}) });
   await note(b, "offer", o.kind === "buyback"
     ? `sell_to_offer ${o.id}: ${plan.holder} продаёт ${q}, сожжено, получено ${fmtCash(paid?.data.paid.toString() ?? "0")}`
     : `change_tender ${o.id}: ${plan.holder} заявляет ${q} (облигации заблокированы, купон по ним сохраняется)`, sig);
@@ -501,59 +520,107 @@ async function answerOffer(rt: Runtime, o: OfferState, plan: OfferState["plans"]
 
 // ---------------------------------------------------------------- holders' trades (Solana DvP)
 
-async function trade(rt: Runtime, from: string, to: string) {
+// A trade as the Solana DvP documentation lays it out (solana.com/docs/defi/dvp-program): the venue records it
+// (CreateDvp) and is its settlement authority; the registrar, as transfer agent, admits the trade's escrow before it
+// is funded (admit_trade: both parties registered, this bond against its cash, each leg delivered to its own party);
+// each party funds its own leg and pays its own fee; the venue settles both legs in one transaction, or cancels.
+async function trade(rt: Runtime, from: string, to: string, around?: string) {
+  const { b } = rt;
+  const a = accountsOf(rt), names = b.holders.map((h) => h.name);
+  const recs: any[] = await program.account.holderRecord.fetchMultiple(names.map(a.record));
+  const freeOf = (h: string) => { const r = recs[names.indexOf(h)]; return Number(r.position.quantity) - Number(r.locked) - Number(r.escrowed); };
+  if (freeOf(from) > 0) return trade2(rt, from, to, freeOf(from), around);
+  if (!around) return;
+  // A trade the record moment must have: another seller with free bonds and trades left takes the place.
+  const others = names.filter((h) => h !== to && !rt.trading.has(h) && freeOf(h) > 0 && b.tradesUsed[h] < b.params.maxTradesPerHolder);
+  if (!others.length) return note(b, "trade", `${around}: сделки нет, ни у кого из свободных держателей нет облигаций и лимита сделок`);
+  const seller = others[Math.floor(random(b) * others.length)];
+  rt.trading.add(seller);
+  try { await trade2(rt, seller, to, freeOf(seller), around); } finally { rt.trading.delete(seller); }
+}
+async function trade2(rt: Runtime, from: string, to: string, free: number, around?: string) {
   const { b, keys } = rt;
   const a = accountsOf(rt);
-  const rec: any = await program.account.holderRecord.fetch(a.record(from));
-  const free = Number(rec.position.quantity) - Number(rec.locked) - Number(rec.escrowed);
-  if (free <= 0) return;
   const amount = 1 + Math.floor(random(b) * free);
   // Price per bond within 2% of face, in cash units.
   const price = (BigInt(b.params.face) * UNIT * BigInt(Math.round((0.98 + 0.04 * random(b)) * 10_000))) / 10_000n;
   const cash = price * BigInt(amount);
-  const seller = a.owner(from), buyer = a.owner(to);
+  const sellerKp = keys.holders[from], buyerKp = keys.holders[to];
+  const seller = sellerKp.publicKey, buyer = buyerKp.publicKey;
   const nonce = randomNonce(), expiry = BigInt((await chainNow()) + DAY);
-  const { ix: create, swap } = createDvpInstruction(registrar.publicKey, seller, buyer, a.mint, a.cashMint, TOKEN_PROGRAM_ID, BigInt(amount), cash, nonce, expiry);
-  const admit = await admitTradeInstruction(program, registrar.publicKey, a.bond, a.mint, swap, seller, buyer);
-  const t: TradeState = { phase: -2, from, to, amount, cash: cash.toString(), settled: false, sigs: [], at: 0 };
-  t.sigs.push(await send(b, "trade", `DvP: ${from} продаёт ${to} ${amount} обл. за ${fmtCash(cash.toString())} (create + admit_trade)`, [create, admit], []));
-  t.sigs.push(await send(b, "trade", `DvP: ${from} кладёт ${amount} обл. в escrow (позиция остаётся у продавца)`, [await fundBondLegInstruction(connection, a.mint, seller, swap, BigInt(amount))], [keys.holders[from]]));
+  const { ix: create, swap } = createDvpInstruction(venue.publicKey, seller, buyer, a.mint, a.cashMint, TOKEN_PROGRAM_ID, BigInt(amount), cash, nonce, expiry);
+  const dvp = { swap, nonce, seller, buyer, quantity: BigInt(amount), cash };
+  const tag = around ? ` [${around}]` : "";
+  const t: TradeState = { phase: -2, from, to, amount, cash: cash.toString(), settled: false, sigs: [], at: 0, around };
+  t.sigs.push(await sendBy(b, "trade", `площадка записывает сделку DvP: ${from} продаёт ${to} ${amount} обл. за ${fmtCash(cash.toString())}${tag}`, [create], [venue]));
+  try {
+    t.sigs.push(await send(b, "trade", `registrar допускает escrow сделки в реестр (обе стороны зарегистрированы)${tag}`, [await admitTradeInstruction(program, registrar.publicKey, a.bond, a.mint, swap, seller, buyer)], []));
+  } catch (e) {
+    // From the final record moment the program admits no trade (trading closed for redemption).
+    // Nothing was funded; the unfunded record stays with the venue until it expires (a cancel would need the
+    // escrow's record for the hook's accounts, and there is none).
+    t.refused = reason(e);
+    await note(b, "trade", `escrow не допущен, сделка не состоялась: ${t.refused}${tag}`);
+    t.at = bondTimeOf(b, await chainNow());
+    b.trades.push(t);
+    return;
+  }
+  t.sigs.push(await sendBy(b, "trade", `${from} кладёт ${amount} обл. в escrow (позиция остаётся у продавца)${tag}`, [await fundBondLegInstruction(connection, a.mint, seller, swap, BigInt(amount))], [sellerKp]));
   const have = await tokenBalance(a.cashAta(to));
   if (have < cash) {
-    t.sigs.push(await send(b, "trade", `банк даёт ${to} деньги на покупку (имитация фиата): ${fmtCash((cash - have).toString())}`, [createMintToInstruction(a.cashMint, a.cashAta(to), bank.publicKey, cash - have, [], TOKEN_PROGRAM_ID)], [bank]));
+    t.sigs.push(await sendBy(b, "trade", `банк зачисляет ${to} деньги на покупку (имитация фиата): ${fmtCash((cash - have).toString())}`, [createMintToInstruction(a.cashMint, a.cashAta(to), bank.publicKey, cash - have, [], TOKEN_PROGRAM_ID)], [buyerKp, bank]));
     b.bankTopUps[to] = (BigInt(b.bankTopUps[to] ?? "0") + cash - have).toString();
   }
-  t.sigs.push(await send(b, "trade", `DvP: ${to} кладёт оплату в escrow`, [fundCashLegInstruction(a.cashMint, TOKEN_PROGRAM_ID, CASH_DECIMALS, buyer, swap, cash)], [keys.holders[to]]));
-  const dvp = { swap, nonce, seller, buyer, quantity: BigInt(amount), cash };
+  t.sigs.push(await sendBy(b, "trade", `${to} кладёт оплату в escrow${tag}`, [fundCashLegInstruction(a.cashMint, TOKEN_PROGRAM_ID, CASH_DECIMALS, buyer, swap, cash)], [buyerKp]));
   try {
-    t.sigs.push(await send(b, "trade", `DvP settle: ${amount} обл. → ${to}, ${fmtCash(cash.toString())} → ${from}, одна транзакция`, [await settleDvpInstruction(connection, program.programId, registrar.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], []));
+    const settleSig = await sendBy(b, "trade", `площадка рассчитывает сделку: ${amount} обл. → ${to}, ${fmtCash(cash.toString())} → ${from}, одна транзакция${tag}`, [await settleDvpInstruction(connection, program.programId, venue.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], [venue]);
+    t.sigs.push(settleSig);
+    t.slot = await slotOf(settleSig);
     t.settled = true;
   } catch (e) {
-    // The trade could not settle (the final record moment came first): both legs go back to their owners.
-    await note(b, "error", `DvP settle отклонён: ${reason(e)}`);
-    t.sigs.push(await send(b, "trade", `DvP cancel: облигации → ${from}, деньги → ${to}`, [await cancelDvpInstruction(connection, program.programId, registrar.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], []));
+    // The final record moment came while the trade was open: it cannot settle; both legs go back to their owners
+    // (the program lets an escrow return bonds to its seller at any time).
+    t.refused = reason(e);
+    await note(b, "trade", `расчёт отклонён: ${t.refused}${tag}`);
+    t.sigs.push(await sendBy(b, "trade", `площадка отменяет сделку: облигации → ${from}, деньги → ${to}`, [await cancelDvpInstruction(connection, program.programId, venue.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], [venue]));
   }
   // The phase is the one the program saw: the seller's record keeps positions for every record moment passed.
   t.phase = Number((await program.account.holderRecord.fetch(a.record(from)) as any).position.liveFrom) - 1;
   t.at = bondTimeOf(b, await chainNow());
   b.trades.push(t);
-  if (t.settled) b.tradesUsed[from] += 1;
+  b.tradesUsed[from] += 1;
   save(b);
 }
 
-// ---------------------------------------------------------------- the worker: one action at a time per bond
+// ---------------------------------------------------------------- the worker: the operator's lane and the market
 
-const nextRecordAfter = (b: BondState, t: number) => b.recordTimes.find((r) => r > t) ?? Infinity;
-// Start one action; the next tick starts nothing for this bond until it ends.
+// The operator's lane: one action at a time (button presses, corporate actions, offer steps).
 function start(rt: Runtime, what: string, run: () => Promise<unknown>, onError?: (msg: string) => void) {
   rt.busy = true;
   run()
     .catch(async (e) => { console.error(rt.b.id, what, e); const msg = reason(e); onError?.(msg); await note(rt.b, "error", `${what}: ${msg}`).catch(() => {}); })
     .finally(() => { rt.busy = false; rt.view = undefined; save(rt.b); });
 }
+// The market: holders trade and answer offers by themselves, beside the corporate actions, several at once; a holder
+// is in one trade at a time.
+function market(rt: Runtime, holders: string[], what: string, run: () => Promise<unknown>) {
+  for (const h of holders) rt.trading.add(h);
+  run()
+    .catch(async (e) => { console.error(rt.b.id, what, e); await note(rt.b, "error", `${what}: ${reason(e)}`).catch(() => {}); })
+    .finally(() => { for (const h of holders) rt.trading.delete(h); rt.view = undefined; save(rt.b); });
+}
 function tick(rt: Runtime, chain: number) {
   const { b } = rt;
-  if (rt.busy) return;
+  if (b.status !== "live" || b.chainOrigin === undefined) {
+    if (!rt.busy && rt.queue.length) operatorLane(rt, chain);
+    return;
+  }
+  const now = bondTimeOf(b, chain);
+  marketLane(rt, now);
+  if (!rt.busy) operatorLane(rt, chain);
+}
+function operatorLane(rt: Runtime, chain: number) {
+  const { b } = rt;
   if (rt.queue.length) {
     const job = rt.queue.shift()!;
     rt.busy = true;
@@ -562,54 +629,71 @@ function tick(rt: Runtime, chain: number) {
   }
   if (b.status !== "live" || b.chainOrigin === undefined) return;
   const now = bondTimeOf(b, chain);
-  const finalRecord = b.recordTimes[b.recordTimes.length - 1];
-  // 1. corporate actions whose time has come, in order
+  // corporate actions whose time has come, in order
   for (const ev of b.events) {
     const step = nextEventStep(ev);
     if (!ev.auto || !step || now < ev.recordTime || (step === "pay" && now < ev.paymentTime)) continue;
     if (ev.error && chain % 10) return; // a failed step is retried every 10 seconds
     return start(rt, `${ev.kind === "coupon" ? `купон ${ev.index + 1}` : "погашение"}, шаг ${step}`, () => eventStep(rt, ev.index, step), (m) => { ev.error = m; });
   }
-  // 2. offers: funding, then tender settlement after the window
+  // offers: funding, then tender settlement after the window
   for (const o of b.offers) {
     const step = nextOfferStep(o, now);
     if (!o.auto || !step) continue;
     if (o.error && chain % 10) return;
     return start(rt, `оферта ${o.id}, шаг ${step}`, () => offerStep(rt, o.id, step), (m) => { o.error = m; });
   }
-  // 3. holders answering open offers
-  for (const o of b.offers) {
-    if (!o.confirm || now >= o.close) continue;
-    const i = o.plans.findIndex((p) => p.at <= now);
-    if (i < 0) continue;
-    const [plan] = o.plans.splice(i, 1);
-    return start(rt, `ответ ${plan.holder} на оферту ${o.id}`, () => answerOffer(rt, o, plan));
-  }
-  // 4. holders' trades: decide day by day, then trade one at a time, never close to a record moment
-  const today = Math.floor(now / DAY), p = b.params;
-  const lifeStart = b.issueTime, life = b.maturityTime - b.issueTime;
-  for (let d = b.decidedDay + 1; d <= today; d++) {
-    b.decidedDay = d;
-    if (d * DAY < b.issueTime || d * DAY >= finalRecord - MARGIN_DAYS * DAY) continue;
-    const share = Math.min(1, Math.max(0, (d * DAY - lifeStart) / life));
-    const chance = p.propensityStart + (p.propensityEnd - p.propensityStart) * share;
-    for (const h of b.holders.map((x) => x.name)) {
-      const queued = b.pending.filter((x) => x.from === h).length;
-      if (b.tradesUsed[h] + queued >= p.maxTradesPerHolder || random(b) >= chance) continue;
-      const others = b.holders.map((x) => x.name).filter((x) => x !== h);
-      b.pending.push({ from: h, to: others[Math.floor(random(b) * others.length)] });
-    }
-  }
-  if (now >= finalRecord - MARGIN_DAYS * DAY) b.pending = [];
-  save(b);
-  if (b.pending.length && nextRecordAfter(b, now) - now > MARGIN_DAYS * DAY) {
-    const t = b.pending.shift()!;
-    return start(rt, `сделка ${t.from} → ${t.to}`, () => trade(rt, t.from, t.to));
-  }
-  // 5. the end: every event paid, every offer done -> audit
-  if (b.events.every((e) => e.done) && b.offers.every((o) => o.done)) {
+  // the end: every event paid, every offer done, no trade in flight -> audit
+  if (b.events.every((e) => e.done) && b.offers.every((o) => o.done) && rt.trading.size === 0) {
     b.status = "done";
     start(rt, "конец", async () => { await note(b, "event", "все корпоративные действия выполнены; ончейн аудит"); runAudit(rt); });
+  }
+}
+function marketLane(rt: Runtime, now: number) {
+  const { b } = rt;
+  const names = b.holders.map((x) => x.name), p = b.params;
+  const idle = (h: string) => !rt.trading.has(h);
+  const quota = (h: string) => b.tradesUsed[h] + b.pending.filter((x) => x.from === h).length < p.maxTradesPerHolder;
+  const pick = (from: string[]) => from[Math.floor(random(b) * from.length)];
+  // holders answering open offers
+  for (const o of b.offers) {
+    if (!o.confirm || now >= o.close) continue;
+    const i = o.plans.findIndex((x) => x.at <= now && idle(x.holder));
+    if (i < 0) continue;
+    const [plan] = o.plans.splice(i, 1);
+    market(rt, [plan.holder], `ответ ${plan.holder} на оферту ${o.id}`, () => answerOffer(rt, o, plan));
+  }
+  // trades every record moment must have: one day before it, at it, one day after
+  b.recordTimes.forEach((t, k) => {
+    for (const [off, label] of [[-1, "за день до отсечки"], [0, "в момент отсечки"], [1, "через день после отсечки"]] as const) {
+      const key = `${k}:${off}`;
+      if (b.aroundDone.includes(key) || now < t + off * DAY) continue;
+      b.aroundDone.push(key);
+      const sellers = names.filter((h) => quota(h));
+      if (!sellers.length) { note(b, "trade", `отсечка ${k + 1}, ${label}: сделки нет, все держатели исчерпали лимит сделок`).catch(() => {}); continue; }
+      const from = pick(sellers);
+      b.pending.unshift({ from, to: pick(names.filter((h) => h !== from)), around: `отсечка ${k + 1}, ${label}` });
+    }
+  });
+  // random trades: each bond day each holder trades with a probability between the two propensities
+  const today = Math.floor(now / DAY), life = b.maturityTime - b.issueTime;
+  for (let d = b.decidedDay + 1; d <= today; d++) {
+    b.decidedDay = d;
+    // trading closes at the final record moment (the program refuses every transfer from then on)
+    if (d * DAY < b.issueTime || d * DAY >= b.recordTimes[b.recordTimes.length - 1]) continue;
+    const share = Math.min(1, Math.max(0, (d * DAY - b.issueTime) / life));
+    const chance = p.propensityStart + (p.propensityEnd - p.propensityStart) * share;
+    for (const h of names) {
+      if (!quota(h) || random(b) >= chance) continue;
+      b.pending.push({ from: h, to: pick(names.filter((x) => x !== h)) });
+    }
+  }
+  // start every pending trade whose two holders are free
+  for (let i = 0; i < b.pending.length; ) {
+    const t = b.pending[i];
+    if (!idle(t.from) || !idle(t.to)) { i++; continue; }
+    b.pending.splice(i, 1);
+    market(rt, [t.from, t.to], `сделка ${t.from} → ${t.to}`, () => trade(rt, t.from, t.to, t.around));
   }
 }
 
@@ -635,11 +719,12 @@ const publicScenario = (b: BondState) => ({
   keys: { bondMint: b.bondMint, cashMint: b.cashMint, cashAuthority: bank.publicKey.toBase58() },
   wallets: Object.fromEntries(b.holders.map((h) => [h.name, h.pubkey])),
   placements: b.placements,
-  trades: b.trades.filter((t) => t.settled).map((t) => ({ afterRecordMoment: t.phase, from: t.from, to: t.to, amount: t.amount, cash: t.cash })),
+  trades: b.trades.filter((t) => t.settled).map((t) => ({ afterRecordMoment: t.phase, from: t.from, to: t.to, amount: t.amount, cash: t.cash, slot: t.slot })),
   offers: b.offers.filter((o) => o.confirm).map((o) => ({
     id: o.id, kind: o.kind, priceUnits: o.priceUnits, maxQuantity: o.maxQuantity,
     open: { recordMoment: 0, plusDays: (o.open - b.recordTimes[0]) / DAY }, close: { recordMoment: 0, plusDays: (o.close - b.recordTimes[0]) / DAY },
-    actions: o.actions.map((x) => ({ afterRecordMoment: x.phase, holder: x.holder, ...(x.sell ? { sell: x.sell } : { tender: x.tender }) })),
+    actions: o.actions.map((x) => ({ afterRecordMoment: x.phase, holder: x.holder, ...(x.sell ? { sell: x.sell } : { tender: x.tender }), slot: x.slot })),
+    ...(o.settledPhase !== undefined ? { settledAfterRecordMoment: o.settledPhase, settlements: o.settlements.map((x) => ({ holder: x.holder, slot: x.slot })) } : {}),
   })),
   handover: null,
 });
@@ -733,6 +818,7 @@ const server = http.createServer(async (req, res) => {
       const lamports = await connection.getBalance(registrar.publicKey);
       return json(res, 200, {
         registrar: registrar.publicKey.toBase58(), sol: lamports / LAMPORTS_PER_SOL, faucet: FAUCET, rpc: RPC, programId: program.programId.toBase58(),
+        venue: venue.publicKey.toBase58(), venueSol: (await connection.getBalance(venue.publicKey)) / LAMPORTS_PER_SOL,
         bonds: [...bonds.values()].map(({ b }) => ({ id: b.id, title: b.title, status: b.status, createdAt: b.createdAt })).reverse(),
       });
     }
@@ -806,8 +892,18 @@ for (const id of fs.readdirSync(DATA)) {
   const kp = (s: number[]) => Keypair.fromSecretKey(Uint8Array.from(s));
   b.auditRunning = false;
   if (b.status === "creating") { b.status = "error"; b.error = "сервис перезапущен во время выпуска"; }
-  bonds.set(id, { b, keys: { bondMint: kp(k.bondMint), cashMint: kp(k.cashMint), holders: Object.fromEntries(Object.entries(k.holders).map(([n, s]) => [n, kp(s)])) }, busy: false, queue: [], viewAt: 0 });
+  b.aroundDone ??= [];
+  bonds.set(id, { b, keys: { bondMint: kp(k.bondMint), cashMint: kp(k.cashMint), holders: Object.fromEntries(Object.entries(k.holders).map(([n, s]) => [n, kp(s)])) }, busy: false, trading: new Set(), queue: [], viewAt: 0 });
 }
+// The venue pays for the trade records it creates (returned to it at settlement) and its own fees: the service's wallet
+// keeps it funded.
+const fundVenue = async () => {
+  if ((await connection.getBalance(venue.publicKey)) >= 0.1 * LAMPORTS_PER_SOL) return;
+  const sig = await sendAndConfirmTransaction(connection, new Transaction().add(SystemProgram.transfer({ fromPubkey: registrar.publicKey, toPubkey: venue.publicKey, lamports: 0.3 * LAMPORTS_PER_SOL })), [registrar], { commitment: "confirmed" });
+  console.log(`venue ${venue.publicKey.toBase58()} funded with 0.3 SOL: ${sig}`);
+};
+fundVenue().catch((e) => console.error("venue funding", e));
+setInterval(() => fundVenue().catch((e) => console.error("venue funding", e)), 60_000);
 let ticking = false;
 setInterval(async () => {
   if (ticking) return;

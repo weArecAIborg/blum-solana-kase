@@ -239,9 +239,12 @@ def record_moment_unix(date_iso, local_hhmm, utc_offset_hours):
 def timeline(placements, trades, offers, record_times):
     """Positions over the bond's life from the scenario alone, in the operator's order. After each record moment k
     (phase -1: before the first record moment): the trades of phase k, then the offer actions of phase k (buyback sales
-    retire bonds at once; tenders and withdrawals only count). A tender offer is settled in the first phase whose next record moment comes after the
-    offer's close: everything tendered if the offer is not oversubscribed, else, in tender order, each tender's
-    running-total pro-rata share minus that of the tenders before it.
+    retire bonds at once; tenders and withdrawals only count). A tender offer is settled in the phase its scenario names
+    (`settledAfterRecordMoment`: the operator screen records the phase the program saw), else in the first phase whose
+    next record moment comes after the offer's close: everything tendered if the offer is not oversubscribed, else, in
+    tender order, each tender's running-total pro-rata share minus that of the tenders before it. When the scenario
+    gives each trade, sale and tender settlement its ledger `slot` (the operator screen does), they apply in that order
+    within the phase; tenders and withdrawals move no bonds and only count.
     Returns the positions at each record moment, the final positions, each holder's bond movements and retirements
     (burned, cash) in ledger order, and the offers' total budget."""
     pos = defaultdict(int, placements)
@@ -264,33 +267,43 @@ def timeline(placements, trades, offers, record_times):
     for k in range(-1, len(record_times)):
         if k >= 0:
             at_record.append(dict(pos))
-        for tr in [x for x in trades if x["afterRecordMoment"] == k]:
+        moving = []  # (slot, kind, index, apply): trades, buyback sales, tender settlements
+
+        def trade(tr):
             pos[tr["from"]] -= tr["amount"]
             pos[tr["to"]] += tr["amount"]
             moves[tr["from"]].append(-tr["amount"])
             moves[tr["to"]].append(tr["amount"])
+
+        for i, tr in enumerate(x for x in trades if x["afterRecordMoment"] == k):
+            moving.append((tr.get("slot", 0), 0, i, lambda tr=tr: trade(tr)))
         for o in offers:
-            for a in [x for x in o["actions"] if x["afterRecordMoment"] == k]:
+            for i, a in enumerate(x for x in o["actions"] if x["afterRecordMoment"] == k):
                 if "sell" in a:
-                    retire_now(a["holder"], a["sell"], int(o["priceUnits"]))
+                    moving.append((a.get("slot", 0), 1, i, lambda o=o, a=a: retire_now(a["holder"], a["sell"], int(o["priceUnits"]))))
                 else:
                     t = tendered[o["id"]]
                     t[a["holder"]] = t.get(a["holder"], 0) + a.get("tender", 0) - a.get("withdraw", 0)
         nxt = record_times[k + 1] if k + 1 < len(record_times) else float("inf")
         for o in offers:
-            if o["kind"] != "tender" or o["id"] in settled or close_time(o) >= nxt:
+            if o["kind"] != "tender" or o["id"] in settled:
                 continue
+            if o.get("settledAfterRecordMoment", k if close_time(o) < nxt else None) != k:
+                continue
+            settled.add(o["id"])
+            slots = {x["holder"]: x["slot"] for x in o.get("settlements", [])}
             t = tendered[o["id"]]
             total, mx = sum(t.values()), o["maxQuantity"]
             # The program resolves tenders in the order they were made (each holder's first tender) and gives each the
             # running-total pro-rata share minus what the earlier ones received, so the offer buys exactly its maximum.
             before = 0
-            for h, q in t.items():
+            for i, (h, q) in enumerate(t.items()):
                 accepted = q if total <= mx else (before + q) * mx // total - before * mx // total
                 before += q
                 if q > 0 and accepted > 0:
-                    retire_now(h, accepted, int(o["priceUnits"]))
-            settled.add(o["id"])
+                    moving.append((slots.get(h, 0), 2, i, lambda h=h, q=accepted, o=o: retire_now(h, q, int(o["priceUnits"]))))
+        for *_, apply in sorted(moving, key=lambda x: x[:3]):
+            apply()
     budgets = sum(int(o["priceUnits"]) * o["maxQuantity"] for o in offers)
     return {"at_record": at_record, "final": dict(pos), "moves": moves, "retire": retire, "offer_budgets": budgets}
 

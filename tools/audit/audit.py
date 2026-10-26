@@ -9,6 +9,8 @@ Usage: .venv/bin/python3 tools/audit/audit.py <scenarios/NAME.json> <rpc url> <p
 Exit code 1 if any check fails.
 """
 
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -244,9 +246,29 @@ def measure_history(rpc, addresses):
                        for acct, b in balances.items()},
             "minted": dict(minted), "minted_to": dict(minted_to), "burned": dict(burned),
             "programs": {ix.get("programId") for ix in instructions if ix.get("programId")},
+            "logs": meta.get("logMessages") or [],
         })
     txs.sort(key=lambda t: (t["slot"], t["blockTime"] or 0))
     return txs
+
+
+def phases_logged(t):
+    """The record moments passed, as the program counted them when it executed this transaction, from its events in the
+    transaction's logs (Anchor: "Program data: " + 8-byte discriminator sha256("event:<Name>")[:8] + Borsh fields):
+    TradeMoved (bond, swap, seller, to: 32 bytes each; quantity u64; settled bool; passed u16) and BondsBoughtBack (bond
+    32; offer u16; owner 32; burned u64; paid u64; passed u16). Returns [("trade", settled, passed)] and
+    [("sold", owner, passed)] in log order."""
+    moved, sold = hashlib.sha256(b"event:TradeMoved").digest()[:8], hashlib.sha256(b"event:BondsBoughtBack").digest()[:8]
+    out = []
+    for line in t.get("logs", []):
+        if not line.startswith("Program data: "):
+            continue
+        data = base64.b64decode(line[len("Program data: "):])
+        if data[:8] == moved and len(data) >= 8 + 128 + 8 + 1 + 2:
+            out.append(("trade", data[8 + 136] == 1, int.from_bytes(data[8 + 137:8 + 139], "little")))
+        elif data[:8] == sold and len(data) >= 8 + 32 + 2 + 32 + 16 + 2:
+            out.append(("sold", b58encode(data[8 + 34:8 + 66]), int.from_bytes(data[8 + 82:8 + 84], "little")))
+    return out
 
 
 # ---------------------------------------------------------------- calculated side (scenario + reference math)
@@ -408,9 +430,7 @@ def resolve(scn, txs, creation_time):
     moves at its settlement. A tender's order is the order of the holders' first tenders on the ledger. Operations the
     ledger does not hold (sent and never executed, or failed) are left out and returned."""
     by_sig = {t["signature"]: t for t in txs}
-    origin = datetime.fromisoformat(scn["bondTimeAtCreation"]).timestamp()
-    scale = scn["chainSecondsPerBondDay"]
-    record_times = schedule_dates(scn)[2]
+    wallets = {name: pubkey_of(f) for name, f in scn["wallets"].items()}
     missing = []
 
     def found(sig):
@@ -420,7 +440,27 @@ def resolve(scn, txs, creation_time):
             return None
         return t
 
-    def phase(t):
+    # The phase as the program counted it when it executed the transaction (its events in the logs): a block's time
+    # (getTransaction blockTime) can differ by a second from the Clock the program read, and at one chain second per bond
+    # day that puts a trade on the wrong side of a record moment (devnet, 26.10.2026: a trade the program logged before
+    # record moment 1 had a block time after it).
+    def phase(t, holder=None):
+        logged = phases_logged(t)
+        trade = [p for kind, settled, p in (x for x in logged if x[0] == "trade") if settled]
+        if holder is None and trade:
+            return trade[-1] - 1
+        sold = [p for kind, owner, p in (x for x in logged if x[0] == "sold") if owner == wallets.get(holder)]
+        if sold:
+            return sold[-1] - 1
+        missing.append(t["signature"] + " (no phase logged)")
+        return 0
+
+    # a tender moves no bonds and logs no phase; it only counts, in the phase its block's time falls in
+    origin = datetime.fromisoformat(scn["bondTimeAtCreation"]).timestamp()
+    scale = scn["chainSecondsPerBondDay"]
+    record_times = schedule_dates(scn)[2]
+
+    def phase_of_tender(t):
         ts = origin + (t["blockTime"] - creation_time) * 86_400 / scale
         return sum(1 for r in record_times if r <= ts) - 1
 
@@ -442,7 +482,7 @@ def resolve(scn, txs, creation_time):
                 continue
             t = found(a["sig"])
             if t is not None:
-                actions.append(dict(a, afterRecordMoment=phase(t), slot=t["slot"]))
+                actions.append(dict(a, afterRecordMoment=phase(t, a["holder"]) if "sell" in a else phase_of_tender(t), slot=t["slot"]))
         o["actions"] = actions
         if "settlements" in o:
             order = {}
@@ -455,7 +495,7 @@ def resolve(scn, txs, creation_time):
                     continue
                 t = found(x["sig"])
                 if t is not None:
-                    settled.append(dict(x, afterRecordMoment=phase(t), slot=t["slot"], number=order.get(x["holder"], 0)))
+                    settled.append(dict(x, afterRecordMoment=phase(t, x["holder"]), slot=t["slot"], number=order.get(x["holder"], 0)))
             o["settlements"] = settled
     return missing
 

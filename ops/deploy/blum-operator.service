@@ -23,6 +23,8 @@ Environment=OPERATOR_REGISTRAR=/etc/blum-operator/registrar.json
 Environment=OPERATOR_BANK=/etc/blum-operator/bank.json
 Environment=OPERATOR_SCHEDULE=/opt/solana-comp-KASE/target/release/examples/schedule
 Environment=OPERATOR_PYTHON=/opt/solana-comp-KASE/.venv/bin/python3
+# FinancePy compiles with numba, which caches next to its sources unless told otherwise (they are read-only here)
+Environment=NUMBA_CACHE_DIR=/var/lib/blum-operator/numba-cache
 ExecStart=/opt/solana-comp-KASE/ops/node_modules/.bin/tsx src/operator.ts
 Restart=always
 RestartSec=3

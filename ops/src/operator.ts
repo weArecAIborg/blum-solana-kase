@@ -119,7 +119,7 @@ class Budget {
   private inFlight = 0;
   private until = 0;
   reserved = 0; // requests per window lent to the audit process while it runs
-  counts = { total: 0, limited: 0, method: {} as Record<string, number>, op: {} as Record<string, number> };
+  counts = { total: 0, limited: 0, limitedBy: {} as Record<string, number>, method: {} as Record<string, number>, op: {} as Record<string, number> };
   async take(method: string) {
     for (;;) {
       const now = Date.now(), from = now - LIMIT.windowMs;
@@ -164,6 +164,10 @@ const budgetedFetch = async (input: any, init?: any) => {
     budget.done();
     if (res.status !== 429) return res;
     budget.counts.limited++;
+    // which of the cluster's limits ran out (its x-ratelimit-*-remaining headers at 0 or below), for each 429
+    const out = [...res.headers].filter(([k, v]) => /^x-ratelimit-.*-remaining$/.test(k) && Number(v) <= 0).map(([k]) => k.slice(12, -10)).join(",") || "none";
+    budget.counts.limitedBy[`${method} ${out}`] = (budget.counts.limitedBy[`${method} ${out}`] ?? 0) + 1;
+    console.error(`429 ${method} limits ${out} retry-after ${res.headers.get("retry-after")}`);
     // The documentation: use Retry-After; without it, the limit's own 10-second window.
     const after = Number(res.headers.get("retry-after"));
     budget.hold(1_000 * (after > 0 ? after : 10) + Math.random() * 1_000);

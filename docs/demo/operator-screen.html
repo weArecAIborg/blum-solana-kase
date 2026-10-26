@@ -122,8 +122,9 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
     <h1 class="bs-h1">Экран оператора</h1>
     <p class="bs-lede">Выпустите облигацию со своими условиями. Корпоративные действия известны из условий выпуска: каждое
       выполняется само в свой момент, если стоит галка «авто», или по шагам кнопками. Держатели торгуют между собой через
-      Solana DvP, как в документации Solana: сделку записывает и рассчитывает площадка (settlement authority), registrar
-      как transfer agent только допускает escrow сделки в реестр, каждая сторона сама кладёт свою часть. У каждой отсечки
+      Solana DvP, как в документации Solana: продавец записывает сделку, допускает её escrow и кладёт облигации одной своей
+      транзакцией, покупатель кладёт деньги своей, площадка (settlement authority) рассчитывает; registrar в сделках не
+      участвует. У каждой отсечки
       есть сделки за день до неё, в её момент и через день. Оператор видит сделки в реестре и ledger. В конце ончейн аудит
       проверяет каждую выплату по открытым данным; тот же аудит можно запустить у себя одной командой.</p>
   </header>
@@ -408,7 +409,7 @@ function render() {
       return `<td class="cell">${h.atRecord[k]}${h.saved[k] ? "<small>записано</small>" : ""}${p ? `<small class="got">+${money(p.amount)}</small>` : ""}</td>`;
     }).join("");
     const red = h.received[d.events.length - 1];
-    return `<tr class="h ${openHolder === h.name ? "open" : ""}" data-h="${h.name}"><td class="who"><b>${h.name}</b><small>${h.pubkey.slice(0, 4)}…${h.pubkey.slice(-4)} · размещено ${h.placed} · сделок ${d.tradesUsed[h.name] ?? 0}</small></td>
+    return `<tr class="h ${openHolder === h.name ? "open" : ""}" data-h="${h.name}"><td class="who"><b>${h.name}</b><small>${h.pubkey.slice(0, 4)}…${h.pubkey.slice(-4)} · размещено ${h.placed} · сделок ${d.used[h.name] ?? 0}</small></td>
       <td class="cell"><b>${h.quantity}</b>${h.escrowed ? `<small class="cut">${h.escrowed} в escrow</small>` : ""}${h.locked ? `<small>${h.locked} в tender</small>` : ""}</td>${pips}${cells}
       <td class="cell got"><b>${money(got)}</b>${red ? `<small class="got">номинал ${money(red.amount)}</small>` : ""}</td></tr>`
       + (openHolder === h.name ? `<tr class="detail"><td colspan="${3 + (showPips ? 1 : 0) + d.recordTimes.length}">${holderDetail(h)}</td></tr>` : "");

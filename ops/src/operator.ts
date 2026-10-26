@@ -229,33 +229,34 @@ const refusal = (e: any) => {
   return { text, message: (found?.[1] ?? text.split("\n")[0]).trim().slice(0, 300), ix: ix ? Number(ix[1]) : undefined, code: code?.[1] };
 };
 const reason = (e: any) => (e instanceof Refused ? e.message : refusal(e).message);
-// The node pushes a signature's status once it is confirmed (signatureSubscribe: solana.com/docs/rpc/websocket), so a
-// step that depends on the previous one is sent only after it; a transaction not confirmed while its blockhash lives
-// (60 to 90 seconds: solana.com/docs/advanced/confirmation) or confirmed with an error is an error.
-const SUBSCRIPTIONS = 4; // waits at once (devnet answered no subscribe request at up to 8 at once besides the Clock)
+// Confirmation: one getSignatureStatuses request (up to 256 signatures: solana.com/docs/rpc/http/getsignaturestatuses)
+// each second for every transaction still waiting, only while any waits. A step that depends on the previous one is sent
+// only after it is confirmed; a transaction not confirmed while its blockhash lives (60 to 90 seconds:
+// solana.com/docs/advanced/confirmation) or confirmed with an error is an error. (The public devnet node left one
+// signatureSubscribe request unanswered in each of four runs, 26.10.2026, so confirmations are not taken from
+// subscriptions.)
+const SUBSCRIPTIONS = 8; // transactions awaiting confirmation at once
 let waitingNow = 0;
-// The transaction is sent only once the node has acknowledged the subscription ("subscribed"), so its confirmation
-// cannot come before the node listens; after a reconnection the subscription is acknowledged again and the status is
-// read once, since a confirmation in between was not pushed (web3.js confirms the same way: connection.ts,
-// getTransactionConfirmationPromise, through the same subscription-state hook).
-const confirmation = (sig: string) => {
-  let id = 0, timer: NodeJS.Timeout, dispose = () => {}, subscribed = false, ready = () => {};
-  const states: string[] = [], t0 = Date.now(), open = Object.keys((connection as any)._subscriptionsByHash).length;
-  const listening = new Promise<void>((r) => { ready = r; });
-  const done = new Promise<number>((resolve, reject) => {
-    timer = setTimeout(() => { dispose(); void connection.removeSignatureListener(id); reject(new Error(`транзакция ${sig} не подтверждена за 90 с (подписка: ${states.join(" → ") || "состояний не было"}; подписок при запросе ${open})`)); }, 90_000);
-    const settle = (err: unknown, slot: number) => { clearTimeout(timer); dispose(); err ? reject(new Error(`транзакция ${sig} исполнена с ошибкой ${JSON.stringify(err)}`)) : resolve(slot); };
-    id = connection.onSignature(sig, (r, ctx) => settle(r.err, ctx.slot), "confirmed");
-    dispose = (connection as any)._onSubscriptionStateChange(id, (state: string) => {
-      states.push(`${state} ${((Date.now() - t0) / 1000).toFixed(1)} с`);
-      if (state !== "subscribed") return;
-      if (!subscribed) { subscribed = true; ready(); return; }
-      opLabel.run("confirm", () => connection.getSignatureStatus(sig)).then(({ value }) => {
-        if (value && (value.confirmationStatus === "confirmed" || value.confirmationStatus === "finalized")) { void connection.removeSignatureListener(id); settle(value.err, value.slot); }
-      }, (e) => { clearTimeout(timer); dispose(); reject(e); });
+const pending = new Map<string, { resolve: (slot: number) => void; reject: (e: Error) => void; deadline: number }>();
+let polling = false;
+setInterval(() => {
+  if (polling || !pending.size) return;
+  polling = true;
+  const sigs = [...pending.keys()].slice(0, 256);
+  opLabel.run("confirm", () => connection.getSignatureStatuses(sigs)).then(({ value }) => {
+    sigs.forEach((sig, i) => {
+      const w = pending.get(sig), st = value[i];
+      if (!w) return;
+      if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) {
+        pending.delete(sig);
+        st.err ? w.reject(new Error(`транзакция ${sig} исполнена с ошибкой ${JSON.stringify(st.err)}`)) : w.resolve(st.slot);
+      } else if (Date.now() > w.deadline) { pending.delete(sig); w.reject(new Error(`транзакция ${sig} не подтверждена за 90 с`)); }
     });
-  });
-  return { listening: Promise.race([listening, done.then(() => {})]), done, cancel: () => { clearTimeout(timer); dispose(); void connection.removeSignatureListener(id); } };
+  }, (e) => { for (const sig of sigs) { pending.get(sig)?.reject(e); pending.delete(sig); } }).finally(() => { polling = false; });
+}, 1_000);
+const confirmation = (sig: string) => {
+  const done = new Promise<number>((resolve, reject) => pending.set(sig, { resolve, reject, deadline: Date.now() + 90_000 }));
+  return { listening: Promise.resolve(), done, cancel: () => { pending.delete(sig); } };
 };
 // A transaction can be dropped on its way to the leader; the client sends the same signed bytes again at a constant
 // interval while its blockhash lives (solana.com/docs/advanced/retry), here every 2 seconds, as RPC nodes forward.
@@ -272,7 +273,7 @@ async function send(b: BondState | undefined, label: string, build: () => Promis
       const tx = new Transaction({ feePayer: signers[0].publicKey, blockhash: hash, lastValidBlockHeight }).add(...ixs);
       tx.sign(...signers);
       const sig = anchor.utils.bytes.bs58.encode(tx.signature!), raw = tx.serialize();
-      // subscribed and acknowledged before sending, so the confirmation cannot come first
+      // registered for confirmation before sending
       const wait = confirmation(sig);
       await wait.listening;
       try {

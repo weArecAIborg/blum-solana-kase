@@ -394,7 +394,7 @@ function render() {
 
   // корпоративные действия
   const nextIdx = d.events.findIndex((e) => !e.done);
-  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r" title="через сколько секунд после начала выплат по условиям сеть подтвердила последнюю выплату события">Выплачено через</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
+  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r" title="Задержка показывает, сколько секунд прошло от начала выплат по условиям выпуска до момента, когда сеть подтвердила последнюю выплату этого события. Экран считает её в реальных секундах по часам сети; в этом демо один день облигации длится одну секунду сети.">Задержка</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
     + d.events.map((ev, i) => {
       const step = nextStep(ev), due = step && now >= ev.recordTime && (step !== "pay" || now >= ev.paymentTime);
       const steps = ["open", "fund", "pay"].map((s) => `<span class="step ${stepDone(ev, s) ? "done" : s === step ? "next" : ""}">${STEP_NAMES[s]}</span>`).join("");

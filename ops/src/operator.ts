@@ -232,7 +232,7 @@ const reason = (e: any) => (e instanceof Refused ? e.message : refusal(e).messag
 // The node pushes a signature's status once it is confirmed (signatureSubscribe: solana.com/docs/rpc/websocket), so a
 // step that depends on the previous one is sent only after it; a transaction not confirmed while its blockhash lives
 // (60 to 90 seconds: solana.com/docs/advanced/confirmation) or confirmed with an error is an error.
-const SUBSCRIPTIONS = 8; // waits at once: the cluster allows 10 subscriptions (x-ratelimit-pubsub-limit), one is the Clock
+const SUBSCRIPTIONS = 4; // waits at once (devnet answered no subscribe request at up to 8 at once besides the Clock)
 let waitingNow = 0;
 // The transaction is sent only once the node has acknowledged the subscription ("subscribed"), so its confirmation
 // cannot come before the node listens; after a reconnection the subscription is acknowledged again and the status is
@@ -240,12 +240,14 @@ let waitingNow = 0;
 // getTransactionConfirmationPromise, through the same subscription-state hook).
 const confirmation = (sig: string) => {
   let id = 0, timer: NodeJS.Timeout, dispose = () => {}, subscribed = false, ready = () => {};
+  const states: string[] = [], t0 = Date.now(), open = Object.keys((connection as any)._subscriptionsByHash).length;
   const listening = new Promise<void>((r) => { ready = r; });
   const done = new Promise<number>((resolve, reject) => {
-    timer = setTimeout(() => { dispose(); void connection.removeSignatureListener(id); reject(new Error(`транзакция ${sig} не подтверждена за 90 с`)); }, 90_000);
+    timer = setTimeout(() => { dispose(); void connection.removeSignatureListener(id); reject(new Error(`транзакция ${sig} не подтверждена за 90 с (подписка: ${states.join(" → ") || "состояний не было"}; подписок при запросе ${open})`)); }, 90_000);
     const settle = (err: unknown, slot: number) => { clearTimeout(timer); dispose(); err ? reject(new Error(`транзакция ${sig} исполнена с ошибкой ${JSON.stringify(err)}`)) : resolve(slot); };
     id = connection.onSignature(sig, (r, ctx) => settle(r.err, ctx.slot), "confirmed");
     dispose = (connection as any)._onSubscriptionStateChange(id, (state: string) => {
+      states.push(`${state} ${((Date.now() - t0) / 1000).toFixed(1)} с`);
       if (state !== "subscribed") return;
       if (!subscribed) { subscribed = true; ready(); return; }
       opLabel.run("confirm", () => connection.getSignatureStatus(sig)).then(({ value }) => {
@@ -563,6 +565,8 @@ async function issue(rt: Runtime) {
       signers: [registrar, bank],
     }), `симуляция: у держателей свои кошельки: SOL на комиссии и депозиты, деньги на покупки (${batch[0]}..${batch[batch.length - 1]})`);
   for (const h of hs) b.cash[h] = b.cashTarget[h];
+  // random trades are decided from the day the bonds are in the holders' wallets, never for a day before it
+  b.decidedDay = Math.floor(bondNow(b) / DAY);
   b.status = "live";
   b.error = undefined;
   note(b, "setup", `выпуск в обращении: ${p.holders} держателей, ${b.trades.length} обязательных сделок у ${b.recordTimes.length} отсечек`);

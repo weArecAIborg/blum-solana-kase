@@ -182,10 +182,12 @@ const u16 = (n: number) => Buffer.from(new Uint16Array([n]).buffer);
 
 // ---------------------------------------------------------------- time, blockhash, block height
 
-// Chain time: the Clock sysvar as the chain pushes it every slot (an account subscription at `processed`), read once
-// at start. The program checks time against the Clock of the slot that executes a transaction, and that Clock does not
-// follow a server's clock (a local validator's stood still for 7 slots and then jumped), so the service takes the time
-// only from the chain: a step due at a moment is sent once the chain's Clock has reached it, never earlier.
+// Chain time: the Clock sysvar as the chain pushes it every slot (an account subscription at `confirmed`, the
+// commitment every transaction is simulated at before it is sent), read once at start. The program checks time
+// against the Clock of the slot that executes a transaction, and that Clock does not follow a server's clock (a local
+// validator's stood still for 7 slots and then jumped), so the service takes the time only from the chain: a step due
+// at a moment is sent once the chain's confirmed Clock has reached it, never earlier (at `processed` the simulation,
+// two slots behind, still refused an event as early: devnet, 2026-10-26).
 let clockAt = { chain: 0, mono: 0 };
 const takeClock = (data: Buffer) => {
   const chain = Number(data.readBigInt64LE(32));
@@ -1304,7 +1306,7 @@ for (const id of fs.readdirSync(DATA)) {
   bonds.set(id, rt);
   for (const s of b.ops.filter((o) => o.state === "pending" && o.raw)) waiting.set(s.sig, { s, b, lastSend: 0, done: () => {} });
 }
-connection.onAccountChange(SYSVAR_CLOCK_PUBKEY, (info) => takeClock(info.data), { commitment: "processed" });
+connection.onAccountChange(SYSVAR_CLOCK_PUBKEY, (info) => takeClock(info.data), { commitment: "confirmed" });
 setInterval(() => readWallets().catch((e) => console.error("wallets", e)), 10_000);
 setInterval(() => balanceVenue().catch((e) => console.error("venue", e)), 60_000);
 balanceVenue().catch((e) => console.error("venue", e));

@@ -128,7 +128,7 @@ class Budget {
       while (m.length && m[0] <= from) m.shift();
       this.methods.set(method, m);
       const wait = Math.max(this.until - now,
-        this.times.length >= LIMIT.total - this.reserved ? this.times[0] + LIMIT.windowMs - now : 0,
+        this.times.length && this.times.length >= LIMIT.total - this.reserved ? this.times[0] + LIMIT.windowMs - now : 0,
         m.length >= LIMIT.perMethod ? m[0] + LIMIT.windowMs - now : 0,
         this.inFlight >= LIMIT.inFlight ? 25 : 0);
       if (wait <= 0) { this.times.push(now); m.push(now); this.inFlight++; return; }
@@ -228,8 +228,22 @@ const reason = (e: any) => {
 
 // Sign, journal, send, wait. The same signed bytes are resent while their blockhash lives; a transaction past its
 // blockhash and absent from the history can no longer land, and only then is it built again (amounts recomputed).
-async function transact(b: BondState | undefined, label: string, build: () => Promise<{ ixs: TransactionInstruction[]; signers: Keypair[] }>) {
+// A step done once (a trade's step, an event's opening or funding, an offer's funding: `once`) first looks in the
+// journal: a confirmed transaction of that step is its result, a pending one is waited for. So a step interrupted by a
+// restart after its transaction was sent continues from the chain instead of sending it again (2026-10-26: two sellers'
+// transactions landed as the service restarted; rebuilt, they were refused, their bonds left in the escrow).
+async function transact(b: BondState | undefined, label: string, build: () => Promise<{ ixs: TransactionInstruction[]; signers: Keypair[] }>, once = false) {
   return opLabel.run(label, async () => {
+    if (once && b) {
+      const prior = [...b.ops].reverse().find((o) => o.label === label && (o.state === "confirmed" || o.state === "pending"));
+      if (prior?.state === "confirmed") return prior;
+      const w = prior && waiting.get(prior.sig);
+      if (w) {
+        const state = await new Promise<Sent["state"]>((done) => { const before = w.done; w.done = (st) => { before(st); done(st); }; });
+        if (state === "confirmed") return prior!;
+        if (state === "failed") throw new Refused(prior!.error!);
+      }
+    }
     for (let attempt = 1; attempt <= 4; attempt++) {
       const { ixs, signers } = await build();
       const { blockhash: hash, lastValidBlockHeight } = await blockhash();
@@ -645,7 +659,7 @@ async function eventStep(rt: Runtime, e: number, step: "open" | "fund" | "pay") 
   const now = bondNow(b), event = a.event(e), vault = a.vault(event);
   if (step === "open") {
     if (now < ev.recordTime) throw new Refused(`${label}: момент отсечки ${localIso(ev.recordTime)} ещё не наступил`);
-    const s = await transact(b, `event:${label} open`, async () => ({ ixs: [await program.methods.openEvent(e).accountsPartial({ payer: registrar.publicKey, bond: a.bond, event, cashMint: a.cashMint, vault, cashTokenProgram: TOKEN_PROGRAM_ID }).instruction()], signers: [registrar] }));
+    const s = await transact(b, `event:${label} open`, async () => ({ ixs: [await program.methods.openEvent(e).accountsPartial({ payer: registrar.publicKey, bond: a.bond, event, cashMint: a.cashMint, vault, cashTokenProgram: TOKEN_PROGRAM_ID }).instruction()], signers: [registrar] }), true);
     const opened: any = coder.accounts.decode("event", (await opLabel.run("event", () => connection.getAccountInfo(event)))!.data);
     ev.openSig = s.sig; ev.budget = opened.budget.toString(); ev.supplyAtRecord = Number(opened.supplyAtRecord);
     note(b, "event", `open_event, ${label}: на отсечку ${ev.supplyAtRecord} облигаций, бюджет ${fmtCash(ev.budget!)}`, s.sig);
@@ -671,6 +685,7 @@ async function eventStep(rt: Runtime, e: number, step: "open" | "fund" | "pay") 
     const lines: string[] = [];
     for (const x of evs) {
       const h = b.holders.find((y) => y.pubkey === x.data.owner.toBase58())!.name;
+      if (ev.paid[h]?.sig === s.sig) continue;
       const amount = (x.name === "couponPaid" ? x.data.amount : x.data.principal).toString();
       ev.paid[h] = { amount: (BigInt(ev.paid[h]?.amount ?? "0") + BigInt(amount)).toString(), sig: s.sig, slot: s.slot, at: await executedAt(b, s.sig) };
       lines.push(x.name === "couponPaid" ? `${h} ${Number(x.data.position)} обл. → ${fmtCash(amount)}` : `${h} сожжено ${Number(x.data.burned)} → ${fmtCash(amount)}`);
@@ -697,10 +712,10 @@ async function eventStep(rt: Runtime, e: number, step: "open" | "fund" | "pay") 
         ixs.push(...first.map((h) => built.get(h)!));
       }
       return { ixs, signers: [registrar, bank] };
-    });
+    }, true);
     ev.fundSig = s.sig;
     note(b, "event", `эмитент вносит бюджет и confirm_funding, ${label}: ${fmtCash(ev.budget!)}, выплаты открыты`, s.sig);
-    if (first.length) await recordPaid(s);
+    await recordPaid(s);
     return;
   }
   if (!ev.fundSig) throw new Refused(`${label}: сначала внести бюджет`);
@@ -774,7 +789,7 @@ async function offerStep(rt: Runtime, id: number, step: "fund" | "settle") {
       const ixs: TransactionInstruction[] = need > 0n ? [createMintToInstruction(a.cashMint, vault, bank.publicKey, need, [], TOKEN_PROGRAM_ID)] : [];
       ixs.push(await program.methods.confirmOfferFunding().accountsPartial({ offer, vault }).instruction());
       return { ixs, signers: [registrar, bank] };
-    });
+    }, true);
     o.fundSig = s.sig; o.funded = true;
     if (o.kind === "buyback") o.done = true;
     note(b, "offer", `эмитент вносит бюджет оферты ${id} и confirm_offer_funding: ${fmtCash((BigInt(o.priceUnits) * BigInt(o.maxQuantity)).toString())}`, s.sig);
@@ -897,7 +912,7 @@ async function tradeStep(rt: Runtime, t: TradeState, settleAt: number, held: str
         const { ix: create } = createDvpInstruction(seller.publicKey, venue.publicKey, seller.publicKey, buyer.publicKey, a.mint, a.cashMint, TOKEN_PROGRAM_ID, dvp.quantity, dvp.cash, dvp.nonce, BigInt(chainNow() + DAY));
         const admit = await admitTradeInstruction(program, seller.publicKey, a.bond, a.mint, dvp.swap, seller.publicKey, buyer.publicKey);
         return { ixs: [create, admit, fundBondLegInstruction(program.programId, a.mint, seller.publicKey, dvp.swap, dvp.quantity)], signers: [seller] };
-      });
+      }, true);
       t.sigs.push(s.sig);
       const moved = (await programEvents(s.sig)).find((x) => x.name === "tradeMoved");
       t.fundedPassed = moved ? Number(moved.data.passed) : undefined;
@@ -919,7 +934,7 @@ async function tradeStep(rt: Runtime, t: TradeState, settleAt: number, held: str
       if (have < dvp.cash) { ixs.push(createMintToInstruction(a.cashMint, a.cashAta(t.to!), bank.publicKey, dvp.cash - have, [], TOKEN_PROGRAM_ID)); signers.push(bank); b.bankTopUps[t.to!] = (BigInt(b.bankTopUps[t.to!] ?? "0") + dvp.cash - have).toString(); }
       ixs.push(fundCashLegInstruction(a.cashMint, TOKEN_PROGRAM_ID, CASH_DECIMALS, buyer.publicKey, dvp.swap, dvp.cash));
       return { ixs, signers };
-    });
+    }, true);
     t.sigs.push(s.sig);
     t.stage = "settle";
     note(b, "trade", `${t.to} кладёт оплату в escrow${tag}`, s.sig);
@@ -927,7 +942,7 @@ async function tradeStep(rt: Runtime, t: TradeState, settleAt: number, held: str
   if (t.stage === "settle") {
     if (bondNow(b) < settleAt) return; // the next tick settles it at its point
     try {
-      const s = await transact(b, `trade:settle ${t.id}`, async () => ({ ixs: [settleDvpInstruction(program.programId, venue.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], signers: [venue] }));
+      const s = await transact(b, `trade:settle ${t.id}`, async () => ({ ixs: [settleDvpInstruction(program.programId, venue.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], signers: [venue] }), true);
       t.sigs.push(s.sig);
       const moved = (await programEvents(s.sig)).find((x) => x.name === "tradeMoved" && x.data.settled);
       t.settledPassed = moved ? Number(moved.data.passed) : undefined;
@@ -941,7 +956,7 @@ async function tradeStep(rt: Runtime, t: TradeState, settleAt: number, held: str
       // bonds to its seller at any time).
       t.note = reason(e);
       note(b, "trade", `расчёт отклонён: ${t.note}${tag}`);
-      const s = await transact(b, `trade:cancel ${t.id}`, async () => ({ ixs: [cancelDvpInstruction(program.programId, venue.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], signers: [venue] }));
+      const s = await transact(b, `trade:cancel ${t.id}`, async () => ({ ixs: [cancelDvpInstruction(program.programId, venue.publicKey, dvp, a.mint, a.cashMint, TOKEN_PROGRAM_ID)], signers: [venue] }), true);
       t.sigs.push(s.sig);
       t.stage = "cancelled";
       t.slot = s.slot;
@@ -1123,12 +1138,22 @@ const paymentsOf = (b: BondState) => Object.fromEntries([
   ...b.offers.flatMap((o) => [...o.actions.filter((x) => x.sell).map((x) => x.sig), ...o.settlements.map((x) => x.sig)].map((sig) => [sig, `offer ${o.id}`])),
 ]);
 // The audit is a separate process with its own RPC client: the service lends it a share of the budget while it runs.
+// One audit at a time (the others wait in turn), so the service always keeps the rest of the budget.
 const AUDIT_SHARE = 30;
+const auditQueue: Runtime[] = [];
+let auditing = false;
 function runAudit(rt: Runtime) {
+  if (rt.b.auditRunning) return;
+  rt.b.auditRunning = true;
+  auditQueue.push(rt);
+  if (!auditing) nextAudit();
+}
+function nextAudit() {
+  const rt = auditQueue.shift();
+  if (!rt) { auditing = false; return; }
+  auditing = true;
   const { b } = rt;
-  if (b.auditRunning) return;
-  b.auditRunning = true;
-  budget.reserved += AUDIT_SHARE;
+  budget.reserved = AUDIT_SHARE;
   const dir = dirOf(b.id), scn = path.join(dir, "scenario.public.json"), pays = path.join(dir, "payments.json");
   const scenario = JSON.stringify(publicScenario(b), null, 1);
   fs.writeFileSync(scn, scenario);
@@ -1139,10 +1164,11 @@ function runAudit(rt: Runtime) {
   };
   execFile(PYTHON, [path.join(ROOT, "tools/audit/audit_json.py"), scn, RPC, pays], { cwd: ROOT, maxBuffer: 64 << 20, env: { ...process.env, AUDIT_MAX_REQUESTS_PER_10S: String(AUDIT_SHARE) } }, (err, stdout, stderr) => {
     b.auditRunning = false;
-    budget.reserved -= AUDIT_SHARE;
-    if (err && !stdout) { b.auditError = (stderr || String(err)).slice(-2000); save(b); return; }
-    try { b.audit = { ...JSON.parse(stdout), evidence, at: new Date().toISOString() }; b.auditError = undefined; } catch { b.auditError = (stderr || stdout).slice(-2000); }
+    budget.reserved = 0;
+    if (err && !stdout) b.auditError = (stderr || String(err)).slice(-2000);
+    else try { b.audit = { ...JSON.parse(stdout), evidence, at: new Date().toISOString() }; b.auditError = undefined; } catch { b.auditError = (stderr || stdout).slice(-2000); }
     save(b);
+    nextAudit();
   });
 }
 

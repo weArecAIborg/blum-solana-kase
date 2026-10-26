@@ -1015,7 +1015,8 @@ function view(rt: Runtime, since: number) {
     issueTime: b.issueTime, maturityTime: b.maturityTime, recordTimes: b.recordTimes, schedule: b.schedule, utcOffsetHours: RULES.utcOffsetHours,
     terms: { faceUnits: (BigInt(b.params.face) * UNIT).toString(), rateBps: Math.round(b.params.ratePct * 100), periodsPerYear: b.params.periodsPerYear, redemptionPriceBps: b.params.redemptionPct * 100, cashDecimals: CASH_DECIMALS },
     events: b.events.map((e) => ({
-      ...e, lateDays: Object.values(e.paid).length ? Math.max(...Object.values(e.paid).map((x) => Math.max(0, Math.floor((x.at - e.paymentTime) / DAY)))) : null,
+      // seconds from the payment's opening by the terms to the last holder's payment confirmed (one bond day is one chain second)
+      ...e, paidAfterSeconds: Object.values(e.paid).length ? Math.max(...Object.values(e.paid).map((x) => Math.max(0, Math.round((x.at - e.paymentTime) / DAY)))) : null,
     })),
     offers: b.offers.map(({ plans, ...o }) => ({ ...o, waiting: plans.length })),
     trades: b.trades.filter((t) => t.stage !== "planned").map((t) => ({ ...t, place: t.kind === "mandatory" ? `отсечка ${t.k! + 1}, ${POINT_NAMES[t.point!]}` : "случайная" })),

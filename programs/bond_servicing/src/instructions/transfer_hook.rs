@@ -88,21 +88,23 @@ pub fn handle_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<(
         require!(source.position.quantity == source_before, BondError::PositionMismatch);
         source.position.quantity = a.source_token.amount;
         let settled = destination.owner != source.escrow_of;
+        let mut passed = None;
         if settled {
             let seller_info = a.seller_holder.to_account_info();
             let expected = Pubkey::find_program_address(&[HOLDER_SEED, a.mint.key().as_ref(), source.escrow_of.as_ref()], &crate::ID).0;
             require_keys_eq!(seller_info.key(), expected, BondError::EscrowDestination);
             let mut seller = read_record(&seller_info)?;
             require_keys_eq!(seller.owner, source.escrow_of, BondError::EscrowDestination);
-            let passed = bond.passed_record_moments_from(now, seller.position.live_from.max(destination.position.live_from))?;
+            let moved = bond.passed_record_moments_from(now, seller.position.live_from.max(destination.position.live_from))?;
+            passed = Some(moved);
             // The seller's position loses the bonds; what it holds in escrows shrinks by the same amount.
             seller.escrowed = seller.escrowed.checked_sub(amount).ok_or(BondError::Overflow)?;
             let seller_before = seller.position.quantity;
             let seller_after = seller_before.checked_sub(amount).ok_or(BondError::Overflow)?;
-            save_and_set(&mut seller, bond.key(), passed, seller_after)?;
+            save_and_set(&mut seller, bond.key(), moved, seller_after)?;
             check_balance(&seller, seller.expected_balance())?; // unchanged balance, consistent position
             let destination_after = destination.position.quantity.checked_add(amount).ok_or(BondError::Overflow)?;
-            save_and_set(destination, bond.key(), passed, destination_after)?;
+            save_and_set(destination, bond.key(), moved, destination_after)?;
             check_balance(destination, a.destination_token.amount)?;
             seller.try_serialize(&mut &mut seller_info.try_borrow_mut_data()?[..])?;
         } else {
@@ -110,7 +112,8 @@ pub fn handle_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<(
             destination.escrowed = destination.escrowed.checked_sub(amount).ok_or(BondError::Overflow)?;
             check_balance(destination, a.destination_token.amount)?;
         }
-        emit!(TradeMoved { bond: bond.key(), swap_dvp: source.owner, seller: source.escrow_of, to: destination.owner, quantity: amount, settled });
+        let passed = match passed { Some(p) => p, None => bond.passed_record_moments(now)? };
+        emit!(TradeMoved { bond: bond.key(), swap_dvp: source.owner, seller: source.escrow_of, to: destination.owner, quantity: amount, settled, passed });
         source.try_serialize(&mut &mut a.source_holder.try_borrow_mut_data()?[..])?;
         destination.try_serialize(&mut &mut a.destination_holder.try_borrow_mut_data()?[..])?;
         return Ok(());
@@ -129,7 +132,7 @@ pub fn handle_transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<(
         source.escrowed = source.escrowed.checked_add(amount).ok_or(BondError::Overflow)?;
         require!(destination.position.quantity == destination_before, BondError::PositionMismatch);
         destination.position.quantity = a.destination_token.amount;
-        emit!(TradeMoved { bond: bond.key(), swap_dvp: destination.owner, seller: source.owner, to: destination.owner, quantity: amount, settled: false });
+        emit!(TradeMoved { bond: bond.key(), swap_dvp: destination.owner, seller: source.owner, to: destination.owner, quantity: amount, settled: false, passed });
         source.try_serialize(&mut &mut a.source_holder.try_borrow_mut_data()?[..])?;
         destination.try_serialize(&mut &mut a.destination_holder.try_borrow_mut_data()?[..])?;
         return Ok(());

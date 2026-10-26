@@ -141,6 +141,7 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
         комиссии; он же держит кошелёк площадки пополненным. Оценка видна перед выпуском. Если SOL не хватает, откройте
         faucet, вставьте адрес registrar и запросите devnet SOL.</p>
       <div class="row"><button id="w-copy">Скопировать адрес</button><span class="msg muted" id="w-copied"></span></div>
+      <p class="muted mono" id="w-rpc"></p>
     </div>
   </section>
 
@@ -154,7 +155,7 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
         <label class="f">Номинал<input name="face" type="number" min="1" step="1" required></label>
         <label class="f">Ставка, % годовых<input name="ratePct" type="number" min="0.01" max="100" step="0.01" required></label>
         <label class="f">Цена погашения, % номинала<input name="redemptionPct" type="number" min="50" max="200" step="1" required></label>
-        <label class="f">Держателей<input name="holders" type="number" min="2" max="20" step="1" required></label>
+        <label class="f">Держателей (20)<input name="holders" type="number" min="20" max="20" step="1" required></label>
         <label class="f">Облигаций в выпуске<input name="issueSize" type="number" min="2" step="1" required></label>
         <label class="f">Сделок на держателя за срок, не больше<input name="maxTradesPerHolder" type="number" min="0" max="50" step="1" required></label>
         <label class="f">Склонность к сделкам в начале срока (вероятность в день)<input name="propensityStart" type="number" min="0" max="1" step="0.001" required></label>
@@ -176,11 +177,12 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
       <div><span class="k">В обращении</span><span class="t" id="c-supply">·</span><span class="s">облигаций</span></div>
       <div><span class="k">Сделок через DvP</span><span class="t" id="c-trades">·</span><span class="s" id="c-trades-s"></span></div>
       <div><span class="k">Выплачено держателям</span><span class="t" id="c-paid">·</span><span class="s">купоны и номинал</span></div>
+      <div><span class="k">Транзакций выпуска</span><span class="t" id="c-cost">·</span><span class="s" id="c-cost-s"></span></div>
     </div>
     <div class="track" id="track"></div>
 
     <div class="win cut">
-      <div class="bar"><i></i><i></i><i></i><span>Корпоративные действия: известны из условий выпуска</span><em>шаги: открыть → внести бюджет → подтвердить → выплатить</em></div>
+      <div class="bar"><i></i><i></i><i></i><span>Корпоративные действия: известны из условий выпуска</span><em>шаги: открыть → внести бюджет и подтвердить → выплатить</em></div>
       <div class="scroll"><table id="events"></table></div>
     </div>
 
@@ -197,6 +199,11 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
         </div>
         <div class="row"><button type="submit">Добавить оферту</button><span class="msg" id="o-msg"></span></div>
       </form>
+    </div>
+
+    <div class="win cut">
+      <div class="bar"><i></i><i></i><i></i><span>Обязательные сделки у отсечек</span><em>по 2 сделки за день до отсечки, в её момент и через день после; исход по часам программы</em></div>
+      <div class="scroll"><table id="mandatory"></table></div>
     </div>
 
     <div class="main-grid">
@@ -254,6 +261,8 @@ async function loadState() {
     $("#w-addr").textContent = state.registrar;
     $("#w-sol").textContent = `${state.sol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
     $("#w-faucet").href = state.faucet;
+    const top = Object.entries(state.rpcCounts.method).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([m, n]) => `${m} ${n}`).join(", ");
+    $("#w-rpc").textContent = `запросов к RPC с запуска сервиса: ${state.rpcCounts.total} (лимит ${state.rpcLimit.total} за 10 с, ${state.rpcLimit.perMethod} на метод), отказов 429: ${state.rpcCounts.limited}; ${top}`;
     $("#w-venue").textContent = `${state.venue.slice(0, 6)}…${state.venue.slice(-4)} · ${state.venueSol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
     $("#prog").textContent = `программа ${state.programId}`;
     $("#b-count").textContent = `${state.bonds.length}`;
@@ -294,9 +303,9 @@ form.addEventListener("submit", async (e) => {
 });
 
 // ---------------- выпуск
-let current = null, data = null, openHolder = null, poll = null;
+let current = null, data = null, openHolder = null, poll = null, ledgerRows = [];
 function select(id) {
-  current = id; openHolder = null;
+  current = id; openHolder = null; ledgerRows = [];
   history.replaceState(null, "", `#${id}`);
   $("#bond").hidden = false;
   clearInterval(poll); refresh(); poll = setInterval(refresh, 2000);
@@ -304,11 +313,13 @@ function select(id) {
 }
 async function refresh() {
   if (!current) return;
-  try { data = await api(`/api/bonds/${current}`); render(); }
+  try { data = await api(`/api/bonds/${current}?since=${ledgerRows.length}`); render(); }
   catch (e) { $("#b-status").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
-const STEP_NAMES = { open: "открыть", fund: "внести бюджет", confirm: "подтвердить", pay: "выплатить" };
-const nextStep = (ev) => !ev.open ? "open" : !ev.fund ? "fund" : !ev.confirm ? "confirm" : !ev.done ? "pay" : null;
+const STEP_NAMES = { open: "открыть", fund: "внести бюджет и подтвердить", pay: "выплатить" };
+const nextStep = (ev) => !ev.openSig ? "open" : !ev.fundSig ? "fund" : !ev.done ? "pay" : null;
+const stepDone = (ev, s) => (s === "open" ? !!ev.openSig : s === "fund" ? !!ev.fundSig : ev.done);
+const POINT = { "-1": "за день до", "0": "в момент", "1": "через день" };
 
 function render() {
   const d = data;
@@ -323,8 +334,11 @@ function render() {
     + d.offers.reduce((s, o) => s + o.actions.reduce((t, a) => t + Number(a.paid ?? 0), 0) + o.settlements.reduce((t, x) => t + Number(x.paid), 0), 0);
   $("#c-time").textContent = d.bondNow ? dateOf(d.bondNow, true) : "·";
   $("#c-supply").textContent = supply;
-  $("#c-trades").textContent = d.trades.filter((t) => t.settled).length;
-  $("#c-trades-s").textContent = `у отсечек ${d.trades.filter((t) => t.settled && t.around).length} · не рассчитано ${d.trades.filter((t) => !t.settled).length}${d.pending ? ` · в очереди ${d.pending}` : ""}`;
+  const mand = d.trades.filter((t) => t.kind === "mandatory");
+  $("#c-trades").textContent = d.trades.filter((t) => t.stage === "settled").length;
+  $("#c-trades-s").textContent = `обязательных выполнено ${mand.filter((t) => t.outcome.ok).length} из ${mand.length} · случайных ${d.trades.filter((t) => t.kind === "random" && t.stage === "settled").length}`;
+  $("#c-cost").textContent = `${d.cost.transactions}`;
+  $("#c-cost-s").textContent = `подписей ${d.cost.signatures} · комиссии ${d.cost.feesSol.toFixed(4)} SOL · депозиты ${d.cost.depositsSol === null ? "·" : d.cost.depositsSol.toFixed(4)} SOL${d.cost.pending ? ` · ждут ${d.cost.pending}` : ""}`;
   $("#c-paid").textContent = money(paidTotal);
 
   // шкала: выпуск, отсечки, погашение
@@ -334,16 +348,17 @@ function render() {
 
   // корпоративные действия
   const nextIdx = d.events.findIndex((e) => !e.done);
-  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r">Счёт</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
+  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r">Счёт</th><th class="r">Опоздание</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
     + d.events.map((ev, i) => {
       const step = nextStep(ev), due = step && now >= ev.recordTime && (step !== "pay" || now >= ev.paymentTime);
-      const steps = ["open", "fund", "confirm", "pay"].map((s) => `<span class="step ${ev[s] || (s === "pay" && ev.done) ? "done" : s === step ? "next" : ""}">${STEP_NAMES[s]}</span>`).join("");
+      const steps = ["open", "fund", "pay"].map((s) => `<span class="step ${stepDone(ev, s) ? "done" : s === step ? "next" : ""}">${STEP_NAMES[s]}</span>`).join("");
       const paid = Object.keys(ev.paid).length;
       return `<tr class="${i === nextIdx ? "now" : ""}">
-        <td><b>${ev.kind === "coupon" ? `Купон ${ev.index + 1}` : "Погашение"}</b>${paid ? `<br><span class="muted">выплачено ${paid}</span>` : ""}${ev.error ? `<br><span class="err">${esc(ev.error)}</span>` : ""}</td>
+        <td><b>${ev.kind === "coupon" ? `Купон ${ev.index + 1}` : "Погашение"}</b>${paid ? `<br><span class="muted">выплачено ${paid}</span>` : ""}${ev.waiting && ev.waiting.length ? `<br><span class="cut">ждут escrow или tender: ${ev.waiting.join(", ")}</span>` : ""}${ev.error && !ev.done ? `<br><span class="err">${esc(ev.error)}</span>` : ""}</td>
         <td class="mono">${dateOf(ev.recordTime, true)}</td><td class="mono">${dateOf(ev.paymentTime, true)}</td>
         <td class="r mono">${ev.supplyAtRecord ?? "·"}</td><td class="r mono">${ev.budget ? money(ev.budget) : "·"}</td>
-        <td class="r mono">${d.vaults && d.vaults[i] !== null && d.vaults[i] !== undefined ? money(d.vaults[i]) : "·"}</td>
+        <td class="r mono">${ev.vault !== null ? money(ev.vault) : "·"}</td>
+        <td class="r mono">${ev.lateDays === null ? "·" : ev.lateDays === 0 ? '<span class="ok">в срок</span>' : `<span class="bad">${ev.lateDays} дн.</span>`}</td>
         <td><div class="steps">${steps}</div></td>
         <td><input type="checkbox" data-auto="${i}" ${ev.auto ? "checked" : ""} ${ev.done || !mine ? "disabled" : ""} style="width:auto"></td>
         <td>${step ? `<button data-step="${i}" data-s="${step}" ${ev.auto || !due || !mine ? "disabled" : ""} title="${!due ? "время шага не наступило" : ev.auto ? "снимите галку «авто»" : ""}">${STEP_NAMES[step]}</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
@@ -352,20 +367,29 @@ function render() {
   // оферты
   $("#offers").innerHTML = d.offers.length ? `<tr><th>Оферта</th><th>Окно</th><th class="r">Цена</th><th class="r">Объём</th><th>Ответы держателей</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
     + d.offers.map((o) => {
-      const step = !o.fund ? "fund" : !o.confirm ? "confirm" : o.kind === "tender" && !o.settled ? "settle" : null;
-      const names = { fund: "внести бюджет", confirm: "подтвердить", settle: "завершить" };
+      const step = !o.funded ? "fund" : o.kind === "tender" && !o.done ? "settle" : null;
+      const names = { fund: "внести бюджет и подтвердить", settle: "рассчитать заявки" };
       const due = step && (step !== "settle" || now >= o.close);
       const answers = o.actions.map((a) => `${a.holder}: ${a.sell ? `продал ${a.sell}` : `заявил ${a.tender}`} ${tx(a.sig)}`).join("<br>")
         + (o.settlements.length ? "<br>" + o.settlements.map((x) => `${x.holder}: выкуплено ${x.burned} ${tx(x.sig)}`).join("<br>") : "")
-        + (o.waiting ? `<br><span class="muted">ещё решают: ${o.waiting}</span>` : "");
+        + (o.waiting ? `<br><span class="muted">ещё решают: ${o.waiting}</span>` : "")
+        + `<br><span class="muted">участвуют ${o.participants.length}, не участвуют ${o.others.length}</span>`;
       return `<tr><td><b>${o.id} · ${o.kind === "tender" ? "tender" : "buyback"}</b>${o.error ? `<br><span class="err">${esc(o.error)}</span>` : ""}</td>
         <td class="mono">${dateOf(o.open)} … ${dateOf(o.close)}</td><td class="r mono">${money(o.priceUnits)}</td><td class="r mono">${o.maxQuantity}</td>
         <td>${answers || '<span class="muted">·</span>'}</td>
-        <td><div class="steps">${["fund", "confirm", ...(o.kind === "tender" ? ["settle"] : [])].map((s) => `<span class="step ${(s === "fund" && o.fund) || (s === "confirm" && o.confirm) || (s === "settle" && o.settled) ? "done" : s === step ? "next" : ""}">${names[s]}</span>`).join("")}</div></td>
+        <td><div class="steps">${["fund", ...(o.kind === "tender" ? ["settle"] : [])].map((s) => `<span class="step ${(s === "fund" && o.funded) || (s === "settle" && o.done) ? "done" : s === step ? "next" : ""}">${names[s]}</span>`).join("")}</div></td>
         <td><input type="checkbox" data-oauto="${o.id}" ${o.auto ? "checked" : ""} ${o.done || !mine ? "disabled" : ""} style="width:auto"></td>
         <td>${step ? `<button data-ostep="${o.id}" data-s="${step}" ${o.auto || !due || !mine ? "disabled" : ""}>${names[step]}</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
     }).join("") : '<tr><td class="muted">Оферт нет. Добавьте ниже: вид, цену, объём и окно; окно закрывается до последней отсечки.</td></tr>';
   $("#offer-form").hidden = d.status !== "live" || !mine;
+
+  // обязательные сделки у каждой отсечки
+  $("#mandatory").innerHTML = `<tr><th>Отсечка</th><th>Точка</th><th>Сделка</th><th>Escrow до отсечки</th><th>Расчёт</th><th>Исход</th><th>Транзакции</th></tr>`
+    + mand.map((t) => `<tr><td class="mono">${t.k + 1} · ${dateOf(d.recordTimes[t.k])}</td><td>${POINT[t.point]}</td>
+      <td>${t.from ? `${t.from} → ${t.to}, ${t.amount} обл.` : '<span class="muted">·</span>'}</td>
+      <td>${t.fundedPassed === undefined ? "·" : t.fundedPassed === t.k ? '<span class="ok">да</span>' : "нет"}</td>
+      <td class="mono">${t.settledAt ? dateOf(t.settledAt, true) : "·"}</td>
+      <td class="${t.outcome.ok ? "ok" : t.outcome.text === "идёт" ? "muted" : "bad"}">${esc(t.outcome.text)}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
   $("#a-run").disabled = !mine;
 
   // реестр: облигации сейчас, позиция на каждую прошедшую отсечку, получено по каждому событию
@@ -391,10 +415,12 @@ function render() {
   }).join("");
   $("#reg").innerHTML = head + rows;
 
-  // ledger
-  $("#l-count").textContent = `${d.ledger.filter((l) => l.sig).length} транзакций`;
+  // ledger: новые строки по курсору
+  if (d.ledgerSize < ledgerRows.length) ledgerRows = [];
+  ledgerRows.push(...d.ledger.filter((l) => l.n >= ledgerRows.length));
+  $("#l-count").textContent = `${ledgerRows.filter((l) => l.sig).length} транзакций`;
   const lg = $("#ledger"), atBottom = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
-  lg.querySelector("ol").innerHTML = d.ledger.map((l) => `<li class="${l.kind}"><span class="d">${dateOf(l.bond, true)}</span><span class="x">${esc(l.text)}</span>${tx(l.sig)}</li>`).join("");
+  lg.querySelector("ol").innerHTML = ledgerRows.map((l) => `<li class="${l.kind}"><span class="d">${dateOf(l.bond, true)}</span><span class="x">${esc(l.text)}</span>${tx(l.sig)}</li>`).join("");
   if (atBottom) lg.scrollTop = lg.scrollHeight;
 
   // аудит
@@ -412,7 +438,7 @@ function render() {
 function holderDetail(h) {
   const a = data.audit && data.audit.holders[h.name];
   const trades = data.trades.filter((t) => t.from === h.name || t.to === h.name);
-  const tradeRows = trades.map((t) => `<tr><td class="mono">${dateOf(t.at, true)}</td><td>${t.from === h.name ? `продаёт ${t.to}` : `покупает у ${t.from}`} ${t.amount} обл. за ${money(t.cash)}${t.around ? `<br><span class="cut">${esc(t.around)}</span>` : ""}</td><td>${t.settled ? "рассчитана DvP" : `<span class="bad">не рассчитана</span>${t.refused ? `<br><span class="muted">${esc(t.refused)}</span>` : ""}`}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
+  const tradeRows = trades.filter((t) => t.from).map((t) => `<tr><td class="mono">${dateOf(t.settledAt ?? t.startedAt ?? 0, true)}</td><td>${t.from === h.name ? `продаёт ${t.to}` : `покупает у ${t.from}`} ${t.amount ?? "·"} обл. за ${t.cash ? money(t.cash) : "·"}${t.kind === "mandatory" ? `<br><span class="cut">отсечка ${t.k + 1}, ${POINT[t.point]}</span>` : ""}</td><td>${t.stage === "settled" ? "рассчитана DvP" : `<span class="bad">${{ cancelled: "отменена", refused: "не допущена", missed: "пропущена" }[t.stage] ?? "идёт"}</span>${t.note ? `<br><span class="muted">${esc(t.note)}</span>` : ""}`}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
   const audit = a ? `<table><tr><th>Событие</th><th class="r">Облигаций на отсечку (аудит по сделкам)</th><th class="r">Причитается по условиям</th><th class="r">Получено в Solana</th><th>Транзакции</th></tr>`
     + a.events.map((e) => `<tr><td>${e.kind === "coupon" ? `Купон ${e.k + 1} · ${data.audit.recordDates[e.k]}` : "Погашение"}</td><td class="r mono">${e.pos}</td><td class="r mono">${money(e.expected)}</td><td class="r mono ${e.expected === e.measured ? "ok" : "bad"}">${money(e.measured)}</td><td>${(e.sigs || []).map(tx).join(" ")}</td></tr>`).join("")
     + a.offers.expected.map((x, i) => { const m = a.offers.measured[i]; return `<tr><td>Оферта${m && m.label ? ` ${esc(String(m.label).replace("offer ", ""))}` : ""}: выкуплено ${x.bonds}</td><td class="r mono">·</td><td class="r mono">${money(x.amount)}</td><td class="r mono ${m && m.amount === x.amount ? "ok" : "bad"}">${m ? money(m.amount) : "·"}</td><td>${m ? tx(m.sig) : ""}</td></tr>`; }).join("")

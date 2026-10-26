@@ -86,6 +86,8 @@ pub struct BondsBoughtBack {
     pub owner: Pubkey,
     pub burned: u64,
     pub paid: u64,
+    /// Record moments passed by the program's clock when the bonds were retired: the phase the burn belongs to.
+    pub passed: u16,
 }
 
 #[event]
@@ -128,6 +130,8 @@ pub struct TradeMoved {
     pub to: Pubkey,
     pub quantity: u64,
     pub settled: bool,
+    /// Record moments passed by the program's clock at this move: on settlement, the phase the trade belongs to.
+    pub passed: u16,
 }
 
 #[event]

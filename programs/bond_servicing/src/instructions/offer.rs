@@ -203,7 +203,7 @@ fn buy_back(r: &mut Retirement, offer_id: u16, price_units: u64, quantity: u64) 
         seeds,
     )?;
     retire_quantity(&mut r.holder, &mut r.bond, bond_key, passed, quantity)?;
-    emit!(BondsBoughtBack { bond: bond_key, offer: offer_id, owner: r.holder.owner, burned: quantity, paid });
+    emit!(BondsBoughtBack { bond: bond_key, offer: offer_id, owner: r.holder.owner, burned: quantity, paid, passed });
     Ok(paid)
 }
 

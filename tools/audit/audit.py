@@ -10,6 +10,7 @@ Exit code 1 if any check fails.
 """
 
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -81,6 +82,11 @@ class Rpc:
         self.url = url
         host = urllib.parse.urlparse(url).netloc.replace(":", "_")
         self.cache = ROOT / "ops/out/rpc-cache" / host
+        # A process sharing an RPC budget (the operator screen's service) sets how many requests per 10 s it may send;
+        # run on its own, the audit sends at the pace the node allows.
+        limit = os.environ.get("AUDIT_MAX_REQUESTS_PER_10S")
+        self.limit = int(limit) if limit else None
+        self.sent = []
 
     def call(self, method, params, slot=None):
         if method == "getTransaction":
@@ -101,6 +107,14 @@ class Rpc:
         request, up to 8 times."""
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
         for attempt in range(8):
+            if self.limit:
+                while True:
+                    now = time.monotonic()
+                    self.sent = [t for t in self.sent if t > now - 10]
+                    if len(self.sent) < self.limit:
+                        break
+                    time.sleep(self.sent[0] + 10 - now)
+                self.sent.append(time.monotonic())
             req = urllib.request.Request(self.url, body, {"Content-Type": "application/json"})
             try:
                 with urllib.request.urlopen(req, timeout=60) as resp:
@@ -136,12 +150,12 @@ def measure_state(rpc, mint, program, source, history_accounts=()):
     """
     state = {}
     if source == "program-accounts":
-        accounts = rpc.call("getProgramAccounts", [program, {"encoding": "jsonParsed",
+        accounts = rpc.call("getProgramAccounts", [program, {"encoding": "jsonParsed", "commitment": COMMITMENT,
                                                             "filters": [{"memcmp": {"offset": 0, "bytes": mint}}]}])
         parsed_list = [(a["pubkey"], a["account"]["data"]["parsed"]) for a in accounts]
     elif source == "largest-accounts":
-        addresses = [a["address"] for a in rpc.call("getTokenLargestAccounts", [mint])["value"]]
-        infos = rpc.call("getMultipleAccounts", [addresses, {"encoding": "jsonParsed"}])["value"] if addresses else []
+        addresses = [a["address"] for a in rpc.call("getTokenLargestAccounts", [mint, {"commitment": COMMITMENT}])["value"]]
+        infos = rpc.call("getMultipleAccounts", [addresses, {"encoding": "jsonParsed", "commitment": COMMITMENT}])["value"] if addresses else []
         parsed_list = [(addr, info["data"]["parsed"]) for addr, info in zip(addresses, infos) if info]
     elif source == "history-accounts":
         # Every token account the runtime recorded in channel H, read now. Tokens held anywhere else would make
@@ -150,7 +164,7 @@ def measure_state(rpc, mint, program, source, history_accounts=()):
         parsed_list = []
         for i in range(0, len(addresses), 100):
             batch = addresses[i:i + 100]
-            infos = rpc.call("getMultipleAccounts", [batch, {"encoding": "jsonParsed"}])["value"]
+            infos = rpc.call("getMultipleAccounts", [batch, {"encoding": "jsonParsed", "commitment": COMMITMENT}])["value"]
             parsed_list += [(addr, info["data"]["parsed"]) for addr, info in zip(batch, infos) if info]
     else:
         raise ValueError(f"unknown state source {source}")
@@ -158,14 +172,19 @@ def measure_state(rpc, mint, program, source, history_accounts=()):
         if parsed["type"] != "account" or parsed["info"]["mint"] != mint:
             continue
         state[pubkey] = {"owner": parsed["info"]["owner"], "amount": int(parsed["info"]["tokenAmount"]["amount"])}
-    supply = int(rpc.call("getTokenSupply", [mint])["value"]["amount"])
+    supply = int(rpc.call("getTokenSupply", [mint, {"commitment": COMMITMENT}])["value"]["amount"])
     return state, supply
+
+
+# Every read at one commitment: the history and the state it is checked against see the same ledger (2026-10-26: state
+# read at the default, finalized, lacked the vaults of the last two events, opened 13 seconds earlier).
+COMMITMENT = "confirmed"
 
 
 def signatures(rpc, address):
     sigs, before = [], None
     while True:
-        opts = {"limit": 1000, "commitment": "confirmed"}
+        opts = {"limit": 1000, "commitment": COMMITMENT}
         if before:
             opts["before"] = before
         page = rpc.call("getSignaturesForAddress", [address, opts])
@@ -188,7 +207,7 @@ def measure_history(rpc, addresses):
     txs = []
     for sig in seen:
         tx = rpc.call("getTransaction", [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0,
-                                               "commitment": "confirmed"}], seen[sig]["slot"])
+                                               "commitment": COMMITMENT}], seen[sig]["slot"])
         keys = [k["pubkey"] for k in tx["transaction"]["message"]["accountKeys"]]
         meta = tx["meta"]
         balances = defaultdict(lambda: {"pre": 0, "post": 0, "owner": None, "mint": None})
@@ -198,6 +217,7 @@ def measure_history(rpc, addresses):
                 entry[side] = int(b["uiTokenAmount"]["amount"])
                 entry["owner"], entry["mint"] = b.get("owner"), b["mint"]
         minted, burned = defaultdict(int), defaultdict(int)
+        minted_to = defaultdict(int)  # per destination account
         instructions = list(tx["transaction"]["message"]["instructions"])
         for inner in meta.get("innerInstructions") or []:
             instructions += inner["instructions"]
@@ -215,13 +235,14 @@ def measure_history(rpc, addresses):
             kind = parsed["type"].lower()
             if kind in ("mintto", "minttochecked"):
                 minted[info["mint"]] += int(amount)
+                minted_to[info["account"]] += int(amount)
             elif "burn" in kind and "mint" in info and amount is not None:
                 burned[info["mint"]] += int(amount)
         txs.append({
             "signature": sig, "slot": tx["slot"], "blockTime": tx["blockTime"], "failed": meta["err"] is not None,
             "deltas": {acct: {"owner": b["owner"], "mint": b["mint"], "delta": b["post"] - b["pre"]}
                        for acct, b in balances.items()},
-            "minted": dict(minted), "burned": dict(burned),
+            "minted": dict(minted), "minted_to": dict(minted_to), "burned": dict(burned),
             "programs": {ix.get("programId") for ix in instructions if ix.get("programId")},
         })
     txs.sort(key=lambda t: (t["slot"], t["blockTime"] or 0))
@@ -236,21 +257,49 @@ def record_moment_unix(date_iso, local_hhmm, utc_offset_hours):
     return int(datetime(y, m, d, h, mi, tzinfo=timezone(timedelta(hours=utc_offset_hours))).timestamp())
 
 
+def accepted_shares(offer, tendered):
+    """Each tender's accepted bonds: everything tendered if the offer is not oversubscribed, else, in tender-number
+    order (the scenario's settlements name each holder's number; otherwise the order of the tenders), the running-total
+    pro-rata share minus what the earlier tenders received, so the offer buys exactly its maximum."""
+    numbers = {x["holder"]: x["number"] for x in offer.get("settlements", []) if "number" in x}
+    order = sorted(tendered.items(), key=lambda kv: numbers.get(kv[0], float("inf")))
+    total, mx = sum(tendered.values()), offer["maxQuantity"]
+    shares, before = {}, 0
+    for h, q in order:
+        shares[h] = q if total <= mx else (before + q) * mx // total - before * mx // total
+        before += q
+    return shares
+
+
 def timeline(placements, trades, offers, record_times):
     """Positions over the bond's life from the scenario alone, in the operator's order. After each record moment k
     (phase -1: before the first record moment): the trades of phase k, then the offer actions of phase k (buyback sales
     retire bonds at once; tenders and withdrawals only count). A tender offer is settled in the phase its scenario names
     (`settledAfterRecordMoment`: the operator screen records the phase the program saw), else in the first phase whose
     next record moment comes after the offer's close: everything tendered if the offer is not oversubscribed, else, in
-    tender order, each tender's running-total pro-rata share minus that of the tenders before it. When the scenario
-    gives each trade, sale and tender settlement its ledger `slot` (the operator screen does), they apply in that order
-    within the phase; tenders and withdrawals move no bonds and only count.
+    tender order, each tender's running-total pro-rata share minus that of the tenders before it. A tender offer whose
+    scenario lists `settlements` (holder, tender `number`, `afterRecordMoment`: the operator screen records the phase
+    the program saw for each) retires each holder's accepted bonds in that holder's own phase, the shares taken in
+    tender-number order. When the scenario gives each trade, sale and tender settlement its ledger `slot`, they apply
+    in that order within the phase; tenders and withdrawals move no bonds and only count.
+    A Solana DvP trade moves the seller's bonds into its escrow when the seller funds it (`fundSlot`) and to the buyer
+    at settlement (`slot`); the position stays the seller's until settlement, so positions change at settlement, while
+    each holder's movements follow the ledger: the seller's at funding. A cancelled trade (`cancelled`) moves the
+    seller's bonds out at funding and back at cancellation and changes no position. When every movement of a holder has
+    its slot, that holder's movements are in slot order.
     Returns the positions at each record moment, the final positions, each holder's bond movements and retirements
     (burned, cash) in ledger order, and the offers' total budget."""
     pos = defaultdict(int, placements)
-    moves = defaultdict(list)
+    moves = defaultdict(list)  # holder -> [(ledger slot or None, delta)], in the order applied
+
+    def move(h, delta, slot):
+        moves[h].append((slot, delta))
+
     for h, n in placements.items():
-        moves[h].append(n)
+        move(h, n, 0)
+    for tr in (x for x in trades if x.get("cancelled")):
+        move(tr["from"], -tr["amount"], tr.get("fundSlot"))
+        move(tr["from"], tr["amount"], tr.get("slot"))
     retire = defaultdict(list)
     at_record = []
     tendered = {o["id"]: {} for o in offers}
@@ -259,9 +308,9 @@ def timeline(placements, trades, offers, record_times):
     def close_time(o):
         return record_times[o["close"]["recordMoment"]] + o["close"]["plusDays"] * 86_400
 
-    def retire_now(h, q, price):
+    def retire_now(h, q, price, slot):
         pos[h] -= q
-        moves[h].append(-q)
+        move(h, -q, slot)
         retire[h].append((q, q * price))
 
     for k in range(-1, len(record_times)):
@@ -272,20 +321,28 @@ def timeline(placements, trades, offers, record_times):
         def trade(tr):
             pos[tr["from"]] -= tr["amount"]
             pos[tr["to"]] += tr["amount"]
-            moves[tr["from"]].append(-tr["amount"])
-            moves[tr["to"]].append(tr["amount"])
+            move(tr["from"], -tr["amount"], tr.get("fundSlot", tr.get("slot")))
+            move(tr["to"], tr["amount"], tr.get("slot"))
 
-        for i, tr in enumerate(x for x in trades if x["afterRecordMoment"] == k):
+        for i, tr in enumerate(x for x in trades if x["afterRecordMoment"] == k and not x.get("cancelled")):
             moving.append((tr.get("slot", 0), 0, i, lambda tr=tr: trade(tr)))
         for o in offers:
             for i, a in enumerate(x for x in o["actions"] if x["afterRecordMoment"] == k):
                 if "sell" in a:
-                    moving.append((a.get("slot", 0), 1, i, lambda o=o, a=a: retire_now(a["holder"], a["sell"], int(o["priceUnits"]))))
+                    moving.append((a.get("slot", 0), 1, i, lambda o=o, a=a: retire_now(a["holder"], a["sell"], int(o["priceUnits"]), a.get("slot"))))
                 else:
                     t = tendered[o["id"]]
                     t[a["holder"]] = t.get(a["holder"], 0) + a.get("tender", 0) - a.get("withdraw", 0)
         nxt = record_times[k + 1] if k + 1 < len(record_times) else float("inf")
         for o in offers:
+            per = o.get("settlements")
+            if o["kind"] == "tender" and per:
+                due = [x for x in per if x["afterRecordMoment"] == k]
+                shares = accepted_shares(o, tendered[o["id"]]) if due else {}
+                for i, x in enumerate(due):
+                    if shares.get(x["holder"], 0) > 0:
+                        moving.append((x.get("slot", 0), 2, i, lambda h=x["holder"], q=shares[x["holder"]], o=o, sl=x.get("slot"): retire_now(h, q, int(o["priceUnits"]), sl)))
+                continue
             if o["kind"] != "tender" or o["id"] in settled:
                 continue
             if o.get("settledAfterRecordMoment", k if close_time(o) < nxt else None) != k:
@@ -301,11 +358,14 @@ def timeline(placements, trades, offers, record_times):
                 accepted = q if total <= mx else (before + q) * mx // total - before * mx // total
                 before += q
                 if q > 0 and accepted > 0:
-                    moving.append((slots.get(h, 0), 2, i, lambda h=h, q=accepted, o=o: retire_now(h, q, int(o["priceUnits"]))))
+                    moving.append((slots.get(h, 0), 2, i, lambda h=h, q=accepted, o=o: retire_now(h, q, int(o["priceUnits"]), slots.get(h))))
         for *_, apply in sorted(moving, key=lambda x: x[:3]):
             apply()
     budgets = sum(int(o["priceUnits"]) * o["maxQuantity"] for o in offers)
-    return {"at_record": at_record, "final": dict(pos), "moves": moves, "retire": retire, "offer_budgets": budgets}
+    ordered = {h: [d for _, d in (sorted(m, key=lambda e: e[0]) if all(sl is not None for sl, _ in m) else m)]
+               for h, m in moves.items()}
+    return {"at_record": at_record, "final": dict(pos), "moves": defaultdict(list, ordered), "retire": retire,
+            "offer_budgets": budgets}
 
 
 def calculate(scn):
@@ -372,8 +432,8 @@ def calculate(scn):
 def bond_vaults(rpc, bond_mint, cash_mint):
     """The bond's vaults (one per event), identified from public token data only: the cash accounts owned by the
     bond token's mint authority. Returns (authority, [vault addresses])."""
-    info = rpc.call("getAccountInfo", [bond_mint, {"encoding": "jsonParsed"}])["value"]["data"]["parsed"]["info"]
-    owned = rpc.call("getTokenAccountsByOwner", [info["mintAuthority"], {"mint": cash_mint}, {"encoding": "jsonParsed"}])
+    info = rpc.call("getAccountInfo", [bond_mint, {"encoding": "jsonParsed", "commitment": COMMITMENT}])["value"]["data"]["parsed"]["info"]
+    owned = rpc.call("getTokenAccountsByOwner", [info["mintAuthority"], {"mint": cash_mint}, {"encoding": "jsonParsed", "commitment": COMMITMENT}])
     return info["mintAuthority"], [a["pubkey"] for a in owned["value"]]
 
 
@@ -385,7 +445,7 @@ def main(scenario_path, rpc_url, state_source):
     unit = 10 ** scn["terms"]["cashDecimals"]
     wallets = {pubkey_of(f): name for name, f in scn["wallets"].items()}
     bond_mint, cash_mint = pubkey_of(scn["keys"]["bondMint"]), pubkey_of(scn["keys"]["cashMint"])
-    print(f"{scn['name']}\nbond mint {bond_mint}\ncash mint {cash_mint}\nRPC {rpc_url}  (state source: {state_source})")
+    print(f"{scn['name']}\nbond mint {bond_mint}\ncash mint {cash_mint}\nRPC {rpc_url}  (state source: {state_source}, commitment: {COMMITMENT})")
 
     print("\nMeasure: channel S (state of all token accounts) and channel H (transaction history)")
     authority, vaults = bond_vaults(rpc, bond_mint, cash_mint)
@@ -448,12 +508,14 @@ def main(scenario_path, rpc_url, state_source):
     vault_set = set(vaults)
     check("M4", f"the bond's vaults = cash accounts owned by the bond token's mint authority ({authority[:8]}...)",
           bool(vaults), f"{len(vaults)} vaults")
-    vault_delta = lambda t: sum(t["deltas"][v]["delta"] for v in vault_set if v in t["deltas"])
+    # Cash that left the vaults in a transaction: what was minted into them minus their net change (a funding
+    # transaction may also pay the first holders, so the net change alone can hide payments).
+    paid_out = lambda t: sum(max(0, t.get("minted_to", {}).get(v, 0) - t["deltas"][v]["delta"]) for v in vault_set if v in t["deltas"])
     vault_txs = [t for t in txs if any(v in t["deltas"] and t["deltas"][v]["delta"] for v in vault_set)]
     bad_in = [t["signature"][:12] for t in vault_txs
               if any(t["deltas"][v]["delta"] > 0 for v in vault_set if v in t["deltas"]) and not t["minted"].get(cash_mint)]
     check("M4", "cash enters the vaults only from the bank's mints", bool(vaults) and not bad_in, ", ".join(bad_in[:3]))
-    leaks = [f"{a} (owner {d['owner']})" for t in vault_txs if vault_delta(t) < 0
+    leaks = [f"{a} (owner {d['owner']})" for t in vault_txs if paid_out(t) > 0
              for a, d in t["deltas"].items() if d["mint"] == cash_mint and d["delta"] > 0 and a not in vault_set
              and d["owner"] not in wallets]
     check("M4", "cash leaves the vaults only to scenario wallets", bool(vaults) and not leaks, "; ".join(leaks[:3]))
@@ -488,16 +550,20 @@ def main(scenario_path, rpc_url, state_source):
     vault_in = vault_out = 0
     for t in txs:
         touches_vault = any(v in t["deltas"] for v in vault_set)
-        from_vault = vault_delta(t) < 0
+        from_vault = paid_out(t) > 0
+        # gross flows: what was minted into a vault came in, what it paid out went out (a funding transaction may
+        # also pay the first holders, so the net change can be smaller than either, or zero)
+        for v in vault_set:
+            if v in t["deltas"]:
+                m, delta = t.get("minted_to", {}).get(v, 0), t["deltas"][v]["delta"]
+                vault_in += m + max(0, delta - m)
+                vault_out += max(0, m - delta)
         for acct, d in t["deltas"].items():
             if d["delta"] == 0:
                 continue
             holder = wallets.get(d["owner"])
             if d["mint"] == bond_mint and holder:
                 bond_moves[holder].append(d["delta"])
-            if d["mint"] == cash_mint and acct in vault_set:
-                vault_in += max(d["delta"], 0)
-                vault_out += max(-d["delta"], 0)
             if d["mint"] == cash_mint and holder and not touches_vault:
                 outside[holder].append(d["delta"])
         if not from_vault:

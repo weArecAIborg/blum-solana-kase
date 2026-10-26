@@ -538,10 +538,12 @@ async function main() {
       const buyer = holders[t.to].publicKey;
       const nonce = randomNonce();
       const expiry = BigInt((await chainNow()) + 86_400);
-      const { ix: create, swap } = createDvpInstruction(registrar.publicKey, seller, buyer, mint.publicKey, cashMint, TOKEN_PROGRAM_ID, quantity, cash, nonce, expiry);
+      // The registrar's wallet is the venue here (settlement authority, as in the 23 Oct run); the seller admits its
+      // trade's escrow (admit_trade).
+      const { ix: create, swap } = createDvpInstruction(registrar.publicKey, registrar.publicKey, seller, buyer, mint.publicKey, cashMint, TOKEN_PROGRAM_ID, quantity, cash, nonce, expiry);
       const admit = await admitTradeInstruction(program, registrar.publicKey, bond, mint.publicKey, swap, seller, buyer);
-      await send(`dvp create + admit_trade: ${t.from} sells ${t.amount} to ${t.to} for ${t.cash} (after record moment ${e})`, [create, admit], [registrar]);
-      await send(`dvp fund bond leg: ${t.from} -> escrow ${t.amount}`, [await fundBondLegInstruction(connection, mint.publicKey, seller, swap, quantity)], [registrar, holders[t.from]]);
+      await send(`dvp create + admit_trade: ${t.from} sells ${t.amount} to ${t.to} for ${t.cash} (after record moment ${e})`, [create, admit], [registrar, holders[t.from]]);
+      await send(`dvp fund bond leg: ${t.from} -> escrow ${t.amount}`, [fundBondLegInstruction(program.programId, mint.publicKey, seller, swap, quantity)], [registrar, holders[t.from]]);
       const have = await balance(cashAta(t.to));
       if (have < cash) {
         await send(`fund ${t.to}'s cash (issuer's bank, simulated fiat)`, [createMintToInstruction(cashMint, cashAta(t.to), bank.publicKey, cash - have, [], TOKEN_PROGRAM_ID)], [registrar, bank]);
@@ -549,7 +551,7 @@ async function main() {
       }
       await send(`dvp fund cash leg: ${t.to} -> escrow ${t.cash}`, [fundCashLegInstruction(cashMint, TOKEN_PROGRAM_ID, spec.terms.cashDecimals, buyer, swap, cash)], [registrar, holders[t.to]]);
       const trade = { swap, nonce, seller, buyer, quantity, cash };
-      await send(`dvp settle: ${t.amount} bonds -> ${t.to}, ${t.cash} cash -> ${t.from}, one transaction`, [await settleDvpInstruction(connection, program.programId, registrar.publicKey, trade, mint.publicKey, cashMint, TOKEN_PROGRAM_ID)], [registrar]);
+      await send(`dvp settle: ${t.amount} bonds -> ${t.to}, ${t.cash} cash -> ${t.from}, one transaction`, [settleDvpInstruction(program.programId, registrar.publicKey, trade, mint.publicKey, cashMint, TOKEN_PROGRAM_ID)], [registrar]);
     }
     await h?.afterRecordMoment(e);
     await offerActions(e);

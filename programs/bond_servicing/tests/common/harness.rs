@@ -602,13 +602,14 @@ impl Env {
     /// `dvp_create_and_admit` with the trade's expiry (chain time) given.
     fn dvp_create_and_admit_until(&mut self, seller: &str, buyer: &str, nonce: u64, quantity: u64, cash: u64, expiry: i64) -> Result<Pubkey, String> {
         let (a, b) = (self.holder(seller), self.holder(buyer));
-        let (swap, ixs) = self.dvp_create_and_admit_ixs(&a, &b, nonce, quantity, cash, expiry, &self.registrar.pubkey());
-        let registrar = self.registrar.insecure_clone();
-        self.send(&ixs, &[&registrar])?;
+        let (swap, ixs) = self.dvp_create_and_admit_ixs(&a, &b, nonce, quantity, cash, expiry, &a);
+        let (registrar, seller_kp) = (self.registrar.insecure_clone(), self.holders[seller].insecure_clone());
+        self.send(&ixs, &[&registrar, &seller_kp])?;
         Ok(swap)
     }
 
-    /// `CreateDvp` by the registrar and `admit_trade` signed by `admitter` as the registrar.
+    /// `CreateDvp` by the registrar (standing in for the venue) and `admit_trade` signed by `admitter` as the seller,
+    /// who also pays the escrow record's deposit.
     #[allow(clippy::too_many_arguments)]
     fn dvp_create_and_admit_ixs(&self, a: &Pubkey, b: &Pubkey, nonce: u64, quantity: u64, cash: u64, expiry: i64, admitter: &Pubkey) -> (Pubkey, [Instruction; 2]) {
         let (a, b) = (*a, *b);
@@ -643,7 +644,8 @@ impl Env {
         let admit = Instruction {
             program_id: self.program,
             accounts: bond_servicing::accounts::AdmitTrade {
-                registrar: *admitter,
+                payer: *admitter,
+                seller_wallet: *admitter,
                 bond: self.bond,
                 swap_dvp: swap,
                 seller: self.holder_record(&a),

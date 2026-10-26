@@ -1275,6 +1275,65 @@ fn dvp_trade_open_at_the_final_record_moment_returns_the_bonds_for_redemption() 
     assert_eq!(env.mint_supply(), 0);
 }
 
+/// The trade's seller admits its escrow in a transaction of its own: the registrar signs nothing in a trade between
+/// holders, and nobody but the seller can admit it.
+#[test]
+fn dvp_seller_admits_its_own_trade_and_the_registrar_takes_no_part() {
+    let mut env = setup();
+    env.register("BH#1");
+    env.register("BH#2");
+    env.place("BH#1", 10).unwrap();
+    env.give_cash("BH#2", 1_000 * USD);
+    let (a, b) = (env.holder("BH#1"), env.holder("BH#2"));
+    let expiry = env.now() + 30 * DAY;
+    let (_, [create, by_buyer]) = env.dvp_create_and_admit_ixs(&a, &b, 21, 1, 1_000 * USD, expiry, &b);
+    let (venue, buyer, seller) = (env.registrar.insecure_clone(), env.holders["BH#2"].insecure_clone(), env.holders["BH#1"].insecure_clone());
+    let err = env.send(&[create.clone(), by_buyer], &[&venue, &buyer]).unwrap_err();
+    assert!(err.contains("InvalidTrade"), "the buyer admits the seller's trade: {err}");
+    env.send(&[create], &[&venue]).unwrap();
+    let (swap, [_, by_seller]) = env.dvp_create_and_admit_ixs(&a, &b, 21, 1, 1_000 * USD, expiry, &a);
+    env.send(&[by_seller], &[&seller]).unwrap();
+    env.dvp_fund_bonds("BH#1", &swap, 1).unwrap();
+    env.dvp_fund_cash("BH#2", &swap, 1_000 * USD).unwrap();
+    env.dvp_settle("BH#1", "BH#2", &swap).unwrap();
+    assert_eq!((env.bonds_of("BH#1"), env.bonds_of("BH#2")), (9, 1));
+}
+
+/// Trades around a record moment, as the program sees them: settled a day before it, the bond's coupon goes to the
+/// buyer; funded a day before and settled after, settled at it, or settled a day after, it stays with the seller.
+#[test]
+fn dvp_trades_a_day_before_at_and_a_day_after_a_record_moment() {
+    fn funded(env: &mut Env, nonce: u64) -> Pubkey {
+        let swap = env.dvp_create_and_admit("BH#1", "BH#2", nonce, 1, 1_000 * USD).unwrap();
+        env.dvp_fund_bonds("BH#1", &swap, 1).unwrap();
+        env.dvp_fund_cash("BH#2", &swap, 1_000 * USD).unwrap();
+        swap
+    }
+    let mut env = setup();
+    env.register("BH#1");
+    env.register("BH#2");
+    env.place("BH#1", 10).unwrap();
+    env.give_cash("BH#2", 4_000 * USD);
+    let t = env.record_moment(0);
+    env.set_time(t - DAY);
+    let before = funded(&mut env, 31);
+    env.dvp_settle("BH#1", "BH#2", &before).unwrap();
+    let across = funded(&mut env, 32);
+    let at = funded(&mut env, 33);
+    env.set_time(t);
+    env.dvp_settle("BH#1", "BH#2", &at).unwrap();
+    env.set_time(t + DAY);
+    env.dvp_settle("BH#1", "BH#2", &across).unwrap();
+    let after = funded(&mut env, 34);
+    env.dvp_settle("BH#1", "BH#2", &after).unwrap();
+    assert_eq!(env.record("BH#1").position.at_moment(0), 9, "only the trade settled before the record moment moved it");
+    assert_eq!(env.record("BH#2").position.at_moment(0), 1);
+    env.run_coupon(0, &["BH#1", "BH#2"]);
+    assert_eq!(env.cash_of("BH#1"), (4 * 1_000 + 9 * 50) * USD);
+    assert_eq!(env.cash_of("BH#2"), 50 * USD);
+    assert_eq!((env.bonds_of("BH#1"), env.bonds_of("BH#2")), (6, 4));
+}
+
 /// The escrow's record is not a holder: it is paid nothing, and only the trade's seller can put bonds into it.
 #[test]
 fn dvp_escrow_is_not_a_holder_and_takes_bonds_only_from_its_seller() {

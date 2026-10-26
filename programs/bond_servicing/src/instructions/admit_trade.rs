@@ -1,11 +1,13 @@
 //! Admit a secondary trade settled by Solana DvP (solana-foundation/dvp, `DVP_PROGRAM_ID`). The DvP program escrows
 //! both legs in the `SwapDvp` PDA's associated token accounts and settles them in one transaction; it knows nothing
-//! about holders or record moments. This instruction, by the registrar, creates a record for the trade's bond
-//! escrow so the transfer hook lets bonds in: they stay the seller's position, locked, until the DvP program moves
+//! about holders or record moments. This instruction, signed by the trade's seller (the registrar takes no part in a
+//! trade between holders; the deposit is paid by any payer), creates a record for the trade's bond escrow so the
+//! transfer hook lets bonds in: they stay the seller's position, locked, until the DvP program moves
 //! them to the buyer (settle) or back to the seller (cancel, reclaim). The record names the seller (`escrow_of`),
 //! which the hook reads to update the seller's position at settlement.
 //! Checked here, from the `SwapDvp` account itself: this bond's tokens against this bond's cash, between two
-//! registered holders, delivered to themselves.
+//! registered holders, delivered to themselves; the signer is the seller. Who may hold bonds stays the registrar's
+//! decision: both parties hold records it created (register_holder).
 
 use anchor_lang::prelude::*;
 
@@ -48,17 +50,25 @@ fn read_swap_dvp(info: &AccountInfo) -> Result<SwapDvpTerms> {
 
 #[derive(Accounts)]
 pub struct AdmitTrade<'info> {
+    /// Pays the escrow record's deposit: the seller, the venue, anyone.
     #[account(mut)]
-    pub registrar: Signer<'info>,
+    pub payer: Signer<'info>,
 
-    #[account(has_one = registrar)]
+    /// The trade's seller (`user_a`) admits its own trade.
+    pub seller_wallet: Signer<'info>,
+
     pub bond: Box<Account<'info, Bond>>,
 
     /// CHECK: Solana DvP `SwapDvp` record; owner, size and terms are checked in `read_swap_dvp`.
     pub swap_dvp: UncheckedAccount<'info>,
 
     /// The seller's record: `user_a` of the trade.
-    #[account(has_one = bond, seeds = [HOLDER_SEED, bond.mint.as_ref(), seller.owner.as_ref()], bump = seller.bump)]
+    #[account(
+        has_one = bond,
+        seeds = [HOLDER_SEED, bond.mint.as_ref(), seller.owner.as_ref()],
+        bump = seller.bump,
+        constraint = seller.owner == seller_wallet.key() @ BondError::InvalidTrade,
+    )]
     pub seller: Box<Account<'info, HolderRecord>>,
 
     /// The buyer's record: `user_b` of the trade.
@@ -68,7 +78,7 @@ pub struct AdmitTrade<'info> {
     /// The escrow's record: the `SwapDvp` PDA as owner, so the hook finds it at the holder seeds.
     #[account(
         init,
-        payer = registrar,
+        payer = payer,
         space = 8 + HolderRecord::INIT_SPACE,
         seeds = [HOLDER_SEED, bond.mint.as_ref(), swap_dvp.key().as_ref()],
         bump,

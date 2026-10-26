@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Deploy (or upgrade) the bond_servicing program to a Solana cluster. Run from the repo root.
 # Usage: ./deploy.sh <cluster rpc url>        e.g. ./deploy.sh https://api.devnet.solana.com
-#   There is no server to SSH into: the "server" is the Solana cluster; the program keypair fixes the address
-#   (2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf), the default Solana wallet pays and is the upgrade authority.
+#   There is no server to SSH into: the "server" is the Solana cluster; the program keypair
+#   (target/deploy/bond_servicing-keypair.json, not in git) fixes the address, on this branch
+#   tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i; the default Solana wallet pays and is the upgrade authority.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then

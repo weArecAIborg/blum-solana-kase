@@ -21,12 +21,19 @@
       ],
       "accounts": [
         {
-          "name": "registrar",
+          "name": "payer",
+          "docs": [
+            "Pays the escrow record's deposit: the seller, the venue, anyone."
+          ],
           "writable": true,
-          "signer": true,
-          "relations": [
-            "bond"
-          ]
+          "signer": true
+        },
+        {
+          "name": "seller_wallet",
+          "docs": [
+            "The trade's seller (`user_a`) admits its own trade."
+          ],
+          "signer": true
         },
         {
           "name": "bond",
@@ -2789,6 +2796,13 @@
           {
             "name": "paid",
             "type": "u64"
+          },
+          {
+            "name": "passed",
+            "docs": [
+              "Record moments passed by the program's clock when the bonds were retired: the phase the burn belongs to."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -3529,6 +3543,13 @@
           {
             "name": "settled",
             "type": "bool"
+          },
+          {
+            "name": "passed",
+            "docs": [
+              "Record moments passed by the program's clock at this move: on settlement, the phase the trade belongs to."
+            ],
+            "type": "u16"
           }
         ]
       }

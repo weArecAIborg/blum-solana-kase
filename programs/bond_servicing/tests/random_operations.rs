@@ -130,7 +130,7 @@ enum Op {
     Transfer { from: usize, to: usize, qty: Qty },
     /// The bank gives a holder cash (to pay for trades).
     GiveCash { h: usize, amount: u64 },
-    /// The registrar creates a DvP trade and admits it.
+    /// The registrar (standing in for the venue) creates a DvP trade; its seller admits it.
     TradeOpen { seller: usize, buyer: usize, qty: Qty, cash: u64, expiry_days: i64, imposter: bool },
     TradeFundBonds { t: usize, qty: Qty },
     TradeFundCash { t: usize },
@@ -510,7 +510,7 @@ impl Run {
                     let (_, ixs) = self.env.dvp_create_and_admit_ixs(&a, &b, self.nonce, quantity, cash, expiry, &self.imposter.pubkey());
                     let (registrar, signer) = (self.env.registrar.insecure_clone(), self.imposter.insecure_clone());
                     let result = self.env.send(&ixs, &[&registrar, &signer]);
-                    self.must_fail("trade admitted by a non-registrar", result)
+                    self.must_fail("trade admitted by someone other than its seller", result)
                 } else {
                     let swap = self.env.dvp_create_and_admit_until(HOLDERS[seller], HOLDERS[buyer], self.nonce, quantity, cash, expiry);
                     if let Ok(swap) = swap {

@@ -128,6 +128,9 @@ class Budget {
   private inFlight = 0;
   private until = 0;
   reserved = 0; // requests per window lent to the audit process while it runs
+  // each method's own limit per window, as the cluster states it (x-ratelimit-method-limit; devnet 26.10.2026:
+  // getSignatureStatuses 10, sendTransaction 20, getAccountInfo and getMultipleAccounts 50, getLatestBlockhash 100)
+  methodLimit = new Map<string, number>();
   counts = { total: 0, limited: 0, limitedBy: {} as Record<string, number>, method: {} as Record<string, number>, op: {} as Record<string, number> };
   async take(method: string) {
     for (;;) {
@@ -138,7 +141,7 @@ class Budget {
       this.methods.set(method, m);
       const wait = Math.max(this.until - now,
         this.times.length && this.times.length >= LIMIT.total - this.reserved ? this.times[0] + LIMIT.windowMs - now : 0,
-        m.length >= LIMIT.perMethod ? m[0] + LIMIT.windowMs - now : 0,
+        m.length >= Math.min(LIMIT.perMethod, (this.methodLimit.get(method) ?? LIMIT.perMethod + 1) - 1) ? m[0] + LIMIT.windowMs - now : 0,
         this.inFlight >= LIMIT.inFlight ? 25 : 0);
       if (wait <= 0) { this.times.push(now); m.push(now); this.inFlight++; return; }
       await sleep(Math.min(wait, 500) + Math.random() * 30);
@@ -169,6 +172,8 @@ const budgetedFetch = async (input: any, init?: any) => {
       throw e;
     }
     budget.done();
+    const stated = Number(res.headers.get("x-ratelimit-method-limit"));
+    if (stated > 0) budget.methodLimit.set(method, stated);
     if (res.status !== 429) return res;
     budget.counts.limited++;
     // which of the cluster's limits ran out (its x-ratelimit-*-remaining headers at 0 or below), for each 429
@@ -230,7 +235,8 @@ const refusal = (e: any) => {
 };
 const reason = (e: any) => (e instanceof Refused ? e.message : refusal(e).message);
 // Confirmation: one getSignatureStatuses request (up to 256 signatures: solana.com/docs/rpc/http/getsignaturestatuses)
-// each second for every transaction still waiting, only while any waits. A step that depends on the previous one is sent
+// every 2 seconds for every transaction still waiting, only while any waits (devnet allows this method 10 requests per
+// window). A step that depends on the previous one is sent
 // only after it is confirmed; a transaction not confirmed while its blockhash lives (60 to 90 seconds:
 // solana.com/docs/advanced/confirmation) or confirmed with an error is an error. (The public devnet node left one
 // signatureSubscribe request unanswered in each of four runs, 26.10.2026, so confirmations are not taken from
@@ -253,14 +259,12 @@ setInterval(() => {
       } else if (Date.now() > w.deadline) { pending.delete(sig); w.reject(new Error(`транзакция ${sig} не подтверждена за 90 с`)); }
     });
   }, (e) => { for (const sig of sigs) { pending.get(sig)?.reject(e); pending.delete(sig); } }).finally(() => { polling = false; });
-}, 1_000);
+}, 2_000);
 const confirmation = (sig: string) => {
   const done = new Promise<number>((resolve, reject) => pending.set(sig, { resolve, reject, deadline: Date.now() + 90_000 }));
   return { listening: Promise.resolve(), done, cancel: () => { pending.delete(sig); } };
 };
-// A transaction can be dropped on its way to the leader; the client sends the same signed bytes again at a constant
-// interval while its blockhash lives (solana.com/docs/advanced/retry), here every 2 seconds, as RPC nodes forward.
-const REBROADCAST_MS = 2_000;
+
 
 async function send(b: BondState | undefined, label: string, build: () => Promise<{ ixs: TransactionInstruction[]; signers: Keypair[] }>): Promise<Sent> {
   return opLabel.run(label, async () => {
@@ -286,13 +290,9 @@ async function send(b: BondState | undefined, label: string, build: () => Promis
       }
       const s: Sent = { sig, label, chain: chainNow(), bond: b && b.chainOrigin !== undefined ? bondNow(b) : null, signatures: tx.signatures.length, confirmed: false };
       if (b) { b.ops.push(s); save(b); }
-      let resendError: unknown = null;
-      const resend = setInterval(() => {
-        opLabel.run(label, () => connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })).catch((e) => { resendError = e; clearInterval(resend); wait.cancel(); });
-      }, REBROADCAST_MS);
-      try {
-        s.slot = await Promise.race([wait.done, new Promise<number>((_, reject) => { const check = setInterval(() => { if (resendError) { clearInterval(check); reject(resendError); } }, 200); wait.done.finally(() => clearInterval(check)).catch(() => {}); })]);
-      } finally { clearInterval(resend); }
+      // the node forwards it to the leaders every 2 seconds until it is finalized or its blockhash expires
+      // (solana.com/docs/advanced/retry: maxRetries left unset)
+      s.slot = await wait.done;
       s.confirmed = true;
       if (b) save(b);
       return s;

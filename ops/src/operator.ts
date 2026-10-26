@@ -255,6 +255,9 @@ const confirmation = (sig: string) => {
   });
   return { listening: Promise.race([listening, done.then(() => {})]), done, cancel: () => { clearTimeout(timer); dispose(); void connection.removeSignatureListener(id); } };
 };
+// A transaction can be dropped on its way to the leader; the client sends the same signed bytes again at a constant
+// interval while its blockhash lives (solana.com/docs/advanced/retry), here every 2 seconds, as RPC nodes forward.
+const REBROADCAST_MS = 2_000;
 
 async function send(b: BondState | undefined, label: string, build: () => Promise<{ ixs: TransactionInstruction[]; signers: Keypair[] }>): Promise<Sent> {
   return opLabel.run(label, async () => {
@@ -266,13 +269,13 @@ async function send(b: BondState | undefined, label: string, build: () => Promis
       const { blockhash: hash, lastValidBlockHeight } = await blockhash();
       const tx = new Transaction({ feePayer: signers[0].publicKey, blockhash: hash, lastValidBlockHeight }).add(...ixs);
       tx.sign(...signers);
-      const sig = anchor.utils.bytes.bs58.encode(tx.signature!);
+      const sig = anchor.utils.bytes.bs58.encode(tx.signature!), raw = tx.serialize();
       // subscribed and acknowledged before sending, so the confirmation cannot come first
       const wait = confirmation(sig);
       await wait.listening;
       try {
         // the node simulates it first (preflight at `confirmed`) and, once accepted, relays it
-        await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
+        await connection.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: "confirmed" });
       } catch (e) {
         wait.cancel();
         const r = refusal(e);
@@ -280,7 +283,13 @@ async function send(b: BondState | undefined, label: string, build: () => Promis
       }
       const s: Sent = { sig, label, chain: chainNow(), bond: b && b.chainOrigin !== undefined ? bondNow(b) : null, signatures: tx.signatures.length, confirmed: false };
       if (b) { b.ops.push(s); save(b); }
-      s.slot = await wait.done;
+      let resendError: unknown = null;
+      const resend = setInterval(() => {
+        opLabel.run(label, () => connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })).catch((e) => { resendError = e; clearInterval(resend); wait.cancel(); });
+      }, REBROADCAST_MS);
+      try {
+        s.slot = await Promise.race([wait.done, new Promise<number>((_, reject) => { const check = setInterval(() => { if (resendError) { clearInterval(check); reject(resendError); } }, 200); wait.done.finally(() => clearInterval(check)).catch(() => {}); })]);
+      } finally { clearInterval(resend); }
       s.confirmed = true;
       if (b) save(b);
       return s;

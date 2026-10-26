@@ -251,6 +251,12 @@ def measure_history(rpc, addresses):
 
 # ---------------------------------------------------------------- calculated side (scenario + reference math)
 
+def vault_paid_out(t, vault_set):
+    """Cash that left the vaults in a transaction: what was minted into them minus their net change (a funding
+    transaction may also pay the first holders, so the net change alone can hide payments)."""
+    return sum(max(0, t.get("minted_to", {}).get(v, 0) - t["deltas"][v]["delta"]) for v in vault_set if v in t["deltas"])
+
+
 def record_moment_unix(date_iso, local_hhmm, utc_offset_hours):
     y, m, d = map(int, date_iso.split("-"))
     h, mi = map(int, local_hhmm.split(":"))
@@ -365,18 +371,13 @@ def timeline(placements, trades, offers, record_times):
     ordered = {h: [d for _, d in (sorted(m, key=lambda e: e[0]) if all(sl is not None for sl, _ in m) else m)]
                for h, m in moves.items()}
     return {"at_record": at_record, "final": dict(pos), "moves": defaultdict(list, ordered), "retire": retire,
-            "offer_budgets": budgets}
+            "offer_budgets": budgets, "slotted": {h: list(m) for h, m in moves.items()}}
 
 
-def calculate(scn):
+def schedule_dates(scn):
+    """Payment and record dates from the terms, the calendar and the weekend (QuantLib), and the record moments."""
     import QuantLib as ql
-    from financepy.products.bonds.bond import Bond as FpBond, CouponType
-    from financepy.utils.date import Date as FpDate
-    from financepy.utils.day_count import DayCountTypes
-    from financepy.utils.frequency import FrequencyTypes
-
     t = scn["terms"]
-    face_units = int(t["faceUnits"])
 
     def qd(s):
         y, m, d = map(int, s.split("-"))
@@ -395,6 +396,79 @@ def calculate(scn):
     record_dates = [cal.advance(d, -lag, ql.Days) if lag else d for d in pay_dates]
     pay_dates = [f"{d.year():04d}-{d.month():02d}-{d.dayOfMonth():02d}" for d in pay_dates]
     record_dates = [f"{d.year():04d}-{d.month():02d}-{d.dayOfMonth():02d}" for d in record_dates]
+    record_times = [record_moment_unix(d, t["recordTimeLocal"], t["utcOffsetHours"]) for d in record_dates]
+    return pay_dates, record_dates, record_times
+
+
+def resolve(scn, txs, creation_time):
+    """A scenario that names its operations by signature (the operator screen's: the service sends them and does not
+    read what they did) gets each operation's phase (the record moments passed when the program executed it) and slot
+    from the ledger: the block's time, in bond time, against the record moments, as the program counts them (a moment
+    has passed once it is not later than now). A DvP trade's seller side is at its legs' slot (`fundSig`), the position
+    moves at its settlement. A tender's order is the order of the holders' first tenders on the ledger. Operations the
+    ledger does not hold (sent and never executed, or failed) are left out and returned."""
+    by_sig = {t["signature"]: t for t in txs}
+    origin = datetime.fromisoformat(scn["bondTimeAtCreation"]).timestamp()
+    scale = scn["chainSecondsPerBondDay"]
+    record_times = schedule_dates(scn)[2]
+    missing = []
+
+    def found(sig):
+        t = by_sig.get(sig)
+        if t is None or t["failed"]:
+            missing.append(sig)
+            return None
+        return t
+
+    def phase(t):
+        ts = origin + (t["blockTime"] - creation_time) * 86_400 / scale
+        return sum(1 for r in record_times if r <= ts) - 1
+
+    trades = []
+    for tr in scn["trades"]:
+        if "sig" not in tr:
+            trades.append(tr)
+            continue
+        t, f = found(tr["sig"]), found(tr["fundSig"]) if tr.get("fundSig") else None
+        if t is None or (tr.get("fundSig") and f is None):
+            continue
+        trades.append(dict(tr, afterRecordMoment=phase(t), slot=t["slot"], fundSlot=(f or t)["slot"]))
+    scn["trades"] = trades
+    for o in scn["offers"]:
+        actions = []
+        for a in o["actions"]:
+            if "sig" not in a:
+                actions.append(a)
+                continue
+            t = found(a["sig"])
+            if t is not None:
+                actions.append(dict(a, afterRecordMoment=phase(t), slot=t["slot"]))
+        o["actions"] = actions
+        if "settlements" in o:
+            order = {}
+            for a in sorted((a for a in actions if "tender" in a and "sig" in a), key=lambda a: a["slot"]):
+                order.setdefault(a["holder"], len(order) + 1)
+            settled = []
+            for x in o["settlements"]:
+                if "sig" not in x:
+                    settled.append(x)
+                    continue
+                t = found(x["sig"])
+                if t is not None:
+                    settled.append(dict(x, afterRecordMoment=phase(t), slot=t["slot"], number=order.get(x["holder"], 0)))
+            o["settlements"] = settled
+    return missing
+
+
+def calculate(scn):
+    from financepy.products.bonds.bond import Bond as FpBond, CouponType
+    from financepy.utils.date import Date as FpDate
+    from financepy.utils.day_count import DayCountTypes
+    from financepy.utils.frequency import FrequencyTypes
+
+    t = scn["terms"]
+    face_units = int(t["faceUnits"])
+    pay_dates, record_dates, record_times = schedule_dates(scn)
 
     freq = {1: FrequencyTypes.ANNUAL, 2: FrequencyTypes.SEMI_ANNUAL, 4: FrequencyTypes.QUARTERLY, 12: FrequencyTypes.MONTHLY}[t["periodsPerYear"]]
     y, m, d = map(int, t["issue"].split("-"))
@@ -403,7 +477,6 @@ def calculate(scn):
                 cpn_type=CouponType.FIXED)
     per_bond = [Decimal(str(f)) * face_units for f in fp.flow_amounts[1:]]
 
-    record_times = [record_moment_unix(d, t["recordTimeLocal"], t["utcOffsetHours"]) for d in record_dates]
     tl = timeline(scn["placements"], scn["trades"], scn["offers"], record_times)
     coupons = {h: [] for h in scn["wallets"]}  # (coupon index, amount)
     budgets_total = tl["offer_budgets"]  # each event's budget: the amount for the whole supply, rounded down once
@@ -417,15 +490,17 @@ def calculate(scn):
     final = tl["final"]
     budgets_total += int((Decimal(sum(final.values())) * face_units * price).to_integral_value(rounding=ROUND_FLOOR))
     bond_moves = {h: list(tl["moves"][h]) for h in scn["wallets"]}
+    slotted = {h: list(tl["slotted"].get(h, [])) for h in scn["wallets"]}
     retirements = {h: list(tl["retire"][h]) for h in scn["wallets"]}
     principal = {}
     for h, pos in final.items():
         if pos > 0:
             principal[h] = int((Decimal(pos) * face_units * price).to_integral_value(rounding=ROUND_FLOOR))
             bond_moves[h].append(-pos)
+            slotted[h].append((float("inf"), -pos))
             retirements[h].append((pos, principal[h]))
     return {"pay_dates": pay_dates, "record_dates": record_dates, "budgets_total": budgets_total,
-            "coupons": coupons, "bond_moves": bond_moves, "principal": principal, "retirements": retirements,
+            "coupons": coupons, "bond_moves": bond_moves, "slotted": slotted, "principal": principal, "retirements": retirements,
             "face_units": face_units}
 
 
@@ -508,9 +583,7 @@ def main(scenario_path, rpc_url, state_source):
     vault_set = set(vaults)
     check("M4", f"the bond's vaults = cash accounts owned by the bond token's mint authority ({authority[:8]}...)",
           bool(vaults), f"{len(vaults)} vaults")
-    # Cash that left the vaults in a transaction: what was minted into them minus their net change (a funding
-    # transaction may also pay the first holders, so the net change alone can hide payments).
-    paid_out = lambda t: sum(max(0, t.get("minted_to", {}).get(v, 0) - t["deltas"][v]["delta"]) for v in vault_set if v in t["deltas"])
+    paid_out = lambda t: vault_paid_out(t, vault_set)
     vault_txs = [t for t in txs if any(v in t["deltas"] and t["deltas"][v]["delta"] for v in vault_set)]
     bad_in = [t["signature"][:12] for t in vault_txs
               if any(t["deltas"][v]["delta"] > 0 for v in vault_set if v in t["deltas"]) and not t["minted"].get(cash_mint)]
@@ -541,10 +614,16 @@ def main(scenario_path, rpc_url, state_source):
         check("M4", "bonds leave a DvP escrow only to scenario wallets", not escrow_leaks, "; ".join(escrow_leaks[:3]))
 
     print("\nMeasured vs calculated (exact integers, base units)")
+    # Operations the scenario names by signature: their phases from the ledger; those it does not hold fail M5.
+    missing = resolve(scn, txs, creation_time)
+    if any("sig" in tr for tr in scn["trades"]) or any("sig" in a for o in scn["offers"] for a in o["actions"]) or missing:
+        check("M5", "every transaction the scenario names is on the ledger and succeeded", not missing,
+              f"{len(missing)} missing: " + ", ".join(m[:12] for m in missing[:5]))
     calc = calculate(scn)
     # Measured per holder, in ledger order.
     cash_in = defaultdict(list)    # (tx, amount) coupon arrivals from this bond's vault
     bond_moves = defaultdict(list)
+    moves_slotted = defaultdict(list)  # (slot, delta): transactions of one slot have an order in the block the RPC does not give
     retirements = defaultdict(list)  # holder -> [(burned, cash received in the same transaction)], ledger order
     outside = defaultdict(list)    # holder cash movements in transactions that do not involve this bond's vault
     vault_in = vault_out = 0
@@ -564,6 +643,7 @@ def main(scenario_path, rpc_url, state_source):
             holder = wallets.get(d["owner"])
             if d["mint"] == bond_mint and holder:
                 bond_moves[holder].append(d["delta"])
+                moves_slotted[holder].append((t["slot"], d["delta"]))
             if d["mint"] == cash_mint and holder and not touches_vault:
                 outside[holder].append(d["delta"])
         if not from_vault:
@@ -583,8 +663,12 @@ def main(scenario_path, rpc_url, state_source):
         measured = [amount for _, amount in cash_in[h]]
         check("C1", f"{h}: coupon arrivals from the vault", measured == expected,
               f"measured {[x / unit for x in measured]} vs calculated {[x / unit for x in expected]}")
-        check("C2", f"{h}: bond movements", bond_moves[h] == calc["bond_moves"][h],
-              f"measured {bond_moves[h]} vs calculated {calc['bond_moves'][h]}")
+        # When the scenario gives every movement its slot, movements compare in slot order, those of one slot as a set.
+        if all(sl is not None for sl, _ in calc["slotted"][h]):
+            same = [d for _, d in sorted(moves_slotted[h])] == [d for _, d in sorted(calc["slotted"][h])]
+        else:
+            same = bond_moves[h] == calc["bond_moves"][h]
+        check("C2", f"{h}: bond movements", same, f"measured {bond_moves[h]} vs calculated {calc['bond_moves'][h]}")
         if calc["retirements"][h] or retirements[h]:
             got = [(b, c / unit) for b, c in retirements[h]]
             exp = [(b, c / unit) for b, c in calc["retirements"][h]]

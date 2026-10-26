@@ -175,9 +175,9 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
     <div class="row" style="justify-content:space-between"><h2 id="b-title"></h2><span class="row"><span class="msg" id="b-owner"></span><span class="msg" id="b-status"></span></span></div>
     <div class="clock">
       <div><span class="k">Время облигации</span><span class="t" id="c-time">·</span><span class="s">Алматы, UTC+5</span></div>
-      <div><span class="k">В обращении</span><span class="t" id="c-supply">·</span><span class="s">облигаций</span></div>
+      <div><span class="k">В обращении</span><span class="t" id="c-supply">·</span><span class="s">облигаций, по записям Blum</span></div>
       <div><span class="k">Сделок через DvP</span><span class="t" id="c-trades">·</span><span class="s" id="c-trades-s"></span></div>
-      <div><span class="k">Выплачено держателям</span><span class="t" id="c-paid">·</span><span class="s">купоны и номинал</span></div>
+      <div><span class="k">Выплачено держателям</span><span class="t" id="c-paid">·</span><span class="s">купоны и номинал, по записям Blum</span></div>
       <div><span class="k">Транзакций выпуска</span><span class="t" id="c-cost">·</span><span class="s" id="c-cost-s"></span></div>
     </div>
     <div class="track" id="track"></div>
@@ -203,13 +203,13 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
     </div>
 
     <div class="win cut">
-      <div class="bar"><i></i><i></i><i></i><span>Обязательные сделки у отсечек</span><em>по 2 сделки за день до отсечки, в её момент и через день после; исход по часам программы</em></div>
-      <div class="scroll"><table id="mandatory"></table></div>
+      <div class="bar"><i></i><i></i><i></i><span>Сделки с бондом</span><em>строка появляется, когда держатели отправляют сделку; что исполнено в ledger, проверяет аудит</em></div>
+      <div class="scroll"><table id="trades"></table></div>
     </div>
 
     <div class="main-grid">
       <div class="win blum">
-        <div class="bar"><i></i><i></i><i></i><span>Реестр держателей · записи программы Blum</span><em>строка раскрывает расчёт аудита</em></div>
+        <div class="bar"><i></i><i></i><i></i><span>Реестр держателей · записи программы Blum</span><em><span id="r-age">страница читает записи с devnet сама</span> <button id="r-read">прочитать снова</button></em></div>
         <div class="scroll"><table class="reg" id="reg"></table></div>
       </div>
       <div class="win sol">
@@ -256,15 +256,49 @@ const dateOf = (bondUnix, withTime) => { const d = new Date((bondUnix + tz * 360
 
 // ---------------- кошелёк и выпуски
 let state = null;
+// Чтение с devnet прямо из браузера (с IP зрителя): записи Blum и балансы. Один запрос getMultipleAccounts.
+const rpcCall = async (method, params) => {
+  const r = await fetch(state.rpc, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+};
+const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+let chain = null; // { bond, at, registrar, venue, holders: { BH#1: { quantity, liveFrom, at[], paid, locked, redeemed, escrowed, bonds } } }
+async function readChain() {
+  const hs = data && data.id === current ? data.holders : [];
+  const keys = [state.registrar, state.venue, ...hs.map((h) => h.record), ...hs.map((h) => h.bonds)];
+  $("#r-age").textContent = "читаю записи с devnet…";
+  try {
+    const res = await rpcCall("getMultipleAccounts", [keys, { encoding: "base64", commitment: "confirmed" }]);
+    const v = res.value, holders = {};
+    hs.forEach((h, i) => {
+      const rec = v[2 + i], ata = v[2 + hs.length + i];
+      if (!rec) return;
+      const dv = new DataView(bytes(rec.data[0]).buffer), u = (o) => Number(dv.getBigUint64(o, true));
+      holders[h.name] = {
+        // HolderRecord (programs/bond_servicing/src/state.rs): position {quantity, live_from, at[40]}, paid, locked, redeemed, bump, escrowed
+        quantity: u(104), liveFrom: dv.getUint16(112, true), at: Array.from({ length: 40 }, (_, k) => u(114 + 8 * k)),
+        paid: dv.getBigUint64(434, true), locked: u(442), redeemed: u(450), escrowed: u(459),
+        bonds: ata ? Number(new DataView(bytes(ata.data[0]).buffer).getBigUint64(64, true)) : 0,
+      };
+    });
+    chain = { bond: data ? data.id : null, at: new Date(), registrar: (v[0]?.lamports ?? 0) / 1e9, venue: (v[1]?.lamports ?? 0) / 1e9, holders };
+    $("#w-sol").textContent = `${chain.registrar.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
+    $("#w-venue").textContent = `${state.venue.slice(0, 6)}…${state.venue.slice(-4)} · ${chain.venue.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
+    $("#r-age").textContent = `записи прочитаны с devnet в ${chain.at.toLocaleTimeString("ru-RU")}`;
+    if (data) render();
+  } catch (e) { $("#r-age").textContent = `devnet не ответил: ${e.message}`; }
+}
 async function loadState() {
   try {
+    const first = !state;
     state = await api("/api/state");
     $("#w-addr").textContent = state.registrar;
-    $("#w-sol").textContent = `${state.sol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
     $("#w-faucet").href = state.faucet;
     const top = Object.entries(state.rpcCounts.method).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([m, n]) => `${m} ${n}`).join(", ");
-    $("#w-rpc").textContent = `запросов к RPC с запуска сервиса: ${state.rpcCounts.total} (лимит ${state.rpcLimit.total} за 10 с, ${state.rpcLimit.perMethod} на метод), отказов 429: ${state.rpcCounts.limited}; ${top}`;
-    $("#w-venue").textContent = `${state.venue.slice(0, 6)}…${state.venue.slice(-4)} · ${state.venueSol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
+    $("#w-rpc").textContent = `запросов сервиса к RPC с запуска: ${state.rpcCounts.total}, отказов 429: ${state.rpcCounts.limited}; ${top}`;
+    if (first) { $("#w-venue").textContent = `${state.venue.slice(0, 6)}…${state.venue.slice(-4)}`; readChain(); }
     $("#prog").textContent = `программа ${state.programId}`;
     $("#b-count").textContent = `${state.bonds.length}`;
     $("#b-list").innerHTML = state.bonds.length ? state.bonds.map((b) =>
@@ -306,10 +340,10 @@ form.addEventListener("submit", async (e) => {
 // ---------------- выпуск
 let current = null, data = null, openHolder = null, poll = null, ledgerRows = [];
 function select(id) {
-  current = id; openHolder = null; ledgerRows = [];
+  current = id; openHolder = null; ledgerRows = []; chain = null;
   history.replaceState(null, "", `#${id}`);
   $("#bond").hidden = false;
-  clearInterval(poll); refresh(); poll = setInterval(refresh, 2000);
+  clearInterval(poll); refresh().then(() => readChain()); poll = setInterval(refresh, 2000);
   loadState();
 }
 async function refresh() {
@@ -317,10 +351,23 @@ async function refresh() {
   try { data = await api(`/api/bonds/${current}?since=${ledgerRows.length}`); render(); }
   catch (e) { $("#b-status").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
+$("#r-read").addEventListener("click", () => readChain());
 const STEP_NAMES = { open: "открыть", fund: "внести бюджет и подтвердить", pay: "выплатить" };
 const nextStep = (ev) => !ev.openSig ? "open" : !ev.fundSig ? "fund" : !ev.done ? "pay" : null;
 const stepDone = (ev, s) => (s === "open" ? !!ev.openSig : s === "fund" ? !!ev.fundSig : ev.done);
-const POINT = { "-1": "за день до", "0": "в момент", "1": "через день" };
+// Суммы по правилам программы (crates/bond_math/src/amount.rs): купон = позиция × номинал × ставка / (10000 × купонов
+// в год), погашение = погашено × номинал × цена / 10000, вниз до минимальной единицы.
+const couponOf = (pos, t) => (BigInt(pos) * BigInt(t.faceUnits) * BigInt(t.rateBps)) / (10000n * BigInt(t.periodsPerYear));
+const principalOf = (q, t) => (BigInt(q) * BigInt(t.faceUnits) * BigInt(t.redemptionPriceBps)) / 10000n;
+const posAt = (r, k) => (k < r.liveFrom ? r.at[k] : r.quantity);
+const isPaid = (r, k) => ((r.paid >> BigInt(k)) & 1n) === 1n;
+// Полученное держателем по записи Blum: каждый выплаченный купон и погашение.
+const receivedOf = (r, d) => {
+  const coupons = d.recordTimes.map((_, k) => (isPaid(r, k) ? { k, pos: posAt(r, k), amount: couponOf(posAt(r, k), d.terms) } : null)).filter(Boolean);
+  const redemption = r.redeemed > 0 ? principalOf(r.redeemed, d.terms) : 0n;
+  return { coupons, redemption, total: coupons.reduce((s, c) => s + c.amount, 0n) + redemption };
+};
+const STAGE = { done: "исполнена: транзакция подтверждена", legs: "escrow исполнен, расчёт в момент отсечки", missed: "не отправлена" };
 
 function render() {
   const d = data;
@@ -330,17 +377,15 @@ function render() {
   $("#b-owner").innerHTML = mine ? '<span class="ok">вы оператор этого выпуска</span>' : '<span class="muted">просмотр: управляет тот, кто выпустил</span>';
   $("#b-status").innerHTML = { creating: '<span class="cut">выпускается…</span>', live: '<span class="blum">в обращении</span>', done: '<span class="ok">погашен</span>', error: `<span class="bad">ошибка: ${esc(d.error)}</span>` }[d.status];
   const now = d.bondNow ?? d.issueTime;
-  const supply = d.holders.reduce((s, h) => s + h.quantity, 0);
-  const paidTotal = d.events.reduce((s, e) => s + Object.values(e.paid).reduce((t, p) => t + Number(p.amount), 0), 0)
-    + d.offers.reduce((s, o) => s + o.actions.reduce((t, a) => t + Number(a.paid ?? 0), 0) + o.settlements.reduce((t, x) => t + Number(x.paid), 0), 0);
+  const recs = chain && chain.bond === d.id ? chain.holders : null;
   $("#c-time").textContent = d.bondNow ? dateOf(d.bondNow, true) : "·";
-  $("#c-supply").textContent = supply;
-  const mand = d.trades.filter((t) => t.kind === "mandatory");
-  $("#c-trades").textContent = d.trades.filter((t) => t.stage === "settled").length;
-  $("#c-trades-s").textContent = `обязательных выполнено ${mand.filter((t) => t.outcome.ok).length} из ${mand.length} · случайных ${d.trades.filter((t) => t.kind === "random" && t.stage === "settled").length}`;
+  $("#c-supply").textContent = recs ? Object.values(recs).reduce((s, r) => s + r.quantity, 0) : "·";
+  $("#c-paid").textContent = recs ? money(Object.values(recs).reduce((s, r) => s + receivedOf(r, d).total, 0n)) : "·";
+  const done = d.trades.filter((t) => t.stage === "done" || t.stage === "legs" || t.stage === "cancelled");
+  $("#c-trades").textContent = d.trades.filter((t) => t.stage === "done").length;
+  $("#c-trades-s").textContent = `отправлено ${d.trades.length} · отказов программы ${d.trades.filter((t) => t.stage === "refused").length} · пропущено ${d.trades.filter((t) => t.stage === "missed").length}`;
   $("#c-cost").textContent = `${d.cost.transactions}`;
-  $("#c-cost-s").textContent = `подписей ${d.cost.signatures} · комиссии ${d.cost.feesSol.toFixed(4)} SOL · депозиты ${d.cost.depositsSol === null ? "·" : d.cost.depositsSol.toFixed(4)} SOL${d.cost.pending ? ` · ждут ${d.cost.pending}` : ""}`;
-  $("#c-paid").textContent = money(paidTotal);
+  $("#c-cost-s").textContent = `подписей ${d.cost.signatures} · комиссии ${d.cost.feesSol.toFixed(4)} SOL`;
 
   // шкала: выпуск, отсечки, погашение
   const t0 = d.issueTime, t1 = d.maturityTime, pct = (t) => Math.max(0, Math.min(100, ((t - t0) / (t1 - t0)) * 100));
@@ -349,70 +394,64 @@ function render() {
 
   // корпоративные действия
   const nextIdx = d.events.findIndex((e) => !e.done);
-  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r">Счёт</th><th class="r">Опоздание</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
+  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r">Опоздание</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
     + d.events.map((ev, i) => {
       const step = nextStep(ev), due = step && now >= ev.recordTime && (step !== "pay" || now >= ev.paymentTime);
       const steps = ["open", "fund", "pay"].map((s) => `<span class="step ${stepDone(ev, s) ? "done" : s === step ? "next" : ""}">${STEP_NAMES[s]}</span>`).join("");
-      const paid = Object.keys(ev.paid).length;
+      const paid = Object.keys(ev.paid).length, none = Object.keys(ev.resolved).length;
       return `<tr class="${i === nextIdx ? "now" : ""}">
-        <td><b>${ev.kind === "coupon" ? `Купон ${ev.index + 1}` : "Погашение"}</b>${paid ? `<br><span class="muted">выплачено ${paid}</span>` : ""}${ev.waiting && ev.waiting.length ? `<br><span class="cut">ждут escrow или tender: ${ev.waiting.join(", ")}</span>` : ""}${ev.error && !ev.done ? `<br><span class="err">${esc(ev.error)}</span>` : ""}</td>
+        <td><b>${ev.kind === "coupon" ? `Купон ${ev.index + 1}` : "Погашение"}</b>${paid || none ? `<br><span class="muted">выплат отправлено ${paid}${none ? `, программа ответила «нечего» ${none}` : ""}</span>` : ""}${ev.error && !ev.done ? `<br><span class="err">${esc(ev.error)}</span>` : ""}</td>
         <td class="mono">${dateOf(ev.recordTime, true)}</td><td class="mono">${dateOf(ev.paymentTime, true)}</td>
         <td class="r mono">${ev.supplyAtRecord ?? "·"}</td><td class="r mono">${ev.budget ? money(ev.budget) : "·"}</td>
-        <td class="r mono">${ev.vault !== null ? money(ev.vault) : "·"}</td>
         <td class="r mono">${ev.lateDays === null ? "·" : ev.lateDays === 0 ? '<span class="ok">в срок</span>' : `<span class="bad">${ev.lateDays} дн.</span>`}</td>
         <td><div class="steps">${steps}</div></td>
         <td><input type="checkbox" data-auto="${i}" ${ev.auto ? "checked" : ""} ${ev.done || !mine ? "disabled" : ""} style="width:auto"></td>
         <td>${step ? `<button data-step="${i}" data-s="${step}" ${ev.auto || !due || !mine ? "disabled" : ""} title="${!due ? "время шага не наступило" : ev.auto ? "снимите галку «авто»" : ""}">${STEP_NAMES[step]}</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
     }).join("");
 
-  // оферты
+  // оферты: создание и бюджет одной транзакцией; tender рассчитывается после окна
   $("#offers").innerHTML = d.offers.length ? `<tr><th>Оферта</th><th>Окно</th><th class="r">Цена</th><th class="r">Объём</th><th>Ответы держателей</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
     + d.offers.map((o) => {
-      const step = !o.funded ? "fund" : o.kind === "tender" && !o.done ? "settle" : null;
-      const names = { fund: "внести бюджет и подтвердить", settle: "рассчитать заявки" };
-      const due = step && (step !== "settle" || now >= o.close);
-      const answers = o.actions.map((a) => `${a.holder}: ${a.sell ? `продал ${a.sell}` : `заявил ${a.tender}`} ${tx(a.sig)}`).join("<br>")
-        + (o.settlements.length ? "<br>" + o.settlements.map((x) => `${x.holder}: выкуплено ${x.burned} ${tx(x.sig)}`).join("<br>") : "")
+      const step = o.kind === "tender" && !o.done ? "settle" : null;
+      const due = step && now >= o.close;
+      const answers = o.actions.map((a) => `${a.holder}: ${a.sell ? `продаёт ${a.sell}` : `заявляет ${a.tender}`} ${a.sig ? tx(a.sig) : `<span class="bad">отказ: ${esc(a.refused)}</span>`}`).join("<br>")
+        + (o.settlements.length ? "<br>" + o.settlements.map((x) => `${x.holder}: заявка рассчитана ${x.sig ? tx(x.sig) : `<span class="bad">отказ: ${esc(x.refused)}</span>`}`).join("<br>") : "")
         + (o.waiting ? `<br><span class="muted">ещё решают: ${o.waiting}</span>` : "")
         + `<br><span class="muted">участвуют ${o.participants.length}, не участвуют ${o.others.length}</span>`;
-      return `<tr><td><b>${o.id} · ${o.kind === "tender" ? "tender" : "buyback"}</b>${o.error ? `<br><span class="err">${esc(o.error)}</span>` : ""}</td>
+      return `<tr><td><b>${o.id} · ${o.kind === "tender" ? "tender" : "buyback"}</b>${o.error && !o.done ? `<br><span class="err">${esc(o.error)}</span>` : ""}</td>
         <td class="mono">${dateOf(o.open)} … ${dateOf(o.close)}</td><td class="r mono">${money(o.priceUnits)}</td><td class="r mono">${o.maxQuantity}</td>
         <td>${answers || '<span class="muted">·</span>'}</td>
-        <td><div class="steps">${["fund", ...(o.kind === "tender" ? ["settle"] : [])].map((s) => `<span class="step ${(s === "fund" && o.funded) || (s === "settle" && o.done) ? "done" : s === step ? "next" : ""}">${names[s]}</span>`).join("")}</div></td>
+        <td><div class="steps"><span class="step done">создать и внести бюджет</span>${o.kind === "tender" ? `<span class="step ${o.done ? "done" : "next"}">рассчитать заявки</span>` : ""}</div></td>
         <td><input type="checkbox" data-oauto="${o.id}" ${o.auto ? "checked" : ""} ${o.done || !mine ? "disabled" : ""} style="width:auto"></td>
-        <td>${step ? `<button data-ostep="${o.id}" data-s="${step}" ${o.auto || !due || !mine ? "disabled" : ""}>${names[step]}</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
+        <td>${step ? `<button data-ostep="${o.id}" data-s="${step}" ${o.auto || !due || !mine ? "disabled" : ""}>рассчитать заявки</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
     }).join("") : '<tr><td class="muted">Оферт нет. Добавьте ниже: вид, цену, объём и окно; окно закрывается до последней отсечки.</td></tr>';
   $("#offer-form").hidden = d.status !== "live" || !mine;
 
-  // обязательные сделки у каждой отсечки
-  $("#mandatory").innerHTML = `<tr><th>Отсечка</th><th>Точка</th><th>Сделка</th><th>Escrow до отсечки</th><th>Расчёт</th><th>Исход</th><th>Транзакции</th></tr>`
-    + mand.map((t) => `<tr><td class="mono">${t.k + 1} · ${dateOf(d.recordTimes[t.k])}</td><td>${POINT[t.point]}</td>
-      <td>${t.from ? `${t.from} → ${t.to}, ${t.amount} обл.` : '<span class="muted">·</span>'}</td>
-      <td>${t.fundedPassed === undefined ? "·" : t.fundedPassed === t.k ? '<span class="ok">да</span>' : "нет"}</td>
-      <td class="mono">${t.settledAt ? dateOf(t.settledAt, true) : "·"}</td>
-      <td class="${t.outcome.ok ? "ok" : t.outcome.text === "идёт" ? "muted" : "bad"}">${esc(t.outcome.text)}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
+  // сделки с бондом: каждая строка записана, когда держатели отправили сделку
+  const trades = d.trades.slice().sort((x, y) => (x.sentAt ?? 0) - (y.sentAt ?? 0) || x.id - y.id);
+  $("#trades").innerHTML = trades.length ? `<tr><th>Отправлена</th><th>Где</th><th>Сделка</th><th>Ответ программы</th><th>Транзакции</th></tr>`
+    + trades.map((t) => `<tr><td class="mono">${t.sentAt ? dateOf(t.sentAt, true) : "·"}</td><td>${esc(t.place)}</td>
+      <td>${t.from ? `${t.from} → ${t.to}${t.amount ? `, ${t.amount} обл. за ${money(t.cash)}` : ""}` : '<span class="muted">·</span>'}</td>
+      <td class="${t.stage === "done" ? "ok" : t.stage === "legs" ? "cut" : "bad"}">${STAGE[t.stage]}${t.note ? `<br><span class="muted">${esc(t.note)}</span>` : ""}</td>
+      <td>${[t.legsSig, t.sig].filter(Boolean).map(tx).join(" ")}</td></tr>`).join("")
+    : '<tr><td class="muted">Сделок пока нет.</td></tr>';
   $("#a-run").disabled = !mine;
 
-  // реестр: облигации сейчас, позиция на каждую прошедшую отсечку, получено по каждому событию
+  // реестр: записи Blum, прочитанные страницей с devnet
   const passed = d.recordTimes.filter((t) => t <= now).length;
-  const showPips = d.params.issueSize <= 120;
-  const coupons = d.events.filter((e) => e.kind === "coupon");
-  const head = `<tr><th>Держатель</th><th class="r">Сейчас</th>${showPips ? "<th></th>" : ""}${d.recordTimes.map((t, k) => `<th class="r ${k < passed ? "cut" : ""}">На отсечку ${k + 1}<br><span class="muted">${dateOf(t)}</span></th>`).join("")}<th class="r">Получено</th></tr>`;
+  const head = `<tr><th>Держатель</th><th class="r">Сейчас</th>${d.recordTimes.map((t, k) => `<th class="r ${k < passed ? "cut" : ""}">На отсечку ${k + 1}<br><span class="muted">${dateOf(t)}</span></th>`).join("")}<th class="r">Получено</th></tr>`;
   const rows = d.holders.map((h) => {
-    const got = Object.values(h.received).reduce((s, p) => s + Number(p.amount), 0)
-      + d.offers.reduce((s, o) => s + o.actions.filter((a) => a.holder === h.name).reduce((t, a) => t + Number(a.paid ?? 0), 0) + o.settlements.filter((x) => x.holder === h.name).reduce((t, x) => t + Number(x.paid), 0), 0);
-    const free = h.quantity - h.escrowed - h.locked;
-    const pips = showPips ? `<td class="pp"><div class="pips">${"<i class=pip></i>".repeat(Math.max(0, free))}${'<i class="pip esc"></i>'.repeat(h.escrowed)}${'<i class="pip lock"></i>'.repeat(h.locked)}</div></td>` : "";
+    const r = recs && recs[h.name];
+    const got = r ? receivedOf(r, d) : null;
     const cells = d.recordTimes.map((t, k) => {
-      if (k >= passed) return '<td class="cell muted">·</td>';
-      const e = coupons[k], p = h.received[k];
-      return `<td class="cell">${h.atRecord[k]}${h.saved[k] ? "<small>записано</small>" : ""}${p ? `<small class="got">+${money(p.amount)}</small>` : ""}</td>`;
+      if (!r || k >= passed) return '<td class="cell muted">·</td>';
+      const c = got.coupons.find((x) => x.k === k);
+      return `<td class="cell">${posAt(r, k)}${c ? `<small class="got">+${money(c.amount)}</small>` : ""}</td>`;
     }).join("");
-    const red = h.received[d.events.length - 1];
-    return `<tr class="h ${openHolder === h.name ? "open" : ""}" data-h="${h.name}"><td class="who"><b>${h.name}</b><small>${h.pubkey.slice(0, 4)}…${h.pubkey.slice(-4)} · размещено ${h.placed} · сделок ${d.used[h.name] ?? 0}</small></td>
-      <td class="cell"><b>${h.quantity}</b>${h.escrowed ? `<small class="cut">${h.escrowed} в escrow</small>` : ""}${h.locked ? `<small>${h.locked} в tender</small>` : ""}</td>${pips}${cells}
-      <td class="cell got"><b>${money(got)}</b>${red ? `<small class="got">номинал ${money(red.amount)}</small>` : ""}</td></tr>`
-      + (openHolder === h.name ? `<tr class="detail"><td colspan="${3 + (showPips ? 1 : 0) + d.recordTimes.length}">${holderDetail(h)}</td></tr>` : "");
+    return `<tr class="h ${openHolder === h.name ? "open" : ""}" data-h="${h.name}"><td class="who"><b>${h.name}</b><small>${h.pubkey.slice(0, 4)}…${h.pubkey.slice(-4)} · размещено ${h.placed} · сделок ${h.trades}</small></td>
+      <td class="cell">${r ? `<b>${r.quantity}</b>${r.escrowed ? `<small class="cut">${r.escrowed} в escrow</small>` : ""}${r.locked ? `<small>${r.locked} в tender</small>` : ""}` : "·"}</td>${cells}
+      <td class="cell got">${got ? `<b>${money(got.total)}</b>${got.redemption ? `<small class="got">номинал ${money(got.redemption)}</small>` : ""}` : "·"}</td></tr>`
+      + (openHolder === h.name ? `<tr class="detail"><td colspan="${3 + d.recordTimes.length}">${holderDetail(h, r, got)}</td></tr>` : "");
   }).join("");
   $("#reg").innerHTML = head + rows;
 
@@ -435,18 +474,20 @@ function render() {
   $("#a-cmd").textContent = `git clone -q --depth 1 -b demo-day-prep https://github.com/weArecAIborg/blum-solana-kase && cd blum-solana-kase && python3 -m pip install -q QuantLib financepy && curl -s -o bond.json ${json} && python3 tools/audit/audit.py bond.json https://api.devnet.solana.com history-accounts`;
 }
 
-// Расчёт аудита по держателю: причитается по условиям (позиция на отсечку × купон) и получено в транзакциях Solana.
-function holderDetail(h) {
-  const a = data.audit && data.audit.holders[h.name];
-  const trades = data.trades.filter((t) => t.from === h.name || t.to === h.name);
-  const tradeRows = trades.filter((t) => t.from).map((t) => `<tr><td class="mono">${dateOf(t.settledAt ?? t.startedAt ?? 0, true)}</td><td>${t.from === h.name ? `продаёт ${t.to}` : `покупает у ${t.from}`} ${t.amount ?? "·"} обл. за ${t.cash ? money(t.cash) : "·"}${t.kind === "mandatory" ? `<br><span class="cut">отсечка ${t.k + 1}, ${POINT[t.point]}</span>` : ""}</td><td>${t.stage === "settled" ? "рассчитана DvP" : `<span class="bad">${{ cancelled: "отменена", refused: "не допущена", missed: "пропущена" }[t.stage] ?? "идёт"}</span>${t.note ? `<br><span class="muted">${esc(t.note)}</span>` : ""}`}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
-  const audit = a ? `<table><tr><th>Событие</th><th class="r">Облигаций на отсечку (аудит по сделкам)</th><th class="r">Причитается по условиям</th><th class="r">Получено в Solana</th><th>Транзакции</th></tr>`
-    + a.events.map((e) => `<tr><td>${e.kind === "coupon" ? `Купон ${e.k + 1} · ${data.audit.recordDates[e.k]}` : "Погашение"}</td><td class="r mono">${e.pos}</td><td class="r mono">${money(e.expected)}</td><td class="r mono ${e.expected === e.measured ? "ok" : "bad"}">${money(e.measured)}</td><td>${(e.sigs || []).map(tx).join(" ")}</td></tr>`).join("")
-    + a.offers.expected.map((x, i) => { const m = a.offers.measured[i]; return `<tr><td>Оферта${m && m.label ? ` ${esc(String(m.label).replace("offer ", ""))}` : ""}: выкуплено ${x.bonds}</td><td class="r mono">·</td><td class="r mono">${money(x.amount)}</td><td class="r mono ${m && m.amount === x.amount ? "ok" : "bad"}">${m ? money(m.amount) : "·"}</td><td>${m ? tx(m.sig) : ""}</td></tr>`; }).join("")
-    + `<tr><td><b>Итого</b></td><td></td><td class="r mono"><b>${money(a.expected)}</b></td><td class="r mono ${a.expected === a.measured ? "ok" : "bad"}"><b>${money(a.measured)}</b></td><td class="${a.expected === a.measured ? "ok" : "bad"}">${a.expected === a.measured ? "совпало" : "расхождение"}</td></tr></table>
-      <p class="muted" style="margin-top:.5rem">Проверки аудита по ${h.name}: ${a.checks.filter((c) => c.ok).length} из ${a.checks.length} пройдены. Движения облигаций в ledger: ${a.moves.map((m) => `${m.q > 0 ? "+" : ""}${m.q} ${m.kind} ${tx(m.sig)}`).join(", ")}</p>`
-    : '<p class="muted">Расчёт аудита появится после запуска аудита.</p>';
-  return `<div class="box">${audit}${trades.length ? `<table><tr><th>День</th><th>Сделка</th><th>Расчёт</th><th>Транзакции</th></tr>${tradeRows}</table>` : ""}</div>`;
+// Держатель: полученные купоны по записи Blum (позиция на отсечку × купон за облигацию), погашение, его сделки и, после
+// аудита, расчёт аудита по ledger.
+function holderDetail(h, r, got) {
+  const d = data;
+  const perBond = couponOf(1, d.terms);
+  const received = r ? `<table><tr><th>Выплата</th><th class="r">Облигаций</th><th class="r">За облигацию</th><th class="r">Получено</th></tr>`
+    + got.coupons.map((c) => `<tr><td>Купон ${c.k + 1} · отсечка ${dateOf(d.recordTimes[c.k])}</td><td class="r mono">${c.pos}</td><td class="r mono">${money(perBond)}</td><td class="r mono ok">${money(c.amount)}</td></tr>`).join("")
+    + (got.redemption ? `<tr><td>Погашение</td><td class="r mono">${r.redeemed}</td><td class="r mono">${money(principalOf(1, d.terms))}</td><td class="r mono ok">${money(got.redemption)}</td></tr>` : "")
+    + `<tr><td><b>Итого</b></td><td></td><td></td><td class="r mono"><b>${money(got.total)}</b></td></tr></table>` : '<p class="muted">Запись держателя ещё не прочитана с devnet.</p>';
+  const trades = d.trades.filter((t) => t.from === h.name || t.to === h.name);
+  const tradeRows = trades.map((t) => `<tr><td class="mono">${t.sentAt ? dateOf(t.sentAt, true) : "·"}</td><td>${t.from === h.name ? `продаёт ${t.to}` : `покупает у ${t.from}`} ${t.amount ?? "·"} обл.<br><span class="cut">${esc(t.place)}</span></td><td>${STAGE[t.stage]}</td><td>${[t.legsSig, t.sig].filter(Boolean).map(tx).join(" ")}</td></tr>`).join("");
+  const a = d.audit && d.audit.holders[h.name];
+  const audit = a ? `<p class="muted" style="margin-top:.5rem">Аудит по ledger: причитается ${money(a.expected)}, получено в транзакциях Solana ${money(a.measured)} (${a.expected === a.measured ? "совпало" : "расхождение"}); проверки ${a.checks.filter((c) => c.ok).length} из ${a.checks.length}.</p>` : "";
+  return `<div class="box">${received}${audit}${trades.length ? `<table><tr><th>Отправлена</th><th>Сделка</th><th>Ответ программы</th><th>Транзакции</th></tr>${tradeRows}</table>` : ""}</div>`;
 }
 
 // ---------------- действия оператора

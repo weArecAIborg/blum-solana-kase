@@ -35,6 +35,7 @@ authority, vaults = A.bond_vaults(rpc, bond_mint, cash_mint)
 txs = A.measure_history(rpc, [bond_mint, cash_mint, authority, *vaults])
 vault_set = set(vaults)
 creation_time = A.signatures(rpc, bond_mint)[-1]["blockTime"]
+A.resolve(scn, txs, creation_time)  # operations named by signature: phases from the ledger, as in audit.main
 local = timezone(timedelta(hours=t["utcOffsetHours"]))
 origin = datetime.fromisoformat(scn["bondTimeAtCreation"]).timestamp()
 scale = scn["chainSecondsPerBondDay"]
@@ -51,7 +52,7 @@ for tx in txs:
             kind = ("placement" if tx["minted"].get(bond_mint) else "redemption" if tx["burned"].get(bond_mint)
                     else "DvP settlement" if A.DVP_PROGRAM in tx["programs"] else "into DvP escrow" if escrow_side else "transfer")
             moves[h].append({"q": d["delta"], "sig": tx["signature"], "day": bond_day(tx), "kind": kind})
-    if sum(tx["deltas"][v]["delta"] for v in vault_set if v in tx["deltas"]) >= 0:
+    if A.vault_paid_out(tx, vault_set) <= 0:
         continue
     burned = {wallets[d["owner"]] for d in tx["deltas"].values()
               if d["mint"] == bond_mint and d["delta"] < 0 and tx["burned"].get(bond_mint) and d["owner"] in wallets}

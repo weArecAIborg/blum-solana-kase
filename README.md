@@ -21,15 +21,19 @@ your own terms on devnet (face, rate, coupons per year, term, holders, issue siz
 known from the terms: each runs by itself at its moment when its "auto" box is ticked, or step by step by its buttons.
 The generated holders trade among themselves through Solana DvP as its documentation lays out
 ([solana.com/docs/defi/dvp-program](https://solana.com/docs/defi/dvp-program)): the seller records the trade, admits its
-escrow and delivers its bonds in one transaction it signs and pays (the program admits an escrow only between two
-registered holders), the buyer pays into the escrow in its own, and the venue, the trade's settlement authority,
-settles it. The registrar takes no part in trades. Every record moment has trades one day before it, at it and one day after it;
-besides those, each holder trades at random (at most T trades each, with a propensity to trade at the start and at the
-end of the bond's life). Holders answer the buybacks and tenders the operator adds. The register shows
-every holder's position at every record moment and every payment; after the redemption the ledger-only audit runs on
-the page, and the page prints one command that runs the same audit of that bond on your machine. Service:
-`ops/src/operator.ts`; the screen's wallet pays for every bond and is topped up from
-[faucet.solana.com](https://faucet.solana.com).
+escrow (the program admits an escrow only between two registered holders) and delivers its bonds, the buyer pays into
+the escrow and the venue, the trade's settlement authority, settles it, all in one transaction the three sign; a trade a
+day before a record moment sends its escrow before the moment and its settlement after it. The registrar takes no part
+in trades. A holder trades only within its own wallet (bonds beyond those already committed, keeping one; cash beyond
+earlier purchases). Every record moment but the final one (the program closes transfers from it) has trades one day
+before it, at it and one day after it; besides those, each holder trades at random (at most T trades each, with a
+propensity to trade at the start and at the end of the bond's life). Holders answer the buybacks and tenders the
+operator adds. The service (`ops/src/operator.ts`) only sends transactions, each after the one it depends on is
+confirmed (the node pushes the confirmation), reads nothing the program keeps, and stops a bond at its first error. The
+page reads the program's holder records itself from devnet (the viewer's own requests): every holder's position at
+every record moment and the coupons and redemption it received. After the redemption the ledger-only audit runs on the
+page, and the page prints one command that runs the same audit of that bond on your machine. The screen's wallet pays
+for every bond and is topped up from [faucet.solana.com](https://faucet.solana.com).
 
 A Solana program that services a tokenized bond through its whole life:
 

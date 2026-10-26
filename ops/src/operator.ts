@@ -234,13 +234,26 @@ const reason = (e: any) => (e instanceof Refused ? e.message : refusal(e).messag
 // (60 to 90 seconds: solana.com/docs/advanced/confirmation) or confirmed with an error is an error.
 const SUBSCRIPTIONS = 8; // waits at once: the cluster allows 10 subscriptions (x-ratelimit-pubsub-limit), one is the Clock
 let waitingNow = 0;
+// The transaction is sent only once the node has acknowledged the subscription ("subscribed"), so its confirmation
+// cannot come before the node listens; after a reconnection the subscription is acknowledged again and the status is
+// read once, since a confirmation in between was not pushed (web3.js confirms the same way: connection.ts,
+// getTransactionConfirmationPromise, through the same subscription-state hook).
 const confirmation = (sig: string) => {
-  let id = 0, timer: NodeJS.Timeout;
+  let id = 0, timer: NodeJS.Timeout, dispose = () => {}, subscribed = false, ready = () => {};
+  const listening = new Promise<void>((r) => { ready = r; });
   const done = new Promise<number>((resolve, reject) => {
-    timer = setTimeout(() => { void connection.removeSignatureListener(id); reject(new Error(`транзакция ${sig} не подтверждена за 90 с`)); }, 90_000);
-    id = connection.onSignature(sig, (r, ctx) => { clearTimeout(timer); r.err ? reject(new Error(`транзакция ${sig} исполнена с ошибкой ${JSON.stringify(r.err)}`)) : resolve(ctx.slot); }, "confirmed");
+    timer = setTimeout(() => { dispose(); void connection.removeSignatureListener(id); reject(new Error(`транзакция ${sig} не подтверждена за 90 с`)); }, 90_000);
+    const settle = (err: unknown, slot: number) => { clearTimeout(timer); dispose(); err ? reject(new Error(`транзакция ${sig} исполнена с ошибкой ${JSON.stringify(err)}`)) : resolve(slot); };
+    id = connection.onSignature(sig, (r, ctx) => settle(r.err, ctx.slot), "confirmed");
+    dispose = (connection as any)._onSubscriptionStateChange(id, (state: string) => {
+      if (state !== "subscribed") return;
+      if (!subscribed) { subscribed = true; ready(); return; }
+      opLabel.run("confirm", () => connection.getSignatureStatus(sig)).then(({ value }) => {
+        if (value && (value.confirmationStatus === "confirmed" || value.confirmationStatus === "finalized")) { void connection.removeSignatureListener(id); settle(value.err, value.slot); }
+      }, (e) => { clearTimeout(timer); dispose(); reject(e); });
+    });
   });
-  return { done, cancel: () => { clearTimeout(timer); void connection.removeSignatureListener(id); } };
+  return { listening: Promise.race([listening, done.then(() => {})]), done, cancel: () => { clearTimeout(timer); dispose(); void connection.removeSignatureListener(id); } };
 };
 
 async function send(b: BondState | undefined, label: string, build: () => Promise<{ ixs: TransactionInstruction[]; signers: Keypair[] }>): Promise<Sent> {
@@ -254,8 +267,9 @@ async function send(b: BondState | undefined, label: string, build: () => Promis
       const tx = new Transaction({ feePayer: signers[0].publicKey, blockhash: hash, lastValidBlockHeight }).add(...ixs);
       tx.sign(...signers);
       const sig = anchor.utils.bytes.bs58.encode(tx.signature!);
-      // subscribed before sending, so the confirmation cannot come first
+      // subscribed and acknowledged before sending, so the confirmation cannot come first
       const wait = confirmation(sig);
+      await wait.listening;
       try {
         // the node simulates it first (preflight at `confirmed`) and, once accepted, relays it
         await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });

@@ -237,9 +237,9 @@ def record_moment_unix(date_iso, local_hhmm, utc_offset_hours):
 
 
 def timeline(placements, trades, offers, record_times):
-    """Positions over the bond's life from the scenario alone, in the operator's order. After each record moment k:
-    the trades of phase k, then the offer actions of phase k (buyback sales retire bonds at once; tenders and
-    withdrawals only count). A tender offer is settled in the first phase whose next record moment comes after the
+    """Positions over the bond's life from the scenario alone, in the operator's order. After each record moment k
+    (phase -1: before the first record moment): the trades of phase k, then the offer actions of phase k (buyback sales
+    retire bonds at once; tenders and withdrawals only count). A tender offer is settled in the first phase whose next record moment comes after the
     offer's close: everything tendered if the offer is not oversubscribed, else, in tender order, each tender's
     running-total pro-rata share minus that of the tenders before it.
     Returns the positions at each record moment, the final positions, each holder's bond movements and retirements
@@ -261,8 +261,9 @@ def timeline(placements, trades, offers, record_times):
         moves[h].append(-q)
         retire[h].append((q, q * price))
 
-    for k in range(len(record_times)):
-        at_record.append(dict(pos))
+    for k in range(-1, len(record_times)):
+        if k >= 0:
+            at_record.append(dict(pos))
         for tr in [x for x in trades if x["afterRecordMoment"] == k]:
             pos[tr["from"]] -= tr["amount"]
             pos[tr["to"]] += tr["amount"]

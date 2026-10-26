@@ -8,11 +8,23 @@ Fair).
 delivery versus payment through the Solana Foundation's DvP program, deployed on devnet under its own program ID
 `tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i` (the submitted program `2UkTK...` is unchanged). The run of 23 Oct 2026:
 [docs/devnet-evidence-demo.md](docs/devnet-evidence-demo.md). Anyone can repeat its ledger-only audit from public
-devnet data with Python 3 alone; `scenarios/devnet-demo.public.json` names the run's accounts by public key:
+devnet data with Python 3 and the audit's reference math (QuantLib, FinancePy); `scenarios/devnet-demo.public.json`
+names the run's accounts by public key:
 
 ```bash
+python3 -m pip install QuantLib financepy
 python3 tools/audit/audit.py scenarios/devnet-demo.public.json https://api.devnet.solana.com history-accounts
 ```
+
+**Operator screen:** [blum.caiborg.ai/operator-screen](https://blum.caiborg.ai/operator-screen) issues a bond with
+your own terms on devnet (face, rate, coupons per year, term, holders, issue size). Every coupon and the redemption are
+known from the terms: each runs by itself at its moment when its "auto" box is ticked, or step by step by its buttons.
+The generated holders trade among themselves through Solana DvP (at most T trades each, with a propensity to trade at
+the start and at the end of the bond's life) and answer the buybacks and tenders the operator adds. The register shows
+every holder's position at every record moment and every payment; after the redemption the ledger-only audit runs on
+the page, and the page prints one command that runs the same audit of that bond on your machine. Service:
+`ops/src/operator.ts`; the screen's wallet pays for every bond and is topped up from
+[faucet.solana.com](https://faucet.solana.com).
 
 A Solana program that services a tokenized bond through its whole life:
 
@@ -48,8 +60,8 @@ each box linked to its line of source) and
 
 - **The market stays open on coupon day.** No snapshot and no trading freeze: every bond transfer goes through the
   program's Token-2022 transfer hook, which first saves both holders' positions for every record moment passed. Each
-  coupon goes to whoever held the bond at the record moment. (The runs move bonds only: a trade's cash leg between
-  buyer and seller is not part of them.)
+  coupon goes to whoever held the bond at the record moment. (The runs on the submitted program move bonds only; on
+  this branch secondary trades settle delivery versus payment through Solana DvP, bonds and cash in one transaction.)
 - **The program is the register and the paying agent.** It computes each payment from the terms and pays it from that
   event's own vault, in the same transaction that marks the holder paid. The issuer only deposits the cash.
 - **Servicing does not depend on our operator.** Opening an event, confirming its funding, paying, redeeming and settling an
@@ -74,7 +86,7 @@ each box linked to its line of source) and
 
 | Role | Can | Cannot |
 |---|---|---|
-| Registrar | Create the bond, register holders, place bonds up to the issue size before the first record moment, open a buyback or tender offer | Move or burn holders' bonds; move cash out of a vault; change any amount owed |
+| Registrar | Create the bond, register holders, place bonds up to the issue size before the first record moment, open a buyback or tender offer; admit a DvP trade's escrow and settle or cancel the trade (settlement authority) | Move or burn holders' bonds; move cash out of a vault; change any amount owed |
 | Issuer | Deposit cash into a coupon's, the redemption's or an offer's vault (no key in the program) | Take cash back: a vault pays only holders' own cash accounts |
 | Holder | Transfer to registered holders until the final record moment; sell to a buyback; tender and withdraw during the window | Burn bonds; transfer tendered bonds; transfer from the final record moment |
 | Anyone | Open an event, confirm its funding, pay holders, redeem, settle a tender | Change who is paid or how much: amounts follow from the positions recorded on chain |
@@ -95,15 +107,19 @@ Sources: [docs/bond-mechanics.md](docs/bond-mechanics.md).
 
 ## Live on devnet
 
-Program [`2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf`](https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet).
-A build of this repository gives the deployed program byte for byte (sha256 `327271f3...`). Every run below ran on
-it, each with its own bond and cash token, so each audit reads only that bond's transactions.
+Submitted program [`2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf`](https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet):
+a build of the tag `submitted-2026-10-12` gives it byte for byte (sha256 `327271f3...`). Demo Day program
+[`tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i`](https://explorer.solana.com/address/tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i?cluster=devnet):
+a build of this branch gives it byte for byte (sha256 `00733c95...`, upgraded 25 Oct 2026: a trade still open at the
+final record moment returns its bonds to the seller, who is then redeemed). Every run has its own bond and cash token,
+so each audit reads only that bond's transactions.
 
 | Run | Holders | Transactions | Report check (QuantLib, FinancePy) | Ledger-only audit | Evidence |
 |---|---|---|---|---|---|
 | 8 holders: 8 trades at record moments, buyback, tender offer (10 tendered for 6: exactly 6 bought), 4 coupons, redemption | 8 | 50 | passed | 43 of 43 | [timeline](https://blum.caiborg.ai/timeline.html), `docs/demo/data/devnet-full8.json` |
 | 1000 holders: 600 trades at record moments, buyback, tender offer (441 tendered for 410: exactly 410 bought), 4 coupons, redemption | 1000 | 2,318 | passed | 3,959 of 3,959 | [docs/devnet-evidence-crowd-1000.md](docs/devnet-evidence-crowd-1000.md) |
 | Operator stops after coupon 0; a wallet with no role finishes the bond | 3 | 25 | passed | 23 of 23 | [docs/devnet-evidence-keeper.md](docs/devnet-evidence-keeper.md) |
+| Demo Day program, before the 25 Oct upgrade: quarterly, 1 year, two trades settled by Solana DvP, operator stops after coupon 0 | 3 | 32 | passed | 23 of 23 | [docs/devnet-evidence-demo.md](docs/devnet-evidence-demo.md) |
 
 Attacker run (`scenarios/devnet-hostile.json`, 6 holders): at every step of the bond's life an attacker, and holders
 acting against the rules, try 35 ways to take bonds or cash or to act without authority. All 35 are refused, each a
@@ -126,7 +142,7 @@ Measured on the 1000-holder run:
 | Implemented on Solana | Simulated |
 |---|---|
 | Bond token (Token-2022 with transfer hook, permanent delegate, permissioned burn), holder registry, positions at record moments, entitlements, event vaults, coupon payment, redemption with burn, buyback, tender offer, on-chain record | Cash rail: a test SPL token (6 decimals) minted by a test "bank" key, standing for fiat or a stablecoin; the issuer's funding is that bank minting into the vaults |
-| Permissionless servicing and the ledger-only audit | Investor onboarding and KYC (the registrar registers wallets); holders are generated wallets labelled BH#1, BH#2, ...; trades are direct bond transfers: no order book, no cash leg |
+| Permissionless servicing and the ledger-only audit; secondary trades settled delivery versus payment through the Solana Foundation's DvP program | Investor onboarding and KYC (the registrar registers wallets); holders are generated wallets labelled BH#1, BH#2, ...; no order book: trades are generated, their cash leg is the test token |
 | | Bond time is compressed on devnet (1 bond day = 1 to 20 seconds); no integration with KASE or the central securities depository |
 
 ## Documentation
@@ -144,12 +160,15 @@ Measured on the 1000-holder run:
 
 | Path | Content |
 |---|---|
-| `programs/bond_servicing` | The Anchor program; LiteSVM tests in `tests/` |
+| `programs/bond_servicing` | The Anchor program; LiteSVM tests in `tests/`: `lifecycle.rs` (each rule), `random_operations.rs` (generated: random terms and random sequences of every operation, invariants measured from balances and the clock; `PROPTEST_CASES` sets the number of cases) |
 | `crates/bond_math` | Schedules from a holiday calendar, day counts, amounts; tested against QuantLib and FinancePy |
 | `ops/src/scenario.ts` | Operator: runs a scenario's whole lifecycle and writes a report |
+| `ops/src/dvp.ts` | Solana DvP client: create, fund both legs, settle, cancel; `admit_trade` |
+| `ops/src/operator.ts`, `docs/demo/operator-screen.html`, `ops/deploy/` | The operator screen: its service (bonds with the visitor's terms, corporate actions by time or by step, generated holders' trades and offer answers, audit) and its page |
 | `scenarios/` | Bond terms and events per run (`b1`, `mum108` local; `devnet-*` devnet) |
 | `tools/reference/check_report.py` | Checks a report's amounts with QuantLib and FinancePy |
 | `tools/audit/audit.py` | Ledger-only audit from public RPC data |
+| `tools/audit/audit_json.py` | The same audit as JSON, per holder, for the operator screen |
 | `tools/demo/`, `docs/demo/` | The demonstration site: its builders, and the pages they write from measured devnet data (`docs/demo/data/`) |
 | `tools/scenario/make_crowd.py` | Generates many-holder scenarios from a seed |
 | `data/calendars/kz-holidays.txt` | Sample holiday calendar |
@@ -167,7 +186,7 @@ uv venv .venv && uv pip install --python .venv QuantLib==1.43 financepy==1.1.2 h
 # A fresh clone has its own program keypair: point the code at it, then build again.
 anchor build && anchor keys sync && anchor build
 
-# Program tests (LiteSVM)
+# Program tests (LiteSVM); the generated tests run 256 cases, about 5 minutes
 cargo test -p bond_servicing
 cargo test -p bond_math
 

@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Экран оператора</title>
+<link rel="stylesheet" href="blum/styles.css">
+<style>
+/* Экран оператора: выпуск облигации на devnet со своими условиями, корпоративные действия из условий выпуска (авто или
+   по шагам), оферты, реестр держателей за всю историю, ledger и ончейн аудит. Данные: сервис ops/src/operator.ts (/api).
+   Цвета как на экране теста в питче: синий = Blum, фиолетовый = Solana, янтарный = отсечка, зелёный = выплачено,
+   красный = ошибка. */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1rem/1.5 var(--font-body); }
+:root { --blum: #4aaeff; --sol: #bb8cff; --cut: #ffb020; --ok: #9eea72; --bad: #ff6a55; }
+:root[data-theme="light"] { --blum: #1c5cab; --sol: #6b2fd6; --cut: #a85a00; --ok: #2f7d3c; --bad: #b3261e; }
+a { color: var(--accent); text-underline-offset: 2px; }
+p { margin: 0; }
+h2 { font: var(--h2); font-stretch: var(--display-stretch); margin: 0; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .cut { color: var(--cut); } .blum { color: var(--blum); }
+.win { border: 1px solid var(--border); background: var(--surface); min-width: 0; }
+.win > .bar { display: flex; align-items: center; gap: 10px; padding: 0.55rem 0.9rem; background: var(--bar); color: var(--bar-ink); font: 600 0.85rem/1.2 var(--font-body); flex-wrap: wrap; }
+.win > .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--grid); }
+.win > .bar em { margin-left: auto; font: 500 0.78rem/1 var(--font-mono); font-style: normal; color: var(--muted); }
+.win.blum { border-color: var(--blum); } .win.blum > .bar span { color: var(--blum); }
+.win.sol { border-color: var(--sol); } .win.sol > .bar span { color: var(--sol); }
+.win.cut { border-color: var(--cut); } .win.cut > .bar span { color: var(--cut); }
+.pad { padding: 0.9rem; display: grid; gap: 0.8rem; }
+.scroll { overflow-x: auto; }
+button, .btn { all: unset; cursor: pointer; background: var(--chip); color: var(--chip-ink); font: 600 0.78rem/1 var(--font-mono); padding: 0.5rem 0.65rem; text-align: center; white-space: nowrap; }
+button:hover:not(:disabled) { background: var(--cell-sel); color: #fff; }
+button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+button:disabled { opacity: 0.35; cursor: default; }
+button.main { background: var(--blum); color: #000; }
+input, select { font: 500 0.9rem/1.2 var(--font-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--border); padding: 0.4rem 0.5rem; min-width: 0; width: 100%; }
+label.f { display: grid; gap: 0.3rem; font: 600 0.72rem/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); gap: 0.8rem; }
+.row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.msg { font: 500 0.85rem/1.4 var(--font-mono); }
+code.cmd { display: block; white-space: pre-wrap; word-break: break-all; font: 500 0.8rem/1.45 var(--font-mono); background: var(--bg); border: 1px solid var(--border); padding: 0.6rem; }
+
+/* кошелёк */
+.wallet { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.8rem; }
+.kv { display: grid; gap: 0.25rem; }
+.kv .k { font: 600 0.7rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.kv .v { font: 600 1.15rem/1.2 var(--font-mono); word-break: break-all; }
+
+/* часы и шкала времени */
+.clock { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); border: 1px solid var(--border); background: var(--surface); }
+.clock > div { display: grid; gap: 0.35rem; padding: 0.7rem 0.9rem; border-left: 1px solid var(--border); }
+.clock > div:first-child { border-left: 0; }
+.clock .k { font: 600 0.68rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.clock .t { font: 600 1.45rem/1.05 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clock .s { font-size: 0.8rem; color: var(--muted); }
+.track { position: relative; height: 2.6rem; margin: 0.4rem 0.6rem 0; }
+.track .bar, .track .fill { position: absolute; left: 0; top: 6px; height: 3px; }
+.track .bar { right: 0; background: var(--grid); }
+.track .fill { background: var(--blum); }
+.track .knob { position: absolute; top: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--blum); box-shadow: 0 0 0 5px rgba(74, 174, 255, 0.2); }
+.track .tk { position: absolute; top: 2px; transform: translateX(-50%); display: grid; justify-items: center; gap: 3px; font: 600 0.62rem/1 var(--font-mono); color: var(--muted); white-space: nowrap; }
+.track .tk i { width: 3px; height: 11px; background: var(--cut); }
+.track .tk.past { color: var(--cut); }
+.track .tk.mat i { background: var(--blum); }
+
+/* корпоративные действия */
+table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+th { font: 600 0.66rem/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: bottom; }
+td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+td.r, th.r { text-align: right; }
+.steps { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.step { font: 600 0.68rem/1 var(--font-mono); padding: 0.32rem 0.4rem; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.step.done { border-color: var(--ok); color: var(--ok); }
+.step.next { border-color: var(--cut); color: var(--cut); }
+tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
+.err { color: var(--bad); font: 500 0.75rem/1.3 var(--font-mono); }
+
+/* реестр */
+.reg td, .reg th { white-space: nowrap; }
+.reg .who b { font: 700 1rem/1 var(--font-display); font-stretch: var(--display-stretch); }
+.reg .who small { display: block; font: 500 0.68rem/1.2 var(--font-mono); color: var(--muted); }
+.reg tr.h { cursor: pointer; }
+.reg tr.h:hover td { background: var(--accent-soft); }
+.reg tr.h.open td { background: var(--accent-soft); }
+.reg .cell { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.reg .cell small { display: block; font-size: 0.62rem; color: var(--blum); }
+.reg .got, .reg .cell small.got { color: var(--ok); }
+.reg td.pp { white-space: normal; min-width: 9rem; }
+.pips { display: flex; flex-wrap: wrap; gap: 3px; max-width: 16rem; }
+.pip { width: 7px; height: 12px; background: var(--ink-2); }
+.pip.esc { background: transparent; border: 2px solid var(--cut); }
+.pip.lock { background: transparent; border: 2px solid var(--blum); }
+.reg tr.detail > td { background: var(--bg); padding: 0.8rem; white-space: normal; }
+.reg tr.detail td, .reg tr.detail th { white-space: normal; color: var(--ink); }
+.reg tr.detail th { color: var(--ink-2); }
+.detail .box { display: grid; gap: 0.8rem; max-width: 62rem; }
+.detail table { font-size: 0.8rem; }
+
+/* ledger */
+.ledger { max-height: 22rem; overflow: auto; }
+.ledger ol { list-style: none; margin: 0; padding: 0; }
+.ledger li { display: grid; grid-template-columns: 8.2rem minmax(0, 1fr) auto; gap: 0.6rem; padding: 0.35rem 0.8rem; border-bottom: 1px solid var(--grid); font-size: 0.8rem; align-items: baseline; }
+.ledger li .d { font: 500 0.72rem/1.3 var(--font-mono); color: var(--muted); }
+.ledger li.event .x, .ledger li.pay .x { color: var(--blum); }
+.ledger li.trade .x { color: var(--ink); }
+.ledger li.offer .x { color: var(--cut); }
+.ledger li.error .x { color: var(--bad); }
+.ledger li.pay .x::before { content: "+ "; color: var(--ok); }
+.main-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.checks li { font: 500 0.78rem/1.4 var(--font-mono); }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; max-height: 18rem; overflow: auto; }
+</style>
+</head>
+<body>
+<nav class="bs-index"><div class="in"><b>Blum · Operator</b><a href="deck.html">Deck</a><a href="video.html">Video</a><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a><a href="operator-screen" aria-current="true">Operator</a></div></nav>
+<main class="bs-page wide">
+  <header class="bs-header">
+    <p class="bs-eyebrow">Solana devnet · программа Demo Day</p>
+    <h1 class="bs-h1">Экран оператора</h1>
+    <p class="bs-lede">Выпустите облигацию со своими условиями. Корпоративные действия известны из условий выпуска: каждое
+      выполняется само в свой момент, если стоит галка «авто», или по шагам кнопками. Держатели торгуют между собой через
+      Solana DvP, оператор видит их сделки в реестре и ledger. В конце ончейн аудит проверяет каждую выплату по открытым
+      данным; тот же аудит можно запустить у себя одной командой.</p>
+  </header>
+
+  <section class="win cut">
+    <div class="bar"><i></i><i></i><i></i><span>Кошелёк оператора (registrar)</span><em id="prog"></em></div>
+    <div class="pad">
+      <div class="wallet">
+        <div class="kv"><span class="k">Адрес</span><span class="v" id="w-addr">·</span></div>
+        <div class="kv"><span class="k">Баланс devnet</span><span class="v" id="w-sol">·</span></div>
+        <div class="kv"><span class="k">Пополнить</span><span class="v"><a id="w-faucet" href="https://faucet.solana.com" target="_blank" rel="noopener">faucet.solana.com</a></span></div>
+      </div>
+      <p class="muted">Каждый выпуск оплачивает этот кошелёк: депозиты аккаунтов и комиссии, оценка видна перед выпуском.
+        Если SOL не хватает, откройте faucet, вставьте адрес выше и запросите devnet SOL.</p>
+      <div class="row"><button id="w-copy">Скопировать адрес</button><span class="msg muted" id="w-copied"></span></div>
+    </div>
+  </section>
+
+  <section class="win blum">
+    <div class="bar"><i></i><i></i><i></i><span>Новый выпуск</span><em>1 день облигации = 1 секунда devnet · правила рынка: пример KASE (отсечка 09:00 Алматы в день выплаты, выходные сб и вс, праздники РК)</em></div>
+    <form class="pad" id="new">
+      <div class="form">
+        <label class="f">Дата выпуска<input name="issue" type="date" required></label>
+        <label class="f">Срок, лет<input name="years" type="number" min="1" max="10" step="1" required></label>
+        <label class="f">Купонов в год<select name="periodsPerYear" required><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="12">12</option></select></label>
+        <label class="f">Номинал<input name="face" type="number" min="1" step="1" required></label>
+        <label class="f">Ставка, % годовых<input name="ratePct" type="number" min="0.01" max="100" step="0.01" required></label>
+        <label class="f">Цена погашения, % номинала<input name="redemptionPct" type="number" min="50" max="200" step="1" required></label>
+        <label class="f">Держателей<input name="holders" type="number" min="2" max="20" step="1" required></label>
+        <label class="f">Облигаций в выпуске<input name="issueSize" type="number" min="2" step="1" required></label>
+        <label class="f">Сделок на держателя за срок, не больше<input name="maxTradesPerHolder" type="number" min="0" max="50" step="1" required></label>
+        <label class="f">Склонность к сделкам в начале срока (вероятность в день)<input name="propensityStart" type="number" min="0" max="1" step="0.001" required></label>
+        <label class="f">Склонность к сделкам в конце срока<input name="propensityEnd" type="number" min="0" max="1" step="0.001" required></label>
+      </div>
+      <div class="row"><button class="main" type="submit">Выпустить на devnet</button><span class="msg" id="n-msg"></span></div>
+    </form>
+  </section>
+
+  <section class="win">
+    <div class="bar"><i></i><i></i><i></i><span>Выпуски</span><em id="b-count"></em></div>
+    <div class="pad"><div class="row" id="b-list"><span class="muted">Выпусков пока нет.</span></div></div>
+  </section>
+
+  <section id="bond" hidden style="display:grid;gap:1rem">
+    <div class="row" style="justify-content:space-between"><h2 id="b-title"></h2><span class="row"><span class="msg" id="b-owner"></span><span class="msg" id="b-status"></span></span></div>
+    <div class="clock">
+      <div><span class="k">Время облигации</span><span class="t" id="c-time">·</span><span class="s">Алматы, UTC+5</span></div>
+      <div><span class="k">В обращении</span><span class="t" id="c-supply">·</span><span class="s">облигаций</span></div>
+      <div><span class="k">Сделок через DvP</span><span class="t" id="c-trades">·</span><span class="s" id="c-trades-s"></span></div>
+      <div><span class="k">Выплачено держателям</span><span class="t" id="c-paid">·</span><span class="s">купоны и номинал</span></div>
+    </div>
+    <div class="track" id="track"></div>
+
+    <div class="win cut">
+      <div class="bar"><i></i><i></i><i></i><span>Корпоративные действия: известны из условий выпуска</span><em>шаги: открыть → внести бюджет → подтвердить → выплатить</em></div>
+      <div class="scroll"><table id="events"></table></div>
+    </div>
+
+    <div class="win cut">
+      <div class="bar"><i></i><i></i><i></i><span>Оферты: выкуп (buyback) и tender добавляет оператор</span><em>держатели откликаются сами: часть продаёт или заявляет, часть нет</em></div>
+      <div class="scroll"><table id="offers"></table></div>
+      <form class="pad" id="offer-form">
+        <div class="form">
+          <label class="f">Вид<select name="kind" required><option value="buyback">buyback: кто первый</option><option value="tender">tender: pro rata</option></select></label>
+          <label class="f">Цена за облигацию<input name="price" type="number" min="0.000001" step="0.000001" required></label>
+          <label class="f">Объём, облигаций<input name="maxQuantity" type="number" min="1" step="1" required></label>
+          <label class="f">Окно: с<input name="open" type="date" required></label>
+          <label class="f">Окно: по<input name="close" type="date" required></label>
+        </div>
+        <div class="row"><button type="submit">Добавить оферту</button><span class="msg" id="o-msg"></span></div>
+      </form>
+    </div>
+
+    <div class="main-grid">
+      <div class="win blum">
+        <div class="bar"><i></i><i></i><i></i><span>Реестр держателей · записи программы Blum</span><em>строка раскрывает расчёт аудита</em></div>
+        <div class="scroll"><table class="reg" id="reg"></table></div>
+      </div>
+      <div class="win sol">
+        <div class="bar"><i></i><i></i><i></i><span>Ledger · Solana devnet</span><em id="l-count"></em></div>
+        <div class="ledger" id="ledger"><ol></ol></div>
+      </div>
+    </div>
+
+    <div class="win">
+      <div class="bar"><i></i><i></i><i></i><span>Ончейн аудит</span><em>читает только открытые транзакции Solana и условия выпуска, код и записи Blum не использует</em></div>
+      <div class="pad">
+        <div class="row"><button id="a-run">Запустить аудит сейчас</button><span class="msg" id="a-status"></span></div>
+        <ul class="checks" id="a-checks"></ul>
+        <p>Тот же аудит у себя (нужны git, Python 3 и pip):</p>
+        <code class="cmd" id="a-cmd"></code>
+        <p class="muted">Файл <a id="a-json" href="#">scenario.public.json</a>: условия выпуска, публичные ключи, сделки и оферты. Аудит сам считает, сколько
+          причитается каждому держателю, и сравнивает с тем, что держатель получил в транзакциях Solana.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="bs-footer" id="foot"></footer>
+</main>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// The creator's tokens (one per bond): only the browser that created a bond acts on it, everyone else watches.
+const tokens = (() => { try { return JSON.parse(localStorage.getItem("blum-operator-tokens") || "{}"); } catch { return {}; } })();
+const keepToken = (id, token) => { tokens[id] = token; try { localStorage.setItem("blum-operator-tokens", JSON.stringify(tokens)); } catch {} };
+const api = async (path, body) => {
+  const id = path.split("/")[3];
+  const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-Operator-Token": tokens[id] || "" }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+};
+const UNIT = 1e6;
+const money = (units) => { const v = Number(units) / UNIT; return v.toLocaleString("ru-RU", { maximumFractionDigits: 6 }); };
+const tx = (sig) => sig ? `<a class="mono" href="https://explorer.solana.com/tx/${sig}?cluster=devnet" target="_blank" rel="noopener">${sig.slice(0, 6)}…</a>` : "";
+const DAY = 86400;
+let tz = 5;
+const dateOf = (bondUnix, withTime) => { const d = new Date((bondUnix + tz * 3600) * 1000).toISOString(); return withTime ? `${d.slice(0, 10)} ${d.slice(11, 16)}` : d.slice(0, 10); };
+
+// ---------------- кошелёк и выпуски
+let state = null;
+async function loadState() {
+  try {
+    state = await api("/api/state");
+    $("#w-addr").textContent = state.registrar;
+    $("#w-sol").textContent = `${state.sol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
+    $("#w-faucet").href = state.faucet;
+    $("#prog").textContent = `программа ${state.programId}`;
+    $("#b-count").textContent = `${state.bonds.length}`;
+    $("#b-list").innerHTML = state.bonds.length ? state.bonds.map((b) =>
+      `<button data-id="${b.id}" ${b.id === current ? 'style="outline:2px solid var(--blum)"' : ""}>${esc(b.title)} · ${{ creating: "выпускается", live: "в обращении", done: "погашен", error: "ошибка" }[b.status]}</button>`).join("")
+      : '<span class="muted">Выпусков пока нет.</span>';
+    $("#foot").innerHTML = `Программа <a href="https://explorer.solana.com/address/${state.programId}?cluster=devnet" target="_blank" rel="noopener">${state.programId}</a> на Solana devnet (сборка для Demo Day, ветка demo-day-prep). Код: <a href="https://github.com/weArecAIborg/blum-solana-kase/tree/demo-day-prep" target="_blank" rel="noopener">github.com/weArecAIborg/blum-solana-kase</a>.`;
+  } catch (e) { $("#w-sol").textContent = `сервис недоступен: ${e.message}`; }
+}
+$("#b-list").addEventListener("click", (e) => { const id = e.target.closest("button")?.dataset.id; if (id) select(id); });
+$("#w-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(state.registrar); $("#w-copied").textContent = "скопировано"; }
+  catch { getSelection().selectAllChildren($("#w-addr")); $("#w-copied").textContent = "выделено: скопируйте вручную"; }
+});
+
+// ---------------- новый выпуск
+const form = $("#new");
+form.issue.value = new Date().toISOString().slice(0, 10);
+const params = () => ({
+  issue: form.issue.value, years: +form.years.value, periodsPerYear: +form.periodsPerYear.value, face: +form.face.value,
+  ratePct: +form.ratePct.value, redemptionPct: +form.redemptionPct.value, holders: +form.holders.value, issueSize: +form.issueSize.value,
+  maxTradesPerHolder: +form.maxTradesPerHolder.value, propensityStart: +form.propensityStart.value, propensityEnd: +form.propensityEnd.value,
+});
+form.addEventListener("input", async () => {
+  if (!form.checkValidity()) { $("#n-msg").textContent = ""; return; }
+  try {
+    const r = await api("/api/estimate", params());
+    const p = params(), seconds = p.years * 365;
+    $("#n-msg").className = "msg " + (r.errors.length ? "bad" : "muted");
+    $("#n-msg").textContent = r.errors.length ? r.errors.join("; ") : `оценка: около ${r.sol.toFixed(3)} SOL; срок пройдёт за ${Math.round(seconds / 60)} мин`;
+  } catch (e) { $("#n-msg").textContent = e.message; }
+});
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#n-msg").className = "msg muted"; $("#n-msg").textContent = "выпускаю…";
+  try { const r = await api("/api/bonds", params()); keepToken(r.id, r.token); $("#n-msg").textContent = ""; await loadState(); select(r.id); }
+  catch (err) { $("#n-msg").className = "msg bad"; $("#n-msg").textContent = err.message; }
+});
+
+// ---------------- выпуск
+let current = null, data = null, openHolder = null, poll = null;
+function select(id) {
+  current = id; openHolder = null;
+  history.replaceState(null, "", `#${id}`);
+  $("#bond").hidden = false;
+  clearInterval(poll); refresh(); poll = setInterval(refresh, 2000);
+  loadState();
+}
+async function refresh() {
+  if (!current) return;
+  try { data = await api(`/api/bonds/${current}`); render(); }
+  catch (e) { $("#b-status").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+const STEP_NAMES = { open: "открыть", fund: "внести бюджет", confirm: "подтвердить", pay: "выплатить" };
+const nextStep = (ev) => !ev.open ? "open" : !ev.fund ? "fund" : !ev.confirm ? "confirm" : !ev.done ? "pay" : null;
+
+function render() {
+  const d = data;
+  tz = d.utcOffsetHours;
+  $("#b-title").textContent = d.title;
+  const mine = !!tokens[d.id];
+  $("#b-owner").innerHTML = mine ? '<span class="ok">вы оператор этого выпуска</span>' : '<span class="muted">просмотр: управляет тот, кто выпустил</span>';
+  $("#b-status").innerHTML = { creating: '<span class="cut">выпускается…</span>', live: '<span class="blum">в обращении</span>', done: '<span class="ok">погашен</span>', error: `<span class="bad">ошибка: ${esc(d.error)}</span>` }[d.status];
+  const now = d.bondNow ?? d.issueTime;
+  const supply = d.holders.reduce((s, h) => s + h.quantity, 0);
+  const paidTotal = d.events.reduce((s, e) => s + Object.values(e.paid).reduce((t, p) => t + Number(p.amount), 0), 0)
+    + d.offers.reduce((s, o) => s + o.actions.reduce((t, a) => t + Number(a.paid ?? 0), 0) + o.settlements.reduce((t, x) => t + Number(x.paid), 0), 0);
+  $("#c-time").textContent = d.bondNow ? dateOf(d.bondNow, true) : "·";
+  $("#c-supply").textContent = supply;
+  $("#c-trades").textContent = d.trades.filter((t) => t.settled).length;
+  $("#c-trades-s").textContent = d.pending ? `в очереди ${d.pending}` : "расчёт одной транзакцией";
+  $("#c-paid").textContent = money(paidTotal);
+
+  // шкала: выпуск, отсечки, погашение
+  const t0 = d.issueTime, t1 = d.maturityTime, pct = (t) => Math.max(0, Math.min(100, ((t - t0) / (t1 - t0)) * 100));
+  $("#track").innerHTML = `<div class="bar"></div><div class="fill" style="width:${pct(now)}%"></div><div class="knob" style="left:${pct(now)}%"></div>`
+    + d.recordTimes.map((t, k) => `<span class="tk ${t <= now ? "past" : ""}" style="left:${pct(t)}%"><i></i>${d.recordTimes.length <= 12 || k % Math.ceil(d.recordTimes.length / 12) === 0 ? `отсечка ${k + 1}` : ""}</span>`).join("");
+
+  // корпоративные действия
+  const nextIdx = d.events.findIndex((e) => !e.done);
+  $("#events").innerHTML = `<tr><th>Событие</th><th>Отсечка</th><th>Выплата</th><th class="r">На отсечку</th><th class="r">Бюджет</th><th class="r">Счёт</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
+    + d.events.map((ev, i) => {
+      const step = nextStep(ev), due = step && now >= ev.recordTime && (step !== "pay" || now >= ev.paymentTime);
+      const steps = ["open", "fund", "confirm", "pay"].map((s) => `<span class="step ${ev[s] || (s === "pay" && ev.done) ? "done" : s === step ? "next" : ""}">${STEP_NAMES[s]}</span>`).join("");
+      const paid = Object.keys(ev.paid).length;
+      return `<tr class="${i === nextIdx ? "now" : ""}">
+        <td><b>${ev.kind === "coupon" ? `Купон ${ev.index + 1}` : "Погашение"}</b>${paid ? `<br><span class="muted">выплачено ${paid}</span>` : ""}${ev.error ? `<br><span class="err">${esc(ev.error)}</span>` : ""}</td>
+        <td class="mono">${dateOf(ev.recordTime, true)}</td><td class="mono">${dateOf(ev.paymentTime, true)}</td>
+        <td class="r mono">${ev.supplyAtRecord ?? "·"}</td><td class="r mono">${ev.budget ? money(ev.budget) : "·"}</td>
+        <td class="r mono">${d.vaults && d.vaults[i] !== null && d.vaults[i] !== undefined ? money(d.vaults[i]) : "·"}</td>
+        <td><div class="steps">${steps}</div></td>
+        <td><input type="checkbox" data-auto="${i}" ${ev.auto ? "checked" : ""} ${ev.done || !mine ? "disabled" : ""} style="width:auto"></td>
+        <td>${step ? `<button data-step="${i}" data-s="${step}" ${ev.auto || !due || !mine ? "disabled" : ""} title="${!due ? "время шага не наступило" : ev.auto ? "снимите галку «авто»" : ""}">${STEP_NAMES[step]}</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
+    }).join("");
+
+  // оферты
+  $("#offers").innerHTML = d.offers.length ? `<tr><th>Оферта</th><th>Окно</th><th class="r">Цена</th><th class="r">Объём</th><th>Ответы держателей</th><th>Шаги</th><th>Авто</th><th>Шаг вручную</th></tr>`
+    + d.offers.map((o) => {
+      const step = !o.fund ? "fund" : !o.confirm ? "confirm" : o.kind === "tender" && !o.settled ? "settle" : null;
+      const names = { fund: "внести бюджет", confirm: "подтвердить", settle: "завершить" };
+      const due = step && (step !== "settle" || now >= o.close);
+      const answers = o.actions.map((a) => `${a.holder}: ${a.sell ? `продал ${a.sell}` : `заявил ${a.tender}`} ${tx(a.sig)}`).join("<br>")
+        + (o.settlements.length ? "<br>" + o.settlements.map((x) => `${x.holder}: выкуплено ${x.burned} ${tx(x.sig)}`).join("<br>") : "")
+        + (o.waiting ? `<br><span class="muted">ещё решают: ${o.waiting}</span>` : "");
+      return `<tr><td><b>${o.id} · ${o.kind === "tender" ? "tender" : "buyback"}</b>${o.error ? `<br><span class="err">${esc(o.error)}</span>` : ""}</td>
+        <td class="mono">${dateOf(o.open)} … ${dateOf(o.close)}</td><td class="r mono">${money(o.priceUnits)}</td><td class="r mono">${o.maxQuantity}</td>
+        <td>${answers || '<span class="muted">·</span>'}</td>
+        <td><div class="steps">${["fund", "confirm", ...(o.kind === "tender" ? ["settle"] : [])].map((s) => `<span class="step ${(s === "fund" && o.fund) || (s === "confirm" && o.confirm) || (s === "settle" && o.settled) ? "done" : s === step ? "next" : ""}">${names[s]}</span>`).join("")}</div></td>
+        <td><input type="checkbox" data-oauto="${o.id}" ${o.auto ? "checked" : ""} ${o.done || !mine ? "disabled" : ""} style="width:auto"></td>
+        <td>${step ? `<button data-ostep="${o.id}" data-s="${step}" ${o.auto || !due || !mine ? "disabled" : ""}>${names[step]}</button>` : '<span class="ok">выполнено</span>'}</td></tr>`;
+    }).join("") : '<tr><td class="muted">Оферт нет. Добавьте ниже: вид, цену, объём и окно; окно закрывается до последней отсечки.</td></tr>';
+  $("#offer-form").hidden = d.status !== "live" || !mine;
+  $("#a-run").disabled = !mine;
+
+  // реестр: облигации сейчас, позиция на каждую прошедшую отсечку, получено по каждому событию
+  const passed = d.recordTimes.filter((t) => t <= now).length;
+  const showPips = d.params.issueSize <= 120;
+  const coupons = d.events.filter((e) => e.kind === "coupon");
+  const head = `<tr><th>Держатель</th><th class="r">Сейчас</th>${showPips ? "<th></th>" : ""}${d.recordTimes.map((t, k) => `<th class="r ${k < passed ? "cut" : ""}">На отсечку ${k + 1}<br><span class="muted">${dateOf(t)}</span></th>`).join("")}<th class="r">Получено</th></tr>`;
+  const rows = d.holders.map((h) => {
+    const got = Object.values(h.received).reduce((s, p) => s + Number(p.amount), 0)
+      + d.offers.reduce((s, o) => s + o.actions.filter((a) => a.holder === h.name).reduce((t, a) => t + Number(a.paid ?? 0), 0) + o.settlements.filter((x) => x.holder === h.name).reduce((t, x) => t + Number(x.paid), 0), 0);
+    const free = h.quantity - h.escrowed - h.locked;
+    const pips = showPips ? `<td class="pp"><div class="pips">${"<i class=pip></i>".repeat(Math.max(0, free))}${'<i class="pip esc"></i>'.repeat(h.escrowed)}${'<i class="pip lock"></i>'.repeat(h.locked)}</div></td>` : "";
+    const cells = d.recordTimes.map((t, k) => {
+      if (k >= passed) return '<td class="cell muted">·</td>';
+      const e = coupons[k], p = h.received[k];
+      return `<td class="cell">${h.atRecord[k]}${h.saved[k] ? "<small>записано</small>" : ""}${p ? `<small class="got">+${money(p.amount)}</small>` : ""}</td>`;
+    }).join("");
+    const red = h.received[d.events.length - 1];
+    return `<tr class="h ${openHolder === h.name ? "open" : ""}" data-h="${h.name}"><td class="who"><b>${h.name}</b><small>${h.pubkey.slice(0, 4)}…${h.pubkey.slice(-4)} · размещено ${h.placed} · сделок ${d.tradesUsed[h.name] ?? 0}</small></td>
+      <td class="cell"><b>${h.quantity}</b>${h.escrowed ? `<small class="cut">${h.escrowed} в escrow</small>` : ""}${h.locked ? `<small>${h.locked} в tender</small>` : ""}</td>${pips}${cells}
+      <td class="cell got"><b>${money(got)}</b>${red ? `<small class="got">номинал ${money(red.amount)}</small>` : ""}</td></tr>`
+      + (openHolder === h.name ? `<tr class="detail"><td colspan="${3 + (showPips ? 1 : 0) + d.recordTimes.length}">${holderDetail(h)}</td></tr>` : "");
+  }).join("");
+  $("#reg").innerHTML = head + rows;
+
+  // ledger
+  $("#l-count").textContent = `${d.ledger.filter((l) => l.sig).length} транзакций`;
+  const lg = $("#ledger"), atBottom = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
+  lg.querySelector("ol").innerHTML = d.ledger.map((l) => `<li class="${l.kind}"><span class="d">${dateOf(l.bond, true)}</span><span class="x">${esc(l.text)}</span>${tx(l.sig)}</li>`).join("");
+  if (atBottom) lg.scrollTop = lg.scrollHeight;
+
+  // аудит
+  const a = d.audit;
+  $("#a-status").innerHTML = d.auditRunning ? '<span class="cut">аудит идёт…</span>'
+    : a ? `<span class="${a.passed ? "ok" : "bad"}">${a.passed ? "AUDIT PASSED" : "AUDIT FAILED"}: ${a.checks.filter((c) => c.ok).length} из ${a.checks.length} проверок, ${a.transactions} транзакций, ${a.at.slice(0, 19).replace("T", " ")} UTC</span>`
+    : d.auditError ? `<span class="bad">${esc(d.auditError.slice(-300))}</span>` : '<span class="muted">аудит запускается сам после погашения</span>';
+  $("#a-checks").innerHTML = a ? a.checks.map((c) => `<li class="${c.ok ? "ok" : "bad"}">[${c.ok ? "PASS" : "FAIL"}] ${esc(c.id)} ${esc(c.label)}</li>`).join("") : "";
+  const json = `${location.origin}/api/bonds/${d.id}/scenario.public.json`;
+  $("#a-json").href = json;
+  $("#a-cmd").textContent = `git clone -q --depth 1 -b demo-day-prep https://github.com/weArecAIborg/blum-solana-kase && cd blum-solana-kase && python3 -m pip install -q QuantLib financepy && curl -s -o bond.json ${json} && python3 tools/audit/audit.py bond.json https://api.devnet.solana.com history-accounts`;
+}
+
+// Расчёт аудита по держателю: причитается по условиям (позиция на отсечку × купон) и получено в транзакциях Solana.
+function holderDetail(h) {
+  const a = data.audit && data.audit.holders[h.name];
+  const trades = data.trades.filter((t) => t.from === h.name || t.to === h.name);
+  const tradeRows = trades.map((t) => `<tr><td class="mono">${dateOf(t.at)}</td><td>${t.from === h.name ? `продал ${t.to}` : `купил у ${t.from}`} ${t.amount} обл. за ${money(t.cash)}</td><td>${t.settled ? "DvP" : '<span class="bad">отменена</span>'}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
+  const audit = a ? `<table><tr><th>Событие</th><th class="r">Облигаций на отсечку (аудит по сделкам)</th><th class="r">Причитается по условиям</th><th class="r">Получено в Solana</th><th>Транзакции</th></tr>`
+    + a.events.map((e) => `<tr><td>${e.kind === "coupon" ? `Купон ${e.k + 1} · ${data.audit.recordDates[e.k]}` : "Погашение"}</td><td class="r mono">${e.pos}</td><td class="r mono">${money(e.expected)}</td><td class="r mono ${e.expected === e.measured ? "ok" : "bad"}">${money(e.measured)}</td><td>${(e.sigs || []).map(tx).join(" ")}</td></tr>`).join("")
+    + a.offers.expected.map((x, i) => { const m = a.offers.measured[i]; return `<tr><td>Оферта${m && m.label ? ` ${esc(String(m.label).replace("offer ", ""))}` : ""}: выкуплено ${x.bonds}</td><td class="r mono">·</td><td class="r mono">${money(x.amount)}</td><td class="r mono ${m && m.amount === x.amount ? "ok" : "bad"}">${m ? money(m.amount) : "·"}</td><td>${m ? tx(m.sig) : ""}</td></tr>`; }).join("")
+    + `<tr><td><b>Итого</b></td><td></td><td class="r mono"><b>${money(a.expected)}</b></td><td class="r mono ${a.expected === a.measured ? "ok" : "bad"}"><b>${money(a.measured)}</b></td><td class="${a.expected === a.measured ? "ok" : "bad"}">${a.expected === a.measured ? "совпало" : "расхождение"}</td></tr></table>
+      <p class="muted" style="margin-top:.5rem">Проверки аудита по ${h.name}: ${a.checks.filter((c) => c.ok).length} из ${a.checks.length} пройдены. Движения облигаций в ledger: ${a.moves.map((m) => `${m.q > 0 ? "+" : ""}${m.q} ${m.kind} ${tx(m.sig)}`).join(", ")}</p>`
+    : '<p class="muted">Расчёт аудита появится после запуска аудита.</p>';
+  return `<div class="box">${audit}${trades.length ? `<table><tr><th>День</th><th>Сделка</th><th>Расчёт</th><th>Транзакции</th></tr>${tradeRows}</table>` : ""}</div>`;
+}
+
+// ---------------- действия оператора
+$("#bond").addEventListener("click", async (e) => {
+  const row = e.target.closest("tr.h");
+  if (row && !e.target.closest("a")) { openHolder = openHolder === row.dataset.h ? null : row.dataset.h; render(); return; }
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  const run = async (path, body) => { b.disabled = true; try { await api(path, body); } catch (err) { alertLine(err.message); } await refresh(); };
+  if (b.dataset.step !== undefined) return run(`/api/bonds/${current}/events/${b.dataset.step}/step`, { step: b.dataset.s });
+  if (b.dataset.ostep !== undefined) return run(`/api/bonds/${current}/offers/${b.dataset.ostep}/step`, { step: b.dataset.s });
+  if (b.id === "a-run") return run(`/api/bonds/${current}/audit`, {});
+});
+$("#bond").addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.dataset.auto !== undefined) await api(`/api/bonds/${current}/events/${t.dataset.auto}/auto`, { auto: t.checked }).catch((err) => alertLine(err.message));
+  if (t.dataset.oauto !== undefined) await api(`/api/bonds/${current}/offers/${t.dataset.oauto}/auto`, { auto: t.checked }).catch((err) => alertLine(err.message));
+  refresh();
+});
+const alertLine = (m) => { $("#b-status").innerHTML = `<span class="bad">${esc(m)}</span>`; };
+$("#offer-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $("#o-msg").className = "msg muted"; $("#o-msg").textContent = "создаю оферту…";
+  try {
+    await api(`/api/bonds/${current}/offers`, { kind: f.kind.value, price: +f.price.value, maxQuantity: +f.maxQuantity.value, open: f.open.value, close: f.close.value });
+    $("#o-msg").textContent = ""; refresh();
+  } catch (err) { $("#o-msg").className = "msg bad"; $("#o-msg").textContent = err.message; }
+});
+
+loadState().then(() => { const id = location.hash.slice(1); if (id && state && state.bonds.some((b) => b.id === id)) select(id); });
+setInterval(loadState, 10000);
+</script>
+</body>
+</html>

@@ -18,7 +18,8 @@
 //!     holds anything.
 //!
 //! Amounts are computed with bond_math, whose formulas the QuantLib/FinancePy check verifies separately.
-//! Cases: `PROPTEST_CASES` (default 256). A failing case is saved in `proptest-regressions/` and replayed first.
+//! Cases: `PROPTEST_CASES` (default 256). A failing case is saved in `random_operations.proptest-regressions` and replayed
+//! first.
 //! Each invariant has an id; `KNOWN_BREAKS=id1,id2` sets aside the cases that break those, to look for other breaks.
 
 #![allow(dead_code)]

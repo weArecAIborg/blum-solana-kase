@@ -1,0 +1,31 @@
+# Operator service behind blum.caiborg.ai/operator-screen (ops/src/operator.ts). Installed and restarted by
+# `./deploy.sh site`. Keys (not in git): /etc/blum-operator/registrar.json (keys/devnet/keeper.json: registrar and fee
+# payer of every bond made on the screen; never the program's upgrade authority) and /etc/blum-operator/bank.json
+# (keys/devnet/cash-authority.json: the test cash tokens' authority).
+[Unit]
+Description=Blum operator service (operator screen, Solana devnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=blum-operator
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+# state, and the audit's RPC cache (tools/audit/audit.py: ops/out/rpc-cache)
+ReadWritePaths=/var/lib/blum-operator /opt/solana-comp-KASE/ops/out
+WorkingDirectory=/opt/solana-comp-KASE/ops
+Environment=OPERATOR_RPC=https://api.devnet.solana.com
+Environment=OPERATOR_PORT=8790
+Environment=OPERATOR_DATA=/var/lib/blum-operator
+Environment=OPERATOR_REGISTRAR=/etc/blum-operator/registrar.json
+Environment=OPERATOR_BANK=/etc/blum-operator/bank.json
+Environment=OPERATOR_SCHEDULE=/opt/solana-comp-KASE/target/release/examples/schedule
+Environment=OPERATOR_PYTHON=/opt/solana-comp-KASE/.venv/bin/python3
+ExecStart=/opt/solana-comp-KASE/ops/node_modules/.bin/tsx src/operator.ts
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

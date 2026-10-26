@@ -1,0 +1,3572 @@
+{
+  "address": "tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i",
+  "metadata": {
+    "name": "bond_servicing",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "admit_trade",
+      "discriminator": [
+        188,
+        138,
+        41,
+        236,
+        108,
+        249,
+        50,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "registrar",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "bond",
+          "relations": [
+            "seller",
+            "buyer"
+          ]
+        },
+        {
+          "name": "swap_dvp"
+        },
+        {
+          "name": "seller",
+          "docs": [
+            "The seller's record: `user_a` of the trade."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "account",
+                "path": "seller.owner",
+                "account": "HolderRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "docs": [
+            "The buyer's record: `user_b` of the trade."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "account",
+                "path": "buyer.owner",
+                "account": "HolderRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "The escrow's record: the `SwapDvp` PDA as owner, so the hook finds it at the holder seeds."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "account",
+                "path": "swap_dvp"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "change_tender",
+      "discriminator": [
+        167,
+        144,
+        85,
+        105,
+        176,
+        234,
+        129,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "holder"
+          ]
+        },
+        {
+          "name": "bond",
+          "relations": [
+            "offer",
+            "holder"
+          ]
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond"
+              },
+              {
+                "kind": "account",
+                "path": "offer.id",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tender",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "quantity",
+          "type": "u64"
+        },
+        {
+          "name": "withdraw",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "confirm_funding",
+      "discriminator": [
+        30,
+        31,
+        203,
+        65,
+        164,
+        189,
+        67,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "event",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  118,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "event.bond",
+                "account": "Event"
+              },
+              {
+                "kind": "account",
+                "path": "event.index",
+                "account": "Event"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "relations": [
+            "event"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "confirm_offer_funding",
+      "discriminator": [
+        168,
+        238,
+        65,
+        241,
+        98,
+        193,
+        222,
+        109
+      ],
+      "accounts": [
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.bond",
+                "account": "Offer"
+              },
+              {
+                "kind": "account",
+                "path": "offer.id",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "relations": [
+            "offer"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_bond",
+      "discriminator": [
+        96,
+        81,
+        70,
+        166,
+        111,
+        33,
+        61,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "registrar",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "The new bond mint: a fresh keypair, created and initialized in this instruction."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bond",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_mint"
+        },
+        {
+          "name": "extra_account_meta_list",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  116,
+                  114,
+                  97,
+                  45,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "terms",
+          "type": {
+            "defined": {
+              "name": "BondTerms"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_offer",
+      "discriminator": [
+        237,
+        233,
+        192,
+        168,
+        248,
+        7,
+        249,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "registrar",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "bond"
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond"
+              },
+              {
+                "kind": "arg",
+                "path": "id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_mint",
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "id",
+          "type": "u16"
+        },
+        {
+          "name": "pro_rata",
+          "type": "bool"
+        },
+        {
+          "name": "price_units",
+          "type": "u64"
+        },
+        {
+          "name": "max_quantity",
+          "type": "u64"
+        },
+        {
+          "name": "open_time",
+          "type": "i64"
+        },
+        {
+          "name": "close_time",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "open_event",
+      "discriminator": [
+        34,
+        149,
+        34,
+        239,
+        159,
+        216,
+        253,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bond"
+        },
+        {
+          "name": "event",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  118,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond"
+              },
+              {
+                "kind": "arg",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_mint",
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "event"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cash_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "index",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "pay_coupon",
+      "discriminator": [
+        235,
+        226,
+        45,
+        115,
+        95,
+        34,
+        46,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bond",
+          "relations": [
+            "event",
+            "holder"
+          ]
+        },
+        {
+          "name": "event",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  118,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond"
+              },
+              {
+                "kind": "account",
+                "path": "event.index",
+                "account": "Event"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "relations": [
+            "holder"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "relations": [
+            "event"
+          ]
+        },
+        {
+          "name": "cash_mint",
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "holder_cash",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "cash_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "cash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "memo_program",
+          "optional": true
+        },
+        {
+          "name": "cash_token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "place",
+      "discriminator": [
+        143,
+        53,
+        56,
+        40,
+        41,
+        16,
+        5,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "registrar",
+          "signer": true,
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "bond",
+          "writable": true,
+          "relations": [
+            "holder"
+          ]
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              },
+              {
+                "kind": "account",
+                "path": "holder.owner",
+                "account": "HolderRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder_bonds",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "holder.owner",
+                "account": "HolderRecord"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_holder",
+      "discriminator": [
+        184,
+        132,
+        5,
+        76,
+        103,
+        18,
+        40,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bond",
+          "writable": true,
+          "relations": [
+            "event",
+            "holder"
+          ]
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "event",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  118,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond"
+              },
+              {
+                "kind": "account",
+                "path": "event.index",
+                "account": "Event"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "relations": [
+            "holder"
+          ]
+        },
+        {
+          "name": "holder_bonds",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "relations": [
+            "event"
+          ]
+        },
+        {
+          "name": "cash_mint",
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "holder_cash",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "cash_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "cash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "memo_program",
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "cash_token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_holder",
+      "discriminator": [
+        113,
+        111,
+        117,
+        246,
+        175,
+        59,
+        98,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "registrar",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "bond"
+          ]
+        },
+        {
+          "name": "bond"
+        },
+        {
+          "name": "holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "arg",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "owner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "resolve_tender",
+      "discriminator": [
+        16,
+        127,
+        96,
+        223,
+        76,
+        63,
+        189,
+        152
+      ],
+      "accounts": [
+        {
+          "name": "bond",
+          "relations": [
+            "offer",
+            "holder"
+          ]
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond"
+              },
+              {
+                "kind": "account",
+                "path": "offer.id",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bond.mint",
+                "account": "Bond"
+              },
+              {
+                "kind": "account",
+                "path": "holder.owner",
+                "account": "HolderRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tender",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer"
+              },
+              {
+                "kind": "account",
+                "path": "holder.owner",
+                "account": "HolderRecord"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "sell_to_offer",
+      "discriminator": [
+        250,
+        60,
+        171,
+        18,
+        144,
+        227,
+        151,
+        121
+      ],
+      "accounts": [
+        {
+          "name": "retirement",
+          "accounts": [
+            {
+              "name": "payer",
+              "writable": true,
+              "signer": true
+            },
+            {
+              "name": "bond",
+              "writable": true,
+              "relations": [
+                "holder"
+              ]
+            },
+            {
+              "name": "mint",
+              "writable": true,
+              "relations": [
+                "bond"
+              ]
+            },
+            {
+              "name": "holder",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      104,
+                      111,
+                      108,
+                      100,
+                      101,
+                      114
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "mint"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "owner"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "owner",
+              "relations": [
+                "holder"
+              ]
+            },
+            {
+              "name": "holder_bonds",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "account",
+                    "path": "owner"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "token_program"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "mint"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    140,
+                    151,
+                    37,
+                    143,
+                    78,
+                    36,
+                    137,
+                    241,
+                    187,
+                    61,
+                    16,
+                    41,
+                    20,
+                    142,
+                    13,
+                    131,
+                    11,
+                    90,
+                    19,
+                    153,
+                    218,
+                    255,
+                    16,
+                    132,
+                    4,
+                    142,
+                    123,
+                    216,
+                    219,
+                    233,
+                    248,
+                    89
+                  ]
+                }
+              }
+            },
+            {
+              "name": "vault",
+              "writable": true
+            },
+            {
+              "name": "cash_mint",
+              "relations": [
+                "bond"
+              ]
+            },
+            {
+              "name": "holder_cash",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "account",
+                    "path": "owner"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "cash_token_program"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "cash_mint"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    140,
+                    151,
+                    37,
+                    143,
+                    78,
+                    36,
+                    137,
+                    241,
+                    187,
+                    61,
+                    16,
+                    41,
+                    20,
+                    142,
+                    13,
+                    131,
+                    11,
+                    90,
+                    19,
+                    153,
+                    218,
+                    255,
+                    16,
+                    132,
+                    4,
+                    142,
+                    123,
+                    216,
+                    219,
+                    233,
+                    248,
+                    89
+                  ]
+                }
+              }
+            },
+            {
+              "name": "memo_program",
+              "optional": true
+            },
+            {
+              "name": "token_program",
+              "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            },
+            {
+              "name": "cash_token_program"
+            },
+            {
+              "name": "associated_token_program",
+              "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+            },
+            {
+              "name": "system_program",
+              "address": "11111111111111111111111111111111"
+            }
+          ]
+        },
+        {
+          "name": "seller",
+          "signer": true
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "retirement.bond",
+                "account": "Retirement"
+              },
+              {
+                "kind": "account",
+                "path": "offer.id",
+                "account": "Offer"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "quantity",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_tender",
+      "discriminator": [
+        245,
+        40,
+        105,
+        44,
+        221,
+        93,
+        224,
+        41
+      ],
+      "accounts": [
+        {
+          "name": "retirement",
+          "accounts": [
+            {
+              "name": "payer",
+              "writable": true,
+              "signer": true
+            },
+            {
+              "name": "bond",
+              "writable": true,
+              "relations": [
+                "holder"
+              ]
+            },
+            {
+              "name": "mint",
+              "writable": true,
+              "relations": [
+                "bond"
+              ]
+            },
+            {
+              "name": "holder",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      104,
+                      111,
+                      108,
+                      100,
+                      101,
+                      114
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "mint"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "owner"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "owner",
+              "relations": [
+                "holder"
+              ]
+            },
+            {
+              "name": "holder_bonds",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "account",
+                    "path": "owner"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "token_program"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "mint"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    140,
+                    151,
+                    37,
+                    143,
+                    78,
+                    36,
+                    137,
+                    241,
+                    187,
+                    61,
+                    16,
+                    41,
+                    20,
+                    142,
+                    13,
+                    131,
+                    11,
+                    90,
+                    19,
+                    153,
+                    218,
+                    255,
+                    16,
+                    132,
+                    4,
+                    142,
+                    123,
+                    216,
+                    219,
+                    233,
+                    248,
+                    89
+                  ]
+                }
+              }
+            },
+            {
+              "name": "vault",
+              "writable": true
+            },
+            {
+              "name": "cash_mint",
+              "relations": [
+                "bond"
+              ]
+            },
+            {
+              "name": "holder_cash",
+              "writable": true,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "account",
+                    "path": "owner"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "cash_token_program"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "cash_mint"
+                  }
+                ],
+                "program": {
+                  "kind": "const",
+                  "value": [
+                    140,
+                    151,
+                    37,
+                    143,
+                    78,
+                    36,
+                    137,
+                    241,
+                    187,
+                    61,
+                    16,
+                    41,
+                    20,
+                    142,
+                    13,
+                    131,
+                    11,
+                    90,
+                    19,
+                    153,
+                    218,
+                    255,
+                    16,
+                    132,
+                    4,
+                    142,
+                    123,
+                    216,
+                    219,
+                    233,
+                    248,
+                    89
+                  ]
+                }
+              }
+            },
+            {
+              "name": "memo_program",
+              "optional": true
+            },
+            {
+              "name": "token_program",
+              "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            },
+            {
+              "name": "cash_token_program"
+            },
+            {
+              "name": "associated_token_program",
+              "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+            },
+            {
+              "name": "system_program",
+              "address": "11111111111111111111111111111111"
+            }
+          ]
+        },
+        {
+          "name": "offer",
+          "docs": [
+            "Writable: settling resolves the tender first if nobody has (the offer counts resolutions)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "retirement.bond",
+                "account": "Retirement"
+              },
+              {
+                "kind": "account",
+                "path": "offer.id",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tender",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  101,
+                  110,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer"
+              },
+              {
+                "kind": "account",
+                "path": "retirement.owner",
+                "account": "Retirement"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "transfer_hook",
+      "discriminator": [
+        105,
+        37,
+        101,
+        197,
+        75,
+        251,
+        102,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "source_token"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "destination_token"
+        },
+        {
+          "name": "authority"
+        },
+        {
+          "name": "extra_account_meta_list",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  116,
+                  114,
+                  97,
+                  45,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bond",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source_holder",
+          "docs": [
+            "may belong to the same owner."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              },
+              {
+                "kind": "account",
+                "path": "source_token.owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "destination_holder",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              },
+              {
+                "kind": "account",
+                "path": "destination_token.owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller_holder",
+          "docs": [
+            "otherwise an address no record exists at, not read. Checked by hand against the escrow record."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Bond",
+      "discriminator": [
+        224,
+        128,
+        48,
+        251,
+        182,
+        246,
+        111,
+        196
+      ]
+    },
+    {
+      "name": "Event",
+      "discriminator": [
+        125,
+        192,
+        125,
+        158,
+        9,
+        115,
+        152,
+        233
+      ]
+    },
+    {
+      "name": "HolderRecord",
+      "discriminator": [
+        215,
+        67,
+        31,
+        41,
+        155,
+        251,
+        178,
+        128
+      ]
+    },
+    {
+      "name": "Offer",
+      "discriminator": [
+        215,
+        88,
+        60,
+        71,
+        170,
+        162,
+        73,
+        229
+      ]
+    },
+    {
+      "name": "Tender",
+      "discriminator": [
+        168,
+        234,
+        132,
+        162,
+        99,
+        159,
+        184,
+        91
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BondCreated",
+      "discriminator": [
+        75,
+        123,
+        213,
+        125,
+        66,
+        232,
+        46,
+        147
+      ]
+    },
+    {
+      "name": "BondsBoughtBack",
+      "discriminator": [
+        60,
+        77,
+        151,
+        171,
+        55,
+        135,
+        233,
+        205
+      ]
+    },
+    {
+      "name": "BondsPlaced",
+      "discriminator": [
+        115,
+        177,
+        210,
+        76,
+        159,
+        2,
+        90,
+        137
+      ]
+    },
+    {
+      "name": "BondsRedeemed",
+      "discriminator": [
+        55,
+        7,
+        111,
+        20,
+        204,
+        114,
+        183,
+        133
+      ]
+    },
+    {
+      "name": "CouponPaid",
+      "discriminator": [
+        11,
+        228,
+        86,
+        67,
+        111,
+        22,
+        107,
+        226
+      ]
+    },
+    {
+      "name": "EventFunded",
+      "discriminator": [
+        163,
+        229,
+        9,
+        3,
+        223,
+        222,
+        17,
+        72
+      ]
+    },
+    {
+      "name": "EventOpened",
+      "discriminator": [
+        178,
+        81,
+        199,
+        118,
+        203,
+        221,
+        6,
+        91
+      ]
+    },
+    {
+      "name": "HolderRegistered",
+      "discriminator": [
+        201,
+        78,
+        223,
+        133,
+        103,
+        164,
+        173,
+        136
+      ]
+    },
+    {
+      "name": "OfferCreated",
+      "discriminator": [
+        31,
+        236,
+        215,
+        144,
+        75,
+        45,
+        157,
+        87
+      ]
+    },
+    {
+      "name": "OfferFunded",
+      "discriminator": [
+        199,
+        106,
+        122,
+        179,
+        106,
+        130,
+        38,
+        148
+      ]
+    },
+    {
+      "name": "PositionsSaved",
+      "discriminator": [
+        18,
+        84,
+        11,
+        62,
+        180,
+        140,
+        222,
+        249
+      ]
+    },
+    {
+      "name": "TenderChanged",
+      "discriminator": [
+        238,
+        253,
+        180,
+        58,
+        67,
+        111,
+        206,
+        31
+      ]
+    },
+    {
+      "name": "TenderResolved",
+      "discriminator": [
+        65,
+        178,
+        3,
+        223,
+        229,
+        210,
+        171,
+        48
+      ]
+    },
+    {
+      "name": "TradeAdmitted",
+      "discriminator": [
+        66,
+        140,
+        254,
+        63,
+        199,
+        109,
+        99,
+        0
+      ]
+    },
+    {
+      "name": "TradeMoved",
+      "discriminator": [
+        40,
+        165,
+        217,
+        165,
+        229,
+        105,
+        84,
+        202
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidTerms",
+      "msg": "Bond terms are invalid"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidSchedule",
+      "msg": "Payment days do not match the regular schedule computed from the terms"
+    },
+    {
+      "code": 6002,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6003,
+      "name": "NotTransferring",
+      "msg": "The hook was called outside a token transfer"
+    },
+    {
+      "code": 6004,
+      "name": "NotAssociatedTokenAccount",
+      "msg": "Bonds may be held only in the owner's associated token account"
+    },
+    {
+      "code": 6005,
+      "name": "TransfersClosedAtMaturity",
+      "msg": "Transfers are closed from the final record moment (redemption)"
+    },
+    {
+      "code": 6006,
+      "name": "PlacementClosed",
+      "msg": "Placement is allowed only before the first record moment"
+    },
+    {
+      "code": 6007,
+      "name": "EventOutOfRange",
+      "msg": "Event index is outside the bond's schedule"
+    },
+    {
+      "code": 6008,
+      "name": "WrongEventKind",
+      "msg": "Instruction does not apply to this event type"
+    },
+    {
+      "code": 6009,
+      "name": "RecordMomentNotReached",
+      "msg": "The record moment has not been reached"
+    },
+    {
+      "code": 6010,
+      "name": "PaymentNotOpen",
+      "msg": "Payment for this event has not opened yet"
+    },
+    {
+      "code": 6011,
+      "name": "NotFunded",
+      "msg": "The event is not funded"
+    },
+    {
+      "code": 6012,
+      "name": "AlreadyFunded",
+      "msg": "The event is already funded"
+    },
+    {
+      "code": 6013,
+      "name": "InsufficientFunding",
+      "msg": "Vault balance does not cover the event's budget"
+    },
+    {
+      "code": 6014,
+      "name": "AlreadyPaid",
+      "msg": "Already paid"
+    },
+    {
+      "code": 6015,
+      "name": "NothingToPay",
+      "msg": "Nothing to pay"
+    },
+    {
+      "code": 6016,
+      "name": "UnsupportedCashToken",
+      "msg": "Cash token has an extension that changes or conditions delivery (transfer fee, transfer hook, non-transferable), lets a third party move the vaults' cash (permanent delegate), or one this program cannot read"
+    },
+    {
+      "code": 6017,
+      "name": "PositionMismatch",
+      "msg": "Holder record and token account disagree: a balance changed outside the program"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidOffer",
+      "msg": "Offer terms are invalid (zero price or quantity, empty window, or closing after the final record moment)"
+    },
+    {
+      "code": 6019,
+      "name": "OfferNotOpen",
+      "msg": "The offer is not open at this time"
+    },
+    {
+      "code": 6020,
+      "name": "OfferStillOpen",
+      "msg": "The offer window has not closed yet"
+    },
+    {
+      "code": 6021,
+      "name": "OfferNotFunded",
+      "msg": "The offer is not funded"
+    },
+    {
+      "code": 6022,
+      "name": "WrongOfferKind",
+      "msg": "Instruction does not apply to this offer type"
+    },
+    {
+      "code": 6023,
+      "name": "ExceedsOffer",
+      "msg": "Quantity exceeds what the offer still accepts"
+    },
+    {
+      "code": 6024,
+      "name": "InsufficientUnlocked",
+      "msg": "Quantity exceeds the holder's unlocked bonds"
+    },
+    {
+      "code": 6025,
+      "name": "BondsLocked",
+      "msg": "Bonds are locked in a tender"
+    },
+    {
+      "code": 6026,
+      "name": "AlreadySettled",
+      "msg": "Tender already settled"
+    },
+    {
+      "code": 6027,
+      "name": "IssueTooLarge",
+      "msg": "Issue too large: a coupon or the redemption for this supply would not fit the cash token's amount"
+    },
+    {
+      "code": 6028,
+      "name": "MemoProgramMissing",
+      "msg": "The recipient's cash account requires a memo: pass the SPL Memo program"
+    },
+    {
+      "code": 6029,
+      "name": "ExceedsIssueSize",
+      "msg": "Placement would exceed the bond's issue size"
+    },
+    {
+      "code": 6030,
+      "name": "TenderOutOfOrder",
+      "msg": "Tenders are resolved in the order they were made: resolve the earlier ones first"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidTrade",
+      "msg": "Not a Solana DvP trade of this bond's tokens for its cash, between two registered holders, delivered to themselves"
+    },
+    {
+      "code": 6032,
+      "name": "EscrowRecord",
+      "msg": "A trade escrow's record is not a holder: it is paid nothing, tenders nothing and redeems nothing"
+    },
+    {
+      "code": 6033,
+      "name": "EscrowDestination",
+      "msg": "Bonds in a trade escrow may go only to the trade's buyer or back to its seller"
+    }
+  ],
+  "types": [
+    {
+      "name": "Bond",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registrar",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "cash_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "face_units",
+            "docs": [
+              "Face value of one bond in cash-token base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "rate_bps",
+            "type": "u32"
+          },
+          {
+            "name": "basis",
+            "type": {
+              "defined": {
+                "name": "CouponBasis"
+              }
+            }
+          },
+          {
+            "name": "redemption_price_bps",
+            "docs": [
+              "Redemption price in basis points of face (10_000 = par)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "issue_day",
+            "docs": [
+              "Day serials (days since 1970-01-01)."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "maturity_day",
+            "type": "i32"
+          },
+          {
+            "name": "months_per_period",
+            "type": "u32"
+          },
+          {
+            "name": "payment_days",
+            "docs": [
+              "Business-day-adjusted payment day of each coupon period (computed off-chain with the bond's calendar)."
+            ],
+            "type": {
+              "vec": "i32"
+            }
+          },
+          {
+            "name": "record_days",
+            "docs": [
+              "Record day of each coupon period; the record moment is `record_seconds_local` on that day."
+            ],
+            "type": {
+              "vec": "i32"
+            }
+          },
+          {
+            "name": "record_seconds_local",
+            "type": "i32"
+          },
+          {
+            "name": "payment_seconds_local",
+            "docs": [
+              "Payment opens at this local time on the payment day (never before the record moment)."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "utc_offset_seconds",
+            "type": "i32"
+          },
+          {
+            "name": "chain_origin",
+            "docs": [
+              "Time model: bond time = bond_origin + (chain time - chain_origin) * 86_400 / chain_seconds_per_bond_day."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bond_origin",
+            "type": "i64"
+          },
+          {
+            "name": "chain_seconds_per_bond_day",
+            "type": "i64"
+          },
+          {
+            "name": "supply",
+            "docs": [
+              "Bond supply over record moments. Only the program changes supply (placement, redemption), and it saves",
+              "the history first, so the supply at any record moment is known without counting holders."
+            ],
+            "type": {
+              "defined": {
+                "name": "PositionHistory"
+              }
+            }
+          },
+          {
+            "name": "max_supply",
+            "docs": [
+              "Issue size in bonds, fixed by the terms: placement never takes the supply above it."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "registrar",
+            "type": "pubkey"
+          },
+          {
+            "name": "periods",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondTerms",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "face_units",
+            "type": "u64"
+          },
+          {
+            "name": "rate_bps",
+            "type": "u32"
+          },
+          {
+            "name": "basis",
+            "type": {
+              "defined": {
+                "name": "CouponBasis"
+              }
+            }
+          },
+          {
+            "name": "redemption_price_bps",
+            "type": "u32"
+          },
+          {
+            "name": "issue_day",
+            "type": "i32"
+          },
+          {
+            "name": "maturity_day",
+            "type": "i32"
+          },
+          {
+            "name": "months_per_period",
+            "type": "u32"
+          },
+          {
+            "name": "payment_days",
+            "docs": [
+              "Business-day-adjusted payment day per period, from the bond's calendar (off-chain)."
+            ],
+            "type": {
+              "vec": "i32"
+            }
+          },
+          {
+            "name": "record_days",
+            "docs": [
+              "Record day per period (equal to the payment day in markets that fix holders on payment day)."
+            ],
+            "type": {
+              "vec": "i32"
+            }
+          },
+          {
+            "name": "record_seconds_local",
+            "type": "i32"
+          },
+          {
+            "name": "payment_seconds_local",
+            "type": "i32"
+          },
+          {
+            "name": "utc_offset_seconds",
+            "type": "i32"
+          },
+          {
+            "name": "weekend_days",
+            "docs": [
+              "Non-business weekdays as a bit mask: bit 0 = Monday ... bit 6 = Sunday."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bond_origin",
+            "docs": [
+              "Bond time that corresponds to the chain time of this instruction."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "chain_seconds_per_bond_day",
+            "docs": [
+              "86_400 = real time; smaller compresses the bond's life (devnet demo)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "max_supply",
+            "docs": [
+              "Issue size in bonds: the most the registrar may ever place."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondsBoughtBack",
+      "docs": [
+        "Bonds bought back and burned, price paid (FirstCome sale or ProRata settlement)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer",
+            "type": "u16"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "burned",
+            "type": "u64"
+          },
+          {
+            "name": "paid",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondsPlaced",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondsRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "burned",
+            "type": "u64"
+          },
+          {
+            "name": "principal",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CouponBasis",
+      "docs": [
+        "How a coupon is computed (see `bond_math::amount::AccrualBasis`)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "FixedPerPeriod",
+            "fields": [
+              {
+                "name": "periods_per_year",
+                "type": "u32"
+              }
+            ]
+          },
+          {
+            "name": "Thirty360",
+            "fields": [
+              {
+                "name": "convention",
+                "type": "u8"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "CouponPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "event",
+            "type": "u16"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Event",
+      "docs": [
+        "One coupon or the redemption. Created once its record moment has passed, so its inputs are final.",
+        "Read-only on the payment path."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u16"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "EventKind"
+              }
+            }
+          },
+          {
+            "name": "record_time",
+            "docs": [
+              "Record moment and payment opening, in bond time."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "payment_time",
+            "type": "i64"
+          },
+          {
+            "name": "supply_at_record",
+            "docs": [
+              "Bond supply at the record moment (from the bond's supply history)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "budget",
+            "docs": [
+              "Cash that covers every holder of this event: the amount for the whole supply, rounded down once. Each",
+              "holder's amount is rounded down on its own, so the holders' amounts never add up to more than this."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "This event's own cash account; other events cannot spend it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "funded",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EventFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "event",
+            "type": "u16"
+          },
+          {
+            "name": "vault_balance",
+            "type": "u64"
+          },
+          {
+            "name": "budget",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EventKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Coupon"
+          },
+          {
+            "name": "Redemption"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EventOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "event",
+            "type": "u16"
+          },
+          {
+            "name": "supply_at_record",
+            "type": "u64"
+          },
+          {
+            "name": "budget",
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HolderRecord",
+      "docs": [
+        "One registered holder of one bond: its quantity over record moments and the coupons already paid."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "escrow_of",
+            "docs": [
+              "A trade escrow's record (`admit_trade`): the seller whose bonds it holds. Bonds in a DvP escrow stay in the",
+              "seller's position (locked) until the trade settles, so a record moment inside an open trade still pays the",
+              "seller. Zero for a holder's own record. Third field, so the transfer hook's extra-account list can read it",
+              "at a one-byte offset (`HolderRecord::ESCROW_OF_OFFSET`)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": {
+              "defined": {
+                "name": "PositionHistory"
+              }
+            }
+          },
+          {
+            "name": "paid",
+            "docs": [
+              "Bit `e` set = coupon `e` paid."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "locked",
+            "docs": [
+              "Bonds committed to offers: tendered into open offers, or accepted by a closed offer and not yet bought. They",
+              "stay in the holder's account (and keep their coupon rights), but the transfer hook refuses transfers that",
+              "would take the balance below this, and redemption leaves them to their offer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "redeemed",
+            "docs": [
+              "Bonds redeemed at maturity so far. Principal for each partial redemption is the difference of the principal",
+              "on the cumulative quantity, so several partial redemptions round exactly like one."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "escrowed",
+            "docs": [
+              "Bonds the holder has put into open DvP trade escrows (`admit_trade`). They are part of the holder's position",
+              "(quantity = token balance + escrowed) until a trade settles; like locked bonds they cannot be transferred,",
+              "tendered or redeemed meanwhile."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HolderRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Offer",
+      "docs": [
+        "An issuer's offer to buy back bonds at a price per bond, up to a maximum quantity, during a window."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "id",
+            "type": "u16"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "OfferKind"
+              }
+            }
+          },
+          {
+            "name": "price_units",
+            "docs": [
+              "All-in cash price per bond, in cash-token base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_quantity",
+            "type": "u64"
+          },
+          {
+            "name": "open_time",
+            "docs": [
+              "Window in bond time: open <= t < close."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "close_time",
+            "type": "i64"
+          },
+          {
+            "name": "total",
+            "docs": [
+              "Bonds bought (FirstCome) or currently tendered (ProRata)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "The offer's own cash account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "funded",
+            "type": "bool"
+          },
+          {
+            "name": "tenders",
+            "docs": [
+              "Tenders made (ProRata): each new tender takes the next number."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "resolved",
+            "docs": [
+              "Tenders resolved so far, in the order they were made."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "resolved_quantity",
+            "docs": [
+              "Bonds tendered by the tenders resolved so far."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OfferCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer",
+            "type": "u16"
+          },
+          {
+            "name": "pro_rata",
+            "type": "bool"
+          },
+          {
+            "name": "price_units",
+            "type": "u64"
+          },
+          {
+            "name": "max_quantity",
+            "type": "u64"
+          },
+          {
+            "name": "open_time",
+            "type": "i64"
+          },
+          {
+            "name": "close_time",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OfferFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer",
+            "type": "u16"
+          },
+          {
+            "name": "vault_balance",
+            "type": "u64"
+          },
+          {
+            "name": "budget",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OfferKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "FirstCome"
+          },
+          {
+            "name": "ProRata"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionHistory",
+      "docs": [
+        "A quantity over the bond's record moments. Record moments are numbered 0..periods in time order.",
+        "",
+        "`quantity` is the quantity now. It has not changed since the last change, which happened when `live_from`",
+        "record moments had passed. So the quantity at record moment `e` is:",
+        "- `at[e]` if `e < live_from` (saved by the first change after moment `e`);",
+        "- `quantity` otherwise (no change since moment `e`).",
+        "`save` must run before every change; then no record moment's quantity is ever lost or overwritten, however",
+        "late anyone looks."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "live_from",
+            "type": "u16"
+          },
+          {
+            "name": "at",
+            "type": {
+              "array": [
+                "u64",
+                40
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionsSaved",
+      "docs": [
+        "A holder's quantity was kept for record moments [from_event, to_event) before it changed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "from_event",
+            "type": "u16"
+          },
+          {
+            "name": "to_event",
+            "type": "u16"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tender",
+      "docs": [
+        "One holder's tender into one pro-rata offer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "offer",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "number",
+            "docs": [
+              "Its number in the offer: tenders are resolved in this order."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "resolved",
+            "docs": [
+              "After the window: the accepted part is fixed and the rejected part released (no cash involved)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "accepted",
+            "type": "u64"
+          },
+          {
+            "name": "settled",
+            "docs": [
+              "The accepted part has been bought (burned and paid)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TenderChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer",
+            "type": "u16"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "tendered",
+            "type": "u64"
+          },
+          {
+            "name": "offer_total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TenderResolved",
+      "docs": [
+        "After the window: a holder's tender split into accepted (still committed) and rejected (released) bonds."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer",
+            "type": "u16"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "accepted",
+            "type": "u64"
+          },
+          {
+            "name": "rejected",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TradeAdmitted",
+      "docs": [
+        "A Solana DvP trade admitted: its escrow may hold `quantity` of the seller's bonds, which stay the seller's position",
+        "(locked) until the trade settles to the buyer or unwinds."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "swap_dvp",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "cash",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TradeMoved",
+      "docs": [
+        "Bonds moved through a trade escrow: into it (locked for the seller), to the buyer (settled) or back to the seller."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bond",
+            "type": "pubkey"
+          },
+          {
+            "name": "swap_dvp",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "type": "pubkey"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "settled",
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "BOND_SEED",
+      "type": "bytes",
+      "value": "[98, 111, 110, 100]"
+    },
+    {
+      "name": "EVENT_SEED",
+      "type": "bytes",
+      "value": "[101, 118, 101, 110, 116]"
+    },
+    {
+      "name": "HOLDER_SEED",
+      "type": "bytes",
+      "value": "[104, 111, 108, 100, 101, 114]"
+    },
+    {
+      "name": "OFFER_SEED",
+      "type": "bytes",
+      "value": "[111, 102, 102, 101, 114]"
+    },
+    {
+      "name": "TENDER_SEED",
+      "type": "bytes",
+      "value": "[116, 101, 110, 100, 101, 114]"
+    },
+    {
+      "name": "VAULT_SEED",
+      "docs": [
+        "Cash account of one event: [\"vault\", event]."
+      ],
+      "type": "bytes",
+      "value": "[118, 97, 117, 108, 116]"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/demo"))
 from build_timeline import esc, fill  # noqa: E402
+from site_nav import chrome  # noqa: E402
 
 SRC = "programs/bond_servicing/src/"
 LIB, STATE, SETTLE = SRC + "lib.rs", SRC + "state.rs", SRC + "settlement.rs"
@@ -1018,14 +1019,14 @@ def main(out_path):
         body = "\n".join(f'<span class="line" id="L{i}"><a href="#L{i}" aria-label="Line {i}">{i}</a><code>{escape(s)}</code></span>'
                          for i, s in enumerate(content.splitlines(), 1))
         back = os.path.relpath(out, path.parent)
-        path.write_text(f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        path.write_text(chrome(f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{escape(file)} · source</title><style>
 :root{{color-scheme:light dark}}body{{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}}
 header{{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}}
 a{{color:light-dark(#1c5cab,#6da7ec)}}h1{{font-size:18px;margin:8px 0}}p{{margin:4px 0;overflow-wrap:anywhere}}pre{{margin:0;padding:16px;overflow:auto}}
 .line{{display:flex;scroll-margin-top:160px;min-height:21px}}.line:target{{background:#1c5cab22}}.line>a{{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}}code{{white-space:pre;font:13px/21px monospace}}
 </style><header><a href="{escape(back)}">← Program logic</a><h1>{escape(file)}</h1>
-<p>Source at revision {revision[:12]}, the source of the program deployed on devnet. SHA-256 of this file {digest}</p></header><pre>{body}</pre></html>''')
+<p>Source at revision {revision[:12]}, the source of the program deployed on devnet. SHA-256 of this file {digest}</p></header><pre>{body}</pre></html>''', "Program", "Program", os.path.relpath(out.parent, path.parent) + "/"))
         return f"code/{file}.html"
 
     pages = {f: source_page(f) for f in sorted({n["src"] for c in CHARTS for n in c["nodes"] + [s for n in c["nodes"] for _, case in n.get("cases", []) for s in case] if n.get("src")})}

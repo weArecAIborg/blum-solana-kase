@@ -29,7 +29,7 @@ Note, as facts only: who may hold bonds (the holder registry); the record-date r
 - Evidence: the devnet numbers, with links.
 - The listing's requirements (test tokenized instrument, holder registry, record-date mechanism, entitlement calculation, coupon payment, bond redemption, additional corporate action, verifiable on-chain record): how each is met, with its evidence.
 - Limits and simulated parts.
-- Where to see each part on https://blum.caiborg.ai: Parties (what each party expects, kept and refused), Stages (the textbook rule beside the devnet measurement), Timeline (one bond, step by step), Flow (each instruction as Solana ran it), Program (the code as flowcharts).
+- Where to see each part on https://blum.caiborg.ai: Parties (what each party expects, kept and refused), Stages (the textbook rule beside the devnet measurement), Timeline (one bond, step by step), Flow (each instruction as Solana ran it), Program (the code as flowcharts), Review (what the refused attacks demonstrate), Operator (issue a bond with your own terms on devnet, watch its corporate actions and its holders' trades, and audit it).
 Compare only with how bonds are serviced today (depository record lists), not with other projects. Give numbers exactly as the sources do.`;
 
 const AI = [

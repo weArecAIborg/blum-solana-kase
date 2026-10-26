@@ -1,10 +1,10 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ops/src/attacks.ts · audit source</title><style>
+<title>ops/src/attacks.ts · audit source</title><link rel="stylesheet" href="../../../../blum/styles.css"><style>
 :root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
-header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+header{padding:20px;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
 a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
 .line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
-</style><header><a href="../../../../stages.html">← Bond stages</a><h1>ops/src/attacks.ts</h1>
+</style><nav class="bs-index"><div class="in"><b>Blum · Stages</b><a href="../../../../deck.html">Deck</a><a href="../../../../video.html">Video</a><a href="../../../../index.html">Parties</a><a href="../../../../stages.html" aria-current="true">Stages</a><a href="../../../../timeline.html">Timeline</a><a href="../../../../flow.html">Flow</a><a href="../../../../program.html">Program</a><a href="../../../../overview.html">Overview</a><a href="../../../../operator-screen">Operator</a><a href="../../../../audit/review.html">Review</a></div></nav><header><a href="../../../../stages.html">← Bond stages</a><h1>ops/src/attacks.ts</h1>
 <p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 f3585ecc926f80730b0af720d680e1d744ce21eb25aded53b27392307ed3ad74</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>// Hostile actor for a bond run (scenario field &quot;attacker&quot;). At each step of the bond&#x27;s life it tries the actions that</code></span>
 <span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>// would take bonds or cash from someone, or let someone act without authority. Every attempt is sent without</code></span>
 <span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>// simulation (skipPreflight), so a refusal is a failed transaction on the chain that anyone can open in an explorer.</code></span>
@@ -450,4 +450,4 @@ a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 
 <span class="line" id="L443"><a href="#L443" aria-label="Line 443">443</a><code>  };</code></span>
 <span class="line" id="L444"><a href="#L444" aria-label="Line 444">444</a><code></code></span>
 <span class="line" id="L445"><a href="#L445" aria-label="Line 445">445</a><code>  return { attempts, beforeFirstRecordMoment, afterRecordMoment, whileUnfunded, beforePayments, afterPayments, afterOfferActions, afterFinalRecordMoment, beforeRedemption, afterRedemption };</code></span>
-<span class="line" id="L446"><a href="#L446" aria-label="Line 446">446</a><code>}</code></span></pre></html>
+<span class="line" id="L446"><a href="#L446" aria-label="Line 446">446</a><code>}</code></span></pre><script src="../../../../ask-ai.js" defer></script></html>

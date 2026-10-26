@@ -35,6 +35,7 @@ button:hover:not(:disabled) { background: var(--cell-sel); color: #fff; }
 button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 button:disabled { opacity: 0.35; cursor: default; }
 button.main { background: var(--blum); color: #000; }
+#b-list button { white-space: normal; text-align: left; max-width: 100%; line-height: 1.3; }
 input, select { font: 500 0.9rem/1.2 var(--font-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--border); padding: 0.4rem 0.5rem; min-width: 0; width: 100%; }
 label.f { display: grid; gap: 0.3rem; font: 600 0.72rem/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
 .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); gap: 0.8rem; }
@@ -114,27 +115,31 @@ tr.now td:first-child { box-shadow: inset 3px 0 0 var(--cut); }
 </style>
 </head>
 <body>
-<nav class="bs-index"><div class="in"><b>Blum · Operator</b><a href="deck.html">Deck</a><a href="video.html">Video</a><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a><a href="operator-screen" aria-current="true">Operator</a></div></nav>
+<nav class="bs-index"><div class="in"><b>Blum · Operator</b><a href="deck.html">Deck</a><a href="video.html">Video</a><a href="index.html">Parties</a><a href="stages.html">Stages</a><a href="timeline.html">Timeline</a><a href="flow.html">Flow</a><a href="program.html">Program</a><a href="overview.html">Overview</a><a href="operator-screen" aria-current="true">Operator</a><a href="audit/review.html">Review</a></div></nav>
 <main class="bs-page wide">
   <header class="bs-header">
     <p class="bs-eyebrow">Solana devnet · программа Demo Day</p>
     <h1 class="bs-h1">Экран оператора</h1>
     <p class="bs-lede">Выпустите облигацию со своими условиями. Корпоративные действия известны из условий выпуска: каждое
       выполняется само в свой момент, если стоит галка «авто», или по шагам кнопками. Держатели торгуют между собой через
-      Solana DvP, оператор видит их сделки в реестре и ledger. В конце ончейн аудит проверяет каждую выплату по открытым
-      данным; тот же аудит можно запустить у себя одной командой.</p>
+      Solana DvP, как в документации Solana: сделку записывает и рассчитывает площадка (settlement authority), registrar
+      как transfer agent только допускает escrow сделки в реестр, каждая сторона сама кладёт свою часть. У каждой отсечки
+      есть сделки за день до неё, в её момент и через день. Оператор видит сделки в реестре и ledger. В конце ончейн аудит
+      проверяет каждую выплату по открытым данным; тот же аудит можно запустить у себя одной командой.</p>
   </header>
 
   <section class="win cut">
-    <div class="bar"><i></i><i></i><i></i><span>Кошелёк оператора (registrar)</span><em id="prog"></em></div>
+    <div class="bar"><i></i><i></i><i></i><span>Кошельки сервиса</span><em id="prog"></em></div>
     <div class="pad">
       <div class="wallet">
-        <div class="kv"><span class="k">Адрес</span><span class="v" id="w-addr">·</span></div>
-        <div class="kv"><span class="k">Баланс devnet</span><span class="v" id="w-sol">·</span></div>
+        <div class="kv"><span class="k">Registrar: адрес (пополнять этот)</span><span class="v" id="w-addr">·</span></div>
+        <div class="kv"><span class="k">Registrar: баланс devnet</span><span class="v" id="w-sol">·</span></div>
+        <div class="kv"><span class="k">Площадка (settlement authority)</span><span class="v" id="w-venue">·</span></div>
         <div class="kv"><span class="k">Пополнить</span><span class="v"><a id="w-faucet" href="https://faucet.solana.com" target="_blank" rel="noopener">faucet.solana.com</a></span></div>
       </div>
-      <p class="muted">Каждый выпуск оплачивает этот кошелёк: депозиты аккаунтов и комиссии, оценка видна перед выпуском.
-        Если SOL не хватает, откройте faucet, вставьте адрес выше и запросите devnet SOL.</p>
+      <p class="muted">Выпуск оплачивает кошелёк registrar: депозиты аккаунтов, комиссии, SOL держателям на их собственные
+        комиссии; он же держит кошелёк площадки пополненным. Оценка видна перед выпуском. Если SOL не хватает, откройте
+        faucet, вставьте адрес registrar и запросите devnet SOL.</p>
       <div class="row"><button id="w-copy">Скопировать адрес</button><span class="msg muted" id="w-copied"></span></div>
     </div>
   </section>
@@ -249,6 +254,7 @@ async function loadState() {
     $("#w-addr").textContent = state.registrar;
     $("#w-sol").textContent = `${state.sol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
     $("#w-faucet").href = state.faucet;
+    $("#w-venue").textContent = `${state.venue.slice(0, 6)}…${state.venue.slice(-4)} · ${state.venueSol.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} SOL`;
     $("#prog").textContent = `программа ${state.programId}`;
     $("#b-count").textContent = `${state.bonds.length}`;
     $("#b-list").innerHTML = state.bonds.length ? state.bonds.map((b) =>
@@ -318,7 +324,7 @@ function render() {
   $("#c-time").textContent = d.bondNow ? dateOf(d.bondNow, true) : "·";
   $("#c-supply").textContent = supply;
   $("#c-trades").textContent = d.trades.filter((t) => t.settled).length;
-  $("#c-trades-s").textContent = d.pending ? `в очереди ${d.pending}` : "расчёт одной транзакцией";
+  $("#c-trades-s").textContent = `у отсечек ${d.trades.filter((t) => t.settled && t.around).length} · не рассчитано ${d.trades.filter((t) => !t.settled).length}${d.pending ? ` · в очереди ${d.pending}` : ""}`;
   $("#c-paid").textContent = money(paidTotal);
 
   // шкала: выпуск, отсечки, погашение
@@ -406,7 +412,7 @@ function render() {
 function holderDetail(h) {
   const a = data.audit && data.audit.holders[h.name];
   const trades = data.trades.filter((t) => t.from === h.name || t.to === h.name);
-  const tradeRows = trades.map((t) => `<tr><td class="mono">${dateOf(t.at)}</td><td>${t.from === h.name ? `продал ${t.to}` : `купил у ${t.from}`} ${t.amount} обл. за ${money(t.cash)}</td><td>${t.settled ? "DvP" : '<span class="bad">отменена</span>'}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
+  const tradeRows = trades.map((t) => `<tr><td class="mono">${dateOf(t.at, true)}</td><td>${t.from === h.name ? `продаёт ${t.to}` : `покупает у ${t.from}`} ${t.amount} обл. за ${money(t.cash)}${t.around ? `<br><span class="cut">${esc(t.around)}</span>` : ""}</td><td>${t.settled ? "рассчитана DvP" : `<span class="bad">не рассчитана</span>${t.refused ? `<br><span class="muted">${esc(t.refused)}</span>` : ""}`}</td><td>${t.sigs.map(tx).join(" ")}</td></tr>`).join("");
   const audit = a ? `<table><tr><th>Событие</th><th class="r">Облигаций на отсечку (аудит по сделкам)</th><th class="r">Причитается по условиям</th><th class="r">Получено в Solana</th><th>Транзакции</th></tr>`
     + a.events.map((e) => `<tr><td>${e.kind === "coupon" ? `Купон ${e.k + 1} · ${data.audit.recordDates[e.k]}` : "Погашение"}</td><td class="r mono">${e.pos}</td><td class="r mono">${money(e.expected)}</td><td class="r mono ${e.expected === e.measured ? "ok" : "bad"}">${money(e.measured)}</td><td>${(e.sigs || []).map(tx).join(" ")}</td></tr>`).join("")
     + a.offers.expected.map((x, i) => { const m = a.offers.measured[i]; return `<tr><td>Оферта${m && m.label ? ` ${esc(String(m.label).replace("offer ", ""))}` : ""}: выкуплено ${x.bonds}</td><td class="r mono">·</td><td class="r mono">${money(x.amount)}</td><td class="r mono ${m && m.amount === x.amount ? "ok" : "bad"}">${m ? money(m.amount) : "·"}</td><td>${m ? tx(m.sig) : ""}</td></tr>`; }).join("")
@@ -447,5 +453,6 @@ $("#offer-form").addEventListener("submit", async (e) => {
 loadState().then(() => { const id = location.hash.slice(1); if (id && state && state.bonds.some((b) => b.id === id)) select(id); });
 setInterval(loadState, 10000);
 </script>
+<script src="ask-ai.js" defer></script>
 </body>
 </html>

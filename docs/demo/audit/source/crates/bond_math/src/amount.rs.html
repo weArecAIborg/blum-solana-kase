@@ -1,10 +1,10 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>crates/bond_math/src/amount.rs · audit source</title><style>
+<title>crates/bond_math/src/amount.rs · audit source</title><link rel="stylesheet" href="../../../../../blum/styles.css"><style>
 :root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
-header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+header{padding:20px;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
 a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
 .line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
-</style><header><a href="../../../../../stages.html">← Bond stages</a><h1>crates/bond_math/src/amount.rs</h1>
+</style><nav class="bs-index"><div class="in"><b>Blum · Stages</b><a href="../../../../../deck.html">Deck</a><a href="../../../../../video.html">Video</a><a href="../../../../../index.html">Parties</a><a href="../../../../../stages.html" aria-current="true">Stages</a><a href="../../../../../timeline.html">Timeline</a><a href="../../../../../flow.html">Flow</a><a href="../../../../../program.html">Program</a><a href="../../../../../overview.html">Overview</a><a href="../../../../../operator-screen">Operator</a><a href="../../../../../audit/review.html">Review</a></div></nav><header><a href="../../../../../stages.html">← Bond stages</a><h1>crates/bond_math/src/amount.rs</h1>
 <p>Source snapshot · revision 5e22d3ea5fa4.</p><p>SHA-256 7523ed837e96e00dbe47f330b91c0bf0227a2552f79e48692725cf41ca7b5f1c</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Entitlement amounts in token base units.</code></span>
 <span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//!</code></span>
 <span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>//! Rounding follows SCoRE Corporate Actions Standard 4 (ECB AMI-SeCo, 2021): the issue-wide rate is</code></span>
@@ -101,4 +101,4 @@ a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 
 <span class="line" id="L94"><a href="#L94" aria-label="Line 94">94</a><code>    if periods_per_year == 0 { return None; }</code></span>
 <span class="line" id="L95"><a href="#L95" aria-label="Line 95">95</a><code>    let gross = u128::from(position).checked_mul(u128::from(face_units))?.checked_mul(u128::from(rate_bps))?;</code></span>
 <span class="line" id="L96"><a href="#L96" aria-label="Line 96">96</a><code>    u64::try_from(gross / (BPS_PER_UNIT * u128::from(periods_per_year))).ok()</code></span>
-<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>}</code></span></pre></html>
+<span class="line" id="L97"><a href="#L97" aria-label="Line 97">97</a><code>}</code></span></pre><script src="../../../../../ask-ai.js" defer></script></html>

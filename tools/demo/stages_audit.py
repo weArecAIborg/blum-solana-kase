@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 
+from site_nav import chrome
+
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_SOURCES = {
     "programs/bond_servicing/src/instructions/place.rs",
@@ -112,14 +114,14 @@ def build_evidence(D, K, probe, H, scenario, out_dir):
             body = "\n".join(f'<span class="line" id="L{i}"><a href="#L{i}" aria-label="Line {i}">{i}</a><code>{escape(s)}</code></span>'
                              for i, s in enumerate(content.splitlines(), 1))
             back = os.path.relpath(out_dir / "stages.html", path.parent)
-            path.write_text(f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+            path.write_text(chrome(f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{escape(file)} · audit source</title><style>
 :root{{color-scheme:light dark}}body{{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}}
 header{{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}}
 a{{color:light-dark(#1c5cab,#6da7ec)}}h1{{font-size:18px;margin:8px 0}}p{{margin:4px 0;overflow-wrap:anywhere}}pre{{margin:0;padding:16px;overflow:auto}}
 .line{{display:flex;scroll-margin-top:160px;min-height:21px}}.line:target{{background:#1c5cab22}}.line>a{{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}}code{{white-space:pre;font:13px/21px monospace}}
 </style><header><a href="{escape(back)}">← Bond stages</a><h1>{escape(file)}</h1>
-<p>Source snapshot · revision {revision[:12]}.</p><p>SHA-256 {digest}</p></header><pre>{body}</pre></html>''')
+<p>Source snapshot · revision {revision[:12]}.</p><p>SHA-256 {digest}</p></header><pre>{body}</pre></html>''', "Stages", "Stages", os.path.relpath(out_dir, path.parent) + "/"))
             source_files[file] = {"revision": revision, "sha256": digest, "href": f"audit/source/{file}.html"}
         return ref(f"Source · {file}", f"audit/source/{file}.html#L{line}")
 
@@ -276,7 +278,7 @@ a{{color:light-dark(#1c5cab,#6da7ec)}}h1{{font-size:18px;margin:8px 0}}p{{margin
     serviced_rows = "".join(f'<tr><td>{escape(s["step"])}</td><td>{escape(", ".join(s["cashTo"]) or "No positive cash recipient")}</td>'
                             f'<td>{s["cashToAttacker"]} cash / {s["bondsToAttacker"]} bonds</td>'
                             f'<td><a href="{escape(s["explorer"])}" target="_blank" rel="noopener">Transaction ↗</a></td></tr>' for s in H["serviced"])
-    (audit_dir / "review.html").write_text(f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    (audit_dir / "review.html").write_text(chrome(f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bond demonstration · auditor review</title><style>
 :root{{color-scheme:light dark}}body{{margin:24px auto;padding:0 16px;max-width:1100px;font:15px/1.6 system-ui;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee)}}
 h1{{font-size:28px}}a{{color:light-dark(#1c5cab,#6da7ec)}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #7775;padding:12px;text-align:left;vertical-align:top;overflow-wrap:anywhere}}td:first-child{{min-width:140px}}td p{{color:light-dark(#52514e,#c3c2b7)}}.table{{overflow:auto}}tr:target{{background:#1c5cab22}}
@@ -289,7 +291,7 @@ h1{{font-size:28px}}a{{color:light-dark(#1c5cab,#6da7ec)}}table{{border-collapse
 <h2 id="permitted">Successful hostile-wallet operations: permitted servicing</h2>
 <p>The measurement enumerates successful operator-recorded transactions whose fee payer is the hostile wallet. These {len(H["serviced"])} recorded operations include account setup and permissionless event opening, funding confirmation and payments. {paying} have positive cash recipients, all bond holders. The measured positive cash/bond movements to the hostile wallet are zero. This is not a claim about unrecorded wallet history.</p>
 <div class="table"><table><thead><tr><th>Operation</th><th>Cash recipients</th><th>Positive movement to hostile wallet (base units)</th><th>Inspect</th></tr></thead><tbody>{serviced_rows}</tbody></table></div>
-<p>Source pages are snapshots, with hashes and line links, of the sources the pages were built from; the deployed program is a build of these sources (sha256 327271f3b6f3c5e2…).</p></html>''')
+<p>Source pages are snapshots, with hashes and line links, of the sources the pages were built from; the deployed program is a build of these sources (sha256 327271f3b6f3c5e2…).</p></html>''', "Review", "Review", "../"))
 
     for i, e in enumerate(c0):
         for name, movement in e["moves"].items():

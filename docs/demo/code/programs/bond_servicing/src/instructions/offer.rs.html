@@ -1,10 +1,10 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>programs/bond_servicing/src/instructions/offer.rs · source</title><style>
+<title>programs/bond_servicing/src/instructions/offer.rs · source</title><link rel="stylesheet" href="../../../../../blum/styles.css"><style>
 :root{color-scheme:light dark}body{margin:0;background:light-dark(#f4f5f2,#0f1011);color:light-dark(#0b0b0b,#eee);font:14px/1.5 system-ui}
-header{padding:20px;position:sticky;top:0;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
+header{padding:20px;background:light-dark(#fcfcfb,#1a1a19);border-bottom:1px solid #7775}
 a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 0;overflow-wrap:anywhere}pre{margin:0;padding:16px;overflow:auto}
 .line{display:flex;scroll-margin-top:160px;min-height:21px}.line:target{background:#1c5cab22}.line>a{width:52px;flex:none;text-align:right;padding-right:16px;text-decoration:none;color:light-dark(#6f6d68,#aaa)}code{white-space:pre;font:13px/21px monospace}
-</style><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/offer.rs</h1>
+</style><nav class="bs-index"><div class="in"><b>Blum · Program</b><a href="../../../../../deck.html">Deck</a><a href="../../../../../video.html">Video</a><a href="../../../../../index.html">Parties</a><a href="../../../../../stages.html">Stages</a><a href="../../../../../timeline.html">Timeline</a><a href="../../../../../flow.html">Flow</a><a href="../../../../../program.html" aria-current="true">Program</a><a href="../../../../../overview.html">Overview</a><a href="../../../../../operator-screen">Operator</a><a href="../../../../../audit/review.html">Review</a></div></nav><header><a href="../../../../../program.html">← Program logic</a><h1>programs/bond_servicing/src/instructions/offer.rs</h1>
 <p>Source at revision e5ff2b3cb157, the source of the program deployed on devnet. SHA-256 of this file 05ce6105656462109d1262465a2845f91077d14382cbb50d79cbf322bfe57296</p></header><pre><span class="line" id="L1"><a href="#L1" aria-label="Line 1">1</a><code>//! Third corporate action: issuer buyback (first come, first served) and tender offer (pro rata).</code></span>
 <span class="line" id="L2"><a href="#L2" aria-label="Line 2">2</a><code>//! Design: docs/buyback-tender.md.</code></span>
 <span class="line" id="L3"><a href="#L3" aria-label="Line 3">3</a><code>//!   - An offer is fully funded in its own vault before anyone can sell or tender.</code></span>
@@ -390,4 +390,4 @@ a{color:light-dark(#1c5cab,#6da7ec)}h1{font-size:18px;margin:8px 0}p{margin:4px 
 <span class="line" id="L383"><a href="#L383" aria-label="Line 383">383</a><code>        buy_back(&amp;mut a.retirement, a.offer.id, a.offer.price_units, accepted)?;</code></span>
 <span class="line" id="L384"><a href="#L384" aria-label="Line 384">384</a><code>    }</code></span>
 <span class="line" id="L385"><a href="#L385" aria-label="Line 385">385</a><code>    Ok(())</code></span>
-<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>}</code></span></pre></html>
+<span class="line" id="L386"><a href="#L386" aria-label="Line 386">386</a><code>}</code></span></pre><script src="../../../../../ask-ai.js" defer></script></html>

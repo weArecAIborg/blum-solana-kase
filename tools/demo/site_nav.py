@@ -9,7 +9,7 @@ import re
 from html import escape
 
 # (href from the site root, label); the operator screen is served by nginx at /operator-screen.
-PAGES = [("deck.html", "Deck"), ("video.html", "Video"), ("index.html", "Parties"), ("stages.html", "Stages"),
+PAGES = [("demo-day/", "Demo Day"), ("deck.html", "Deck"), ("video.html", "Video"), ("index.html", "Parties"), ("stages.html", "Stages"),
          ("timeline.html", "Timeline"), ("flow.html", "Flow"), ("program.html", "Program"), ("overview.html", "Overview"),
          ("operator-screen", "Operator"), ("audit/review.html", "Review")]
 CURRENT = ' aria-current="true"'

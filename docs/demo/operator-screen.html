@@ -51,10 +51,11 @@ code.cmd { display: block; white-space: pre-wrap; word-break: break-all; font: 5
 
 /* часы и шкала времени */
 .clock { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); border: 1px solid var(--border); background: var(--surface); }
-.clock > div { display: grid; gap: 0.35rem; padding: 0.7rem 0.9rem; border-left: 1px solid var(--border); }
+.clock > div { display: grid; gap: 0.35rem; padding: 0.7rem 0.9rem; border-left: 1px solid var(--border); min-width: 0; container-type: inline-size; }
+.clock > div > * { min-width: 0; overflow-wrap: anywhere; }
 .clock > div:first-child { border-left: 0; }
 .clock .k { font: 600 0.68rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
-.clock .t { font: 600 1.45rem/1.05 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clock .t { font: 600 clamp(0.95rem, 9cqi, 1.45rem)/1.05 var(--font-mono); font-variant-numeric: tabular-nums; }
 .clock .s { font-size: 0.8rem; color: var(--muted); }
 .track { position: relative; height: 2.6rem; margin: 0.4rem 0.6rem 0; }
 .track .bar, .track .fill { position: absolute; left: 0; top: 6px; height: 3px; }
@@ -375,7 +376,7 @@ function render() {
   $("#b-title").textContent = d.title;
   const mine = !!tokens[d.id];
   $("#b-owner").innerHTML = mine ? '<span class="ok">вы оператор этого выпуска</span>' : '<span class="muted">просмотр: управляет тот, кто выпустил</span>';
-  $("#b-status").innerHTML = { creating: '<span class="cut">выпускается…</span>', live: '<span class="blum">в обращении</span>', done: '<span class="ok">погашен</span>', error: `<span class="bad">ошибка: ${esc(d.error)}</span>` }[d.status];
+  $("#b-status").innerHTML = { creating: '<span class="cut">статус выпуска: выпускается…</span>', live: '<span class="blum">статус выпуска: в обращении</span>', done: '<span class="ok">статус выпуска: погашен</span>', error: `<span class="bad">ошибка: ${esc(d.error)}</span>` }[d.status];
   const now = d.bondNow ?? d.issueTime;
   const recs = chain && chain.bond === d.id ? chain.holders : null;
   $("#c-time").textContent = d.bondNow ? dateOf(d.bondNow, true) : "·";

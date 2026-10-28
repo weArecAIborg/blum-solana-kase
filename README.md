@@ -3,6 +3,16 @@
 Built for the Superteam Kazakhstan x KASE Side Track, "Corporate Actions on Blockchain" (Colosseum Crypto World's
 Fair).
 
+**Branches:**
+
+| Branch or tag | What it holds | Devnet program |
+|---|---|---|
+| [`submitted-2026-10-12`](https://github.com/weArecAIborg/blum-solana-kase/tree/submitted-2026-10-12) (tag) | The repository at the submission deadline, 12 Oct 2026, as submitted to the Colosseum Crypto World's Fair, the Superteam Kazakhstan track and the Superteam Kazakhstan x KASE side track | [`2UkTKYYz...`](https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet) |
+| [`main`](https://github.com/weArecAIborg/blum-solana-kase/tree/main) | The submitted code. Added after the tag: the demo video's YouTube link (14 Oct 2026), this table and the license (28 Oct 2026) | [`2UkTKYYz...`](https://explorer.solana.com/address/2UkTKYYzgZXZsganCqfxyY5Q5EeynUSBbErdKMpy8sHf?cluster=devnet) |
+| [`demo-day-prep`](https://github.com/weArecAIborg/blum-solana-kase/tree/demo-day-prep) | Work after the deadline, for the Superteam Kazakhstan Demo Day on 27 Oct 2026: secondary trades settled delivery versus payment through the Solana Foundation's DvP program; generated tests (random terms, random sequences of every operation); the operator screen, where anyone issues a bond with their own terms on devnet and runs it to redemption. The site [blum.caiborg.ai](https://blum.caiborg.ai) shows this branch | [`tkcoqL7G...`](https://explorer.solana.com/address/tkcoqL7G6s7Ry64uu2QvkxgwMFier7oiCBQ9pksYf8i?cluster=devnet) |
+
+All changes after the deadline: [submitted-2026-10-12...demo-day-prep](https://github.com/weArecAIborg/blum-solana-kase/compare/submitted-2026-10-12...demo-day-prep).
+
 **This branch (`demo-day-prep`) is work after the submission deadline**, for the Superteam Kazakhstan Demo Day on
 27 Oct 2026. The judged state is `main` and the tag `submitted-2026-10-12`. The branch adds secondary trades settled
 delivery versus payment through the Solana Foundation's DvP program, deployed on devnet under its own program ID
@@ -222,3 +232,9 @@ record moment. The cash token's issuer can freeze or pause its token, which stop
 (cash tokens with a permanent delegate, which could take a vault's cash, are refused). The program's upgrade authority
 is a single wallet.
 Details: [docs/technical-overview.md](docs/technical-overview.md), section 8.
+
+## License
+
+Apache License 2.0: [LICENSE](LICENSE). Copyright 2026 Matvey Zakharov.
+
+Contact: Telegram [@weArecAIborg](https://t.me/weArecAIborg).

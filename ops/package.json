@@ -7,7 +7,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "description": "Operator scripts for bond_servicing (registrar, keeper, report)",
   "private": "true",
   "type": "module",

@@ -1,0 +1,1201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blum · Demo Day</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../blum/styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"></script>
+<style>
+/* Питч для общего трека Demo Day 31.10.2026. Шапки обложки и содержания сохраняют утверждённую дату 27.10.2026.
+   Основа: питч для Demo Day 27.10.2026 по a-human-review/iter2.md: 10 слайдов питча и 10 слайдов приложения с ответами на
+   вопросы из зала. Числа: тест на devnet 23.10.2026 (docs/devnet-evidence-demo.md), тест с 1 000 держателей
+   (docs/devnet-evidence-crowd-1000.md), атаки (docs/hostile-attempts.md), аудит (expertise/independent-ledger-audit.md),
+   пределы и устройство (docs/technical-overview.md, programs/bond_servicing/src/state.rs).
+   Слайды 2-9: один экран теста 23.10 (реестр, счёт выплаты, ledger), меняются подпись сверху и значения;
+   на слайде 9 строки реестра раскрываются в расчёт ончейн аудита.
+   Стрелки, пробел или клик листают; P открывает снимок explorer на слайде 7. */
+html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+#stage { position: fixed; inset: 0; display: grid; place-items: center; }
+.sc { text-shadow: 0 0 1px rgba(0, 0, 0, 0.9), 0 1px 1px rgba(0, 0, 0, 0.5); width: 1920px; height: 1080px; box-sizing: border-box; background: var(--bg); color: var(--ink); font: var(--body); padding: 60px 80px 64px; display: grid; grid-template-rows: auto auto auto 1fr; gap: 22px; position: absolute; transform-origin: center; }
+.sc :is(h1, h2, p, ul) { margin: 0; }
+.sc * { min-width: 0; }
+:root { --blum: #4aaeff; --blum-soft: rgba(74, 174, 255, 0.18); --sol: #bb8cff; --sol-soft: rgba(153, 69, 255, 0.22); --cut: #ffb020; --cut-soft: rgba(255, 176, 32, 0.18); --ok: #9eea72; --ok-soft: rgba(110, 190, 70, 0.30); --out: #ff6a55; --out-soft: rgba(255, 106, 85, 0.22);
+  /* контраст для проектора в светлом зале: светлее текст и рамки, ярче цвета */
+  --ink: #ffffff; --ink-2: #e4e1d8; --muted: #b5b1a8; --border: #45454c; --grid: #34343a; --accent: #4aaeff; --amber: #ffb020; --kept: #9eea72; --kept-bg: rgba(110, 190, 70, 0.30); }
+/* Цвета питча: синий = Blum (программа и её действия); фиолетовый = Solana (сеть, Token-2022, DvP, транзакции);
+   янтарный = отсечка (время и права на момент отсечки); зелёный = подтверждённый результат (выплата получена,
+   аудит пройден); красный = деньги ушли со счёта выплаты; серый и белый = участники и обычный текст. Надзаголовки
+   слайдов янтарные, как на сайте. */
+.ey { font: 600 26px/1 var(--font-mono); color: var(--amber); text-transform: uppercase; letter-spacing: 0.06em; }
+.c-blum { color: var(--blum); } .c-ok { color: var(--ok); } .c-cut { color: var(--cut); }
+.c-sol { background: linear-gradient(90deg, #9945FF, #14F195); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+/* Треугольник KASE: знак в цветах логотипа, три грани */
+.ktri { display: inline-block; position: relative; width: 1.15em; height: 1em; vertical-align: -0.12em; margin: 0 0.4em; }
+.ktri i { position: absolute; inset: 0; }
+.ktri .a { background: #9ccc3c; clip-path: polygon(50% 0, 0 100%, 50% 76%); }
+.ktri .b { background: #2e9b3a; clip-path: polygon(50% 0, 50% 76%, 100% 100%); }
+.ktri .c { background: #5fb83a; clip-path: polygon(0 100%, 50% 76%, 100% 100%); }
+.sc h1 { font: 800 74px/1.06 var(--font-display); font-stretch: var(--display-stretch); letter-spacing: -0.01em; text-wrap: balance; max-width: 1700px; }
+.lead { font-size: 38px; line-height: 1.3; color: var(--ink-2); max-width: 1640px; }
+.vis { min-height: 0; display: grid; align-content: center; }
+.foot { position: absolute; left: 80px; bottom: 56px; font: 500 24px/1 var(--font-mono); color: var(--muted); display: flex; gap: 40px; }
+
+/* Обложка */
+/* Фон обложки: на обложке, разделителях, содержании и текстовых слайдах */
+.sc.glow { background: radial-gradient(ellipse 900px 700px at 78% 52%, rgba(153, 69, 255, 0.16), transparent 70%), radial-gradient(ellipse 700px 520px at 92% 88%, rgba(20, 241, 149, 0.10), transparent 70%), var(--bg); }
+.cover { grid-template-rows: auto 1fr auto; overflow: hidden;
+  background: radial-gradient(ellipse 900px 700px at 78% 52%, rgba(153, 69, 255, 0.16), transparent 70%),
+              radial-gradient(ellipse 700px 520px at 92% 88%, rgba(20, 241, 149, 0.10), transparent 70%), var(--bg); }
+.cover > :not(.foot):not(.sol3d):not(.pg):not(.chp):not(.navbar) { position: relative; z-index: 1; }
+.cover > .foot { z-index: 1; }
+.cover .mid { display: grid; gap: 30px; align-content: center; max-width: 1060px; }
+.cover .name { display: flex; align-items: center; font: 800 200px/1 var(--font-display); font-stretch: var(--display-stretch); letter-spacing: -0.02em; color: var(--ink); }
+.cover .name .box { display: inline-flex; align-items: center; height: 1.1em; padding: 0 0.08em 0 0.07em; margin-right: 0.04em; background: var(--ink); color: var(--bg); }
+.cover h1 { font-size: 72px; color: var(--ink); }
+.cover .lead { color: var(--muted); }
+.cover .lead b { color: var(--ink-2); font-weight: 600; }
+.cover .th3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 40px; margin-top: 40px; }
+.cover .th3 div { display: grid; gap: 12px; align-content: start; }
+.cover .th3 b { font: 700 108px/1 var(--font-mono); color: var(--ink); }
+.cover .th3 b.sol { color: var(--sol); }
+.cover .th3 b.cut { color: var(--cut); } .cover .th3 b.ok { color: var(--ok); } .cover .th3 b.blum { color: var(--blum); }
+.cover .th3.outcomes b { font-size: 48px; line-height: 1.1; }
+.cover .th3.outcomes span { font-size: 30px; }
+.cover .mid.wide { max-width: 1640px; }
+.cover .plist { display: grid; gap: 22px; margin: 18px 0 0; padding: 0; list-style: none; }
+.cover .plist li { position: relative; padding-left: 44px; font: 600 40px/1.2 var(--font-display); font-stretch: var(--display-stretch); color: var(--ink); }
+.cover .plist li::before { content: ""; position: absolute; left: 0; top: 0.42em; width: 18px; height: 18px; background: var(--amber); }
+.cover.dv .th3 { column-gap: 72px; }
+.cover.dv .th3 span { font-size: 32px; }
+.cover .th3.four { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 64px; }
+.cover .th3.four a { display: grid; gap: 16px; align-content: start; text-decoration: none; cursor: pointer; }
+.cover .th3.four a b { font: 700 108px/1 var(--font-mono); color: var(--amber); }
+.cover .th3.four a span { font: 600 38px/1.2 var(--font-display); font-stretch: var(--display-stretch); color: var(--ink); }
+.cover .th3.four a:hover span { color: var(--blum); }
+.cover .th3 span { font: 400 28px/1.25 var(--font-body); color: var(--ink-2); }
+.cover .ey { color: var(--ink-2); }
+
+/* Знак Solana на обложке: форма Simple Icons «solana» (CC0, simple-icons@13.0.0), цвета Solana #9945FF и #14F195.
+   Объём: 18 слоёв со сдвигом по глубине, группа повёрнута в 3D. */
+.cover > .sol3d { position: absolute; z-index: 0; right: 40px; top: 170px; width: 780px; height: 700px; perspective: 1700px; pointer-events: none; opacity: 0.5; }
+.sol3d .g { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateY(-34deg) rotateX(16deg) rotateZ(-6deg); animation: solfloat 14s ease-in-out infinite; }
+.sol3d .g i { position: absolute; inset: 0; -webkit-mask: url(assets/solana-mark.svg) center / contain no-repeat; mask: url(assets/solana-mark.svg) center / contain no-repeat; background: linear-gradient(120deg, #9945FF 0%, #8752F3 30%, #5497D5 60%, #43B4CA 75%, #14F195 100%); }
+.sol3d .g i.top { filter: drop-shadow(0 0 40px rgba(153, 69, 255, 0.55)); }
+@keyframes solfloat { 0%, 100% { transform: rotateY(-34deg) rotateX(16deg) rotateZ(-6deg) translateY(0); } 50% { transform: rotateY(-26deg) rotateX(12deg) rotateZ(-4deg) translateY(-14px); } }
+@media (prefers-reduced-motion: reduce) { .sol3d .g { animation: none; } }
+
+/* Ползунок времени */
+.tl { position: relative; margin-bottom: 22px; }
+.tl .track, .tl .fill { position: absolute; left: 0; top: 9px; height: 3px; }
+.tl .track { right: 0; background: var(--grid); }
+.tl .fill { background: var(--amber); transition: width 0.6s; }
+.tl .pts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); position: relative; }
+.tl .p { display: grid; justify-items: start; gap: 10px; font: 600 26px/1 var(--font-mono); color: var(--muted); }
+.tl .p i { width: 20px; height: 20px; border-radius: 50%; background: var(--bg); border: 3px solid var(--grid); box-sizing: border-box; }
+.tl .p.past { color: var(--ink-2); }
+.tl .p.past i, .tl .p.now i { border-color: var(--amber); background: var(--amber); }
+.tl .p.now { color: var(--amber); }
+.tl .p.now i { box-shadow: 0 0 0 7px var(--amber-soft); }
+
+/* Воронка и окно программы */
+.two { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+.left { display: grid; gap: 22px; }
+.board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.col { display: grid; grid-template-rows: auto 1fr; gap: 14px; }
+.col > .h { padding-bottom: 10px; border-bottom: 3px solid var(--grid); font: 600 26px/1.1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.col.on > .h { color: var(--cut); border-bottom-color: var(--cut); }
+.col.pay.on > .h { color: var(--ok); border-bottom-color: var(--ok); }
+.col > .cards { display: grid; align-content: start; gap: 12px; }
+.card { display: grid; gap: 2px; padding: 12px 20px; border: 2px solid var(--border); background: var(--surface); }
+.card .t { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font: 600 30px/1.1 var(--font-mono); }
+.card .t small { font: 500 24px/1 var(--font-mono); color: var(--muted); }
+.card .v { font: 600 52px/1.05 var(--font-mono); font-variant-numeric: tabular-nums; }
+.card .l { font: 400 26px/1.2 var(--font-body); color: var(--muted); }
+.card.now { border-color: var(--accent); box-shadow: 0 14px 30px rgba(0, 0, 0, 0.7); }
+.card.ok { border-color: var(--kept); background: var(--kept-bg); }
+.card.none { border-style: dashed; }
+.card.none .v { color: var(--muted); }
+.bal { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; }
+.sc .bal > p { grid-column: 1 / -1; font: 600 26px/1 var(--font-body); color: var(--muted); }
+.bal > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 20px; border: 2px solid var(--border); }
+.bal b { font: 600 30px/1.1 var(--font-mono); }
+.bal .q { font: 600 46px/1 var(--font-mono); color: var(--ink); }
+.bal .q i { font-style: normal; color: var(--muted); }
+.bal .q em { font-style: normal; color: var(--amber); }
+.prog { border: 2px solid var(--border); background: var(--surface); }
+.prog .bar { display: flex; align-items: center; gap: 10px; padding: 14px 20px; background: var(--bar); font: 600 26px/1 var(--font-mono); color: var(--bar-ink); }
+.prog .bar i { width: 14px; height: 14px; border-radius: 50%; background: var(--grid); }
+.prog .bar span { margin-left: 8px; }
+.prog .in { display: grid; gap: 18px; padding: 22px 20px 24px; }
+.prog .lab { font: 600 26px/1 var(--font-body); color: var(--muted); }
+.tree { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
+.node { margin-left: calc(var(--d) * 34px); border: 1px solid var(--border); border-left: 5px solid var(--muted); padding: 10px 16px; background: var(--bg); position: relative; font: 600 28px/1.25 var(--font-mono); }
+.node.ours { border-left-color: var(--blum); }
+.node.sol { border-left-color: var(--sol); }
+.node.sol b { color: var(--sol); }
+.node.ours b { color: var(--blum); }
+.node span { font: 400 28px/1.25 var(--font-body); color: var(--ink-2); }
+.node[style*="--d:1"]::before { content: "\21b3"; position: absolute; left: -30px; top: 10px; color: var(--muted); }
+.rows { display: grid; gap: 10px; }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 16px; border: 1px solid var(--grid); font: 500 28px/1.2 var(--font-mono); color: var(--ink-2); }
+.row b { font: 600 36px/1 var(--font-mono); color: var(--ink); }
+.row.hot { border-color: var(--amber); background: var(--amber-soft); }
+.row.hot b { color: var(--cut); }
+.row.ok { border-color: var(--ok); background: var(--ok-soft); }
+.row.ok b { color: var(--ok); }
+
+/* Как работает программа: запись продавца в четырёх моментах */
+.rec4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.rec4 > div { display: grid; grid-template-rows: auto auto 1fr; gap: 14px; padding: 22px 22px 24px; border: 2px solid var(--border); background: var(--surface); border-top: 6px solid var(--grid); }
+.rec4 > div.on { border-top-color: var(--blum); }
+.rec4 .w { font: 700 34px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.rec4 .f { display: grid; gap: 8px; }
+.rec4 .f span { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 14px; border: 1px solid var(--grid); font: 500 26px/1.2 var(--font-body); color: var(--ink-2); }
+.rec4 .f span b { font: 600 36px/1 var(--font-mono); color: var(--ink); }
+.rec4 .f span.hot { border-color: var(--amber); background: var(--amber-soft); }
+.rec4 .f span.hot b { color: var(--cut); }
+.rec4 .f span.ok { border-color: var(--ok); background: var(--ok-soft); }
+.rec4 .f span.ok b { color: var(--ok); }
+.rec4 .f span.off b { color: var(--muted); }
+.rec4 p { font: 400 28px/1.3 var(--font-body); color: var(--ink-2); align-self: end; }
+.rec4-cap { margin-bottom: 18px; font: 600 28px/1 var(--font-body); color: var(--muted); }
+
+/* Корпоративные действия: четыре шага из условий трека и три действия */
+.steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 30px; }
+.steps div { padding: 18px 22px; border: 2px solid var(--blum); border-left-width: 0; font: 700 34px/1.1 var(--font-display); font-stretch: var(--display-stretch); color: var(--blum); }
+.steps div:first-child { border-left-width: 2px; }
+.acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.act { display: grid; gap: 14px; align-content: start; padding: 24px 0 0; border-top: 4px solid var(--accent); }
+.act b { font: 700 40px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.act span { font: 400 30px/1.3 var(--font-body); color: var(--ink-2); }
+
+/* Блоки со стрелками */
+.flow { display: flex; align-items: center; gap: 0; }
+.flow .bx { flex: 1 1 0; display: grid; gap: 10px; padding: 24px 26px; border: 2px solid var(--border); background: var(--surface); }
+.flow .bx b { font: 700 38px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.flow .bx span { font: 400 28px/1.3 var(--font-body); color: var(--ink-2); }
+.flow .bx.blum { border: 3px solid var(--accent); }
+.flow .bx.blum b { color: var(--accent); }
+.flow .bx.ok { border-color: var(--ok); background: var(--ok-soft); }
+.flow .bx.ok b { color: var(--ok); }
+.flow .bx.sol { border-color: var(--sol); background: var(--sol-soft); }
+.flow .bx.sol b { color: var(--sol); }
+.flow .bx.aud { border: 3px solid var(--ok); }
+.flow .bx.aud b { color: var(--ok); }
+.flow .bx.now { border: 3px solid var(--kept); background: var(--kept-bg); }
+.flow .ar { flex: none; width: 70px; height: 3px; background: var(--muted); position: relative; }
+.flow .ar::after { content: ""; position: absolute; right: -2px; top: -8px; border-left: 12px solid var(--muted); border-block: 9px solid transparent; }
+.flow.tight .ar { width: 44px; }
+.flow.tight .bx { padding: 20px 20px; }
+.flow.tight .bx b { font-size: 34px; }
+.flow.tight .bx span { font-size: 26px; }
+.stack { display: grid; gap: 18px; flex: 1 1 0; }
+.sc .note { margin-top: 26px; font: 400 30px/1.3 var(--font-body); color: var(--muted); }
+
+/* Плитки с числами */
+.tiles { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.tile { display: grid; grid-template-columns: 720px 1fr; gap: 32px; align-items: center; padding: 22px 30px; border: 2px solid var(--kept); background: var(--kept-bg); }
+.tile em { font: 700 72px/1 var(--font-mono); font-style: normal; color: var(--ink); white-space: nowrap; }
+.tile span { font: 400 32px/1.3 var(--font-body); color: var(--ink-2); }
+
+/* Место в инфраструктуре оЦФА: Solana и Blum в центре, участники вокруг */
+.hub { display: grid; grid-template-columns: 360px 120px minmax(0, 1fr) 120px 360px; grid-template-rows: auto 64px auto 64px auto; align-items: center; }
+.hub .bx { display: grid; gap: 8px; padding: 18px 22px; border: 2px solid var(--border); background: var(--surface); }
+.hub .bx b { font: 700 36px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.hub .bx span { font: 400 27px/1.3 var(--font-body); color: var(--ink-2); }
+.hub .kase { grid-column: 3; grid-row: 1; }
+.hub .kase b { color: var(--ink); }
+.hub .iss { grid-column: 1; grid-row: 3; }
+.hub .inv { grid-column: 5; grid-row: 3; }
+.hub .csd { grid-column: 3; grid-row: 5; border-style: dashed; }
+.hub .sol { grid-column: 3; grid-row: 3; display: grid; gap: 14px; padding: 20px 22px 22px; border: 3px solid var(--sol); background: rgba(153, 69, 255, 0.07); }
+.hub .sol > b { font: 700 36px/1.1 var(--font-display); font-stretch: var(--display-stretch); color: var(--sol); }
+.hub .sol .in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.hub .sol .in div { padding: 12px 16px; border: 1px solid var(--border); font: 500 26px/1.25 var(--font-body); color: var(--ink-2); }
+.hub .sol .in div.blum { border: 3px solid var(--blum); color: var(--ink); }
+.hub .sol .in div.aud { border: 3px solid var(--ok); color: var(--ink); }
+.hub .sol .in div.aud b { color: var(--ok); font: 700 32px/1.1 var(--font-display); font-stretch: var(--display-stretch); display: block; }
+.hub .sol .in div.blum b { color: var(--blum); font: 700 32px/1.1 var(--font-display); font-stretch: var(--display-stretch); display: block; }
+.hub .h, .hub .v { position: relative; display: grid; place-items: center; }
+.hub .h { height: 100%; }
+.hub .h::before { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 3px; background: var(--muted); }
+.hub .h::after { content: ""; position: absolute; right: 2px; top: calc(50% - 8px); border-left: 12px solid var(--muted); border-block: 9px solid transparent; }
+.hub .v::before { content: ""; position: absolute; top: 4px; bottom: 4px; left: 50%; width: 3px; background: var(--muted); }
+.hub .v::after { content: ""; position: absolute; bottom: 0; left: calc(50% - 8px); border-top: 12px solid var(--muted); border-inline: 9px solid transparent; }
+.hub .v.dash::before { background: none; border-left: 3px dashed var(--muted); width: 0; }
+.hub .v.dash::after { display: none; }
+.hub .lbl { position: relative; z-index: 1; padding: 2px 10px; background: var(--bg); font: 500 24px/1.1 var(--font-body); color: var(--muted); }
+.hub .h .lbl { transform: translateY(-30px); background: none; }
+.hub .a1 { grid-column: 2; grid-row: 3; }
+.hub .a2 { grid-column: 4; grid-row: 3; }
+.hub .a3 { grid-column: 3; grid-row: 2; }
+.hub .a4 { grid-column: 3; grid-row: 4; }
+
+/* Последний слайд: таймлайн и три колонки */
+.rm { position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 40px; margin-bottom: 84px; }
+.rm::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 4px; background: var(--grid); }
+.rm::after { content: ""; position: absolute; left: 0; top: 13px; width: calc(20% - 32px); height: 4px; background: linear-gradient(90deg, var(--ok), rgba(158, 234, 114, 0)); }
+.rm > div { position: relative; display: grid; align-content: start; gap: 14px; padding-top: 58px; }
+.rm > div::before { content: ""; position: absolute; left: 0; top: 0; width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; border: 4px solid var(--border); background: var(--bg); }
+.rm > div.now::before { border-color: var(--ok); background: var(--ok); box-shadow: 0 0 0 10px var(--ok-soft); }
+.rm small { font: 600 24px/1 var(--font-mono); color: var(--muted); letter-spacing: 0.06em; }
+.rm > div.now small { color: var(--ok); }
+.rm b { font: 700 40px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.rm > div.now b { color: var(--ok); }
+.rm span { font: 400 28px/1.3 var(--font-body); color: var(--ink-2); }
+.fx3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 56px; }
+.fx3 div { display: grid; align-content: start; gap: 14px; padding-top: 24px; border-top: 2px solid var(--grid); }
+.fx3 div.ask { border-top-color: var(--blum); }
+.fx3 b { font: 600 26px/1 var(--font-mono); color: var(--blum); letter-spacing: 0.04em; text-transform: uppercase; }
+.fx3 span { font: 400 32px/1.3 var(--font-body); color: var(--ink); }
+/* Индекс приложения */
+.sc.idx { background: var(--surface); }
+.sc.idx.glow { background: radial-gradient(ellipse 900px 700px at 78% 52%, rgba(153, 69, 255, 0.16), transparent 70%), radial-gradient(ellipse 700px 520px at 92% 88%, rgba(20, 241, 149, 0.10), transparent 70%), var(--bg); }
+.qidx { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 80px; max-width: 1560px; }
+.qidx a { display: grid; grid-template-columns: 70px 1fr; gap: 16px; align-items: baseline; padding: 20px 0; border-top: 1px solid var(--grid); text-decoration: none; color: var(--ink-2); font: 400 32px/1.25 var(--font-body); cursor: pointer; }
+.qidx a b { font: 600 26px/1 var(--font-mono); color: var(--muted); }
+.qidx a:hover { color: var(--ink); } .qidx a:hover b { color: var(--blum); }
+/* Последний слайд: путь и три строки */
+.road { margin-bottom: 34px; }
+.facts3 { display: grid; gap: 14px; }
+.facts3 div { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--grid); }
+.facts3 b { font: 600 30px/1.2 var(--font-mono); color: var(--blum); }
+.facts3 span { font: 400 34px/1.3 var(--font-body); color: var(--ink); }
+
+/* Приложение: вопрос, короткий ответ, факты */
+.qa { display: grid; gap: 14px; }
+.qa div { display: grid; grid-template-columns: 330px 1fr; gap: 28px; align-items: baseline; padding: 16px 0; border-top: 1px solid var(--grid); }
+.qa b { font: 600 30px/1.2 var(--font-mono); color: var(--ink-2); }
+.qa span { font: 400 34px/1.3 var(--font-body); color: var(--ink); }
+.qa code { font: 500 30px/1.2 var(--font-mono); color: var(--ink-2); }
+/* Приложение с графиком: строки слева, график справа */
+.ax2 { display: grid; grid-template-columns: minmax(0, 1fr) 700px; gap: 40px; align-items: start; }
+.ax2 .qa { gap: 0; }
+.sc.has-chart h1 { font-size: 62px; }
+.tnd { display: grid; grid-template-columns: 640px minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 26px; padding: 18px 24px; border: 2px solid var(--ok); background: var(--surface); }
+.tnd b { display: block; margin-bottom: 8px; font: 700 30px/1.1 var(--font-display); font-stretch: var(--display-stretch); color: var(--ok); }
+.tnd span { font: 400 24px/1.3 var(--font-body); color: var(--ink-2); }
+.chart.sm { height: 170px; border: 0; }
+.ax2 .qa div { grid-template-columns: 230px 1fr; gap: 22px; padding: 6px 0; }
+.ax2 .qa b { font-size: 22px; }
+.ax2 .qa span { font-size: 24px; line-height: 1.26; }
+.ax2 .qa code { font-size: 23px; }
+.chart { height: 500px; border: 2px solid var(--border); background: var(--surface); }
+.sc .chart-cap { margin-top: 12px; font: 400 22px/1.3 var(--font-body); color: var(--muted); }
+.appx .ey { color: var(--muted); }
+
+/* Транзакция в explorer */
+.pop { position: absolute; left: 50%; top: 53%; transform: translate(-50%, -50%) scale(0.97); width: 1420px; border: 2px solid var(--border); background: #0f0f0f; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); opacity: 0; pointer-events: none; transition: opacity 0.4s, transform 0.4s; z-index: 5; }
+.pop.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+/* На экране теста снимок закрывает только нижнюю часть: подпись сверху остаётся видна. */
+.run .pop { top: auto; bottom: 40px; transform-origin: 50% 100%; transform: translate(-50%, 0) scale(0.86); }
+.run .pop.on { transform: translate(-50%, 0) scale(0.9); }
+.pop .pb { display: flex; align-items: center; gap: 10px; padding: 14px 18px; background: var(--bar); font: 600 28px/1 var(--font-body); color: var(--bar-ink); }
+.pop .pb i { width: 14px; height: 14px; border-radius: 50%; background: var(--grid); }
+.pop .pb span { margin-left: 10px; }
+.pop .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-bottom: 1px solid var(--border); }
+.pop .facts div { display: grid; gap: 8px; padding: 18px 24px; border-right: 1px solid var(--border); }
+.pop .facts div:last-child { border-right: 0; }
+.pop .facts small { font: 500 24px/1 var(--font-body); color: var(--muted); }
+.pop .facts b { font: 600 34px/1.1 var(--font-mono); color: var(--ink); }
+.pop .facts b.ok { color: var(--kept); }
+.pop .shot { position: relative; padding: 18px 24px 8px; }
+.pop .shot img { display: block; width: 100%; height: auto; }
+.pop .tag { position: absolute; left: 57%; padding: 8px 16px; background: var(--ok); color: #000; font: 700 32px/1 var(--font-body); }
+.pop .tag.out { background: var(--out); }
+.pop .pn { padding: 10px 24px 18px; font: 400 26px/1.3 var(--font-body); color: var(--muted); }
+
+/* Экран теста 23.10 (слайды 2-9). Верх с подписью меняется от слайда к слайду, экран под ним остаётся на месте
+   и меняет значения. Реестр и ledger в стиле страницы Timeline сайта (docs/demo/timeline.html). */
+.sc.run { grid-template-rows: 300px minmax(0, 1fr); gap: 22px; padding-top: 52px; padding-bottom: 40px; }
+.run .cap { display: grid; align-content: start; gap: 16px; }
+.run .cap h1 { font-size: 62px; }
+.run .cap .lead { font-size: 33px; line-height: 1.25; }
+.run .cap.in > * { animation: capin 0.55s cubic-bezier(.2, .7, .2, 1) both; }
+.run .cap.in > :nth-child(2) { animation-delay: 0.06s; }
+.run .cap.in > :nth-child(3) { animation-delay: 0.12s; }
+@keyframes capin { from { opacity: 0; transform: translateY(16px); } }
+.rv { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 14px; min-height: 0; }
+.rv.intro { animation: rvin 0.8s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes rvin { from { opacity: 0; transform: translateY(50px); } }
+.rv-clock { display: grid; grid-template-columns: 1.3fr 0.8fr 1.35fr 1.1fr; border: 2px solid var(--border); background: var(--surface); }
+.rv-clock > div { display: grid; gap: 8px; align-content: start; padding: 14px 24px; border-left: 2px solid var(--border); }
+.rv-clock > div:first-child { border-left: 0; }
+.rv-clock .k { font: 600 21px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.rv-clock .t { display: flex; align-items: center; gap: 16px; font: 600 46px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.rv-clock .s { font: 400 23px/1.15 var(--font-body); color: var(--muted); white-space: nowrap; }
+.rv-clock .s b { font-weight: 600; color: var(--cut); }
+.rv-clock .vault .k { color: var(--ink); }
+.badge { font: 700 28px/1 var(--font-mono); padding: 6px 10px; }
+.badge.out { background: var(--out); color: #000; }
+.rv-track { position: relative; height: 46px; margin: 0 12px; }
+.rv-track .bar, .rv-track .fill { position: absolute; left: 0; top: 9px; height: 4px; }
+.rv-track .bar { right: 0; background: var(--grid); }
+.rv-track .fill { background: var(--blum); transition: width 0.35s ease; }
+.rv-track .knob { position: absolute; z-index: 1; top: 1px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: var(--blum); box-shadow: 0 0 0 6px var(--blum-soft); transition: left 0.35s ease; }
+.rv-track .tk { position: absolute; top: 3px; transform: translateX(-50%); display: grid; justify-items: center; gap: 6px; font: 600 19px/1 var(--font-mono); color: var(--muted); white-space: nowrap; }
+.rv-track .tk i { width: 4px; height: 16px; background: var(--amber); }
+.rv-track .tk.past { color: var(--cut); }
+.rv-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; min-height: 0; }
+.win { display: grid; border: 2px solid var(--border); background: var(--surface); min-height: 0; overflow: hidden; }
+.win > .bar { display: flex; align-items: center; gap: 10px; padding: 0 18px; background: var(--bar); font: 600 23px/1 var(--font-body); color: var(--bar-ink); }
+.win > .bar i { width: 13px; height: 13px; border-radius: 50%; background: var(--grid); }
+.win > .bar span { margin-left: 8px; }
+.win > .bar em { margin-left: auto; font: 500 20px/1 var(--font-mono); font-style: normal; color: var(--muted); }
+.rv-reg { grid-template-rows: 44px 58px repeat(3, minmax(0, 1fr)); border-color: var(--blum); }
+.rv-reg > .bar span { color: var(--blum); }
+.rv-log { grid-template-rows: 44px minmax(0, 1fr); border-color: var(--sol); }
+.rv-log > .bar span { color: var(--sol); }
+.rv-reg .hd, .rv-reg .rr { display: grid; grid-template-columns: 190px minmax(0, 1fr) 160px 140px 160px; column-gap: 16px; align-items: center; padding: 0 20px; }
+.rv-reg .hd { font: 600 19px/1.1 var(--font-mono); letter-spacing: 0.02em; white-space: nowrap; text-transform: uppercase; color: var(--ink-2); border-bottom: 1px solid var(--grid); }
+.rv-reg .hd .r { text-align: right; padding-right: 10px; }
+.rv-reg .hd .c { color: var(--cut); }
+.rv-reg .rr { align-items: stretch; }
+.rv-reg .rr + .rr { border-top: 1px solid var(--grid); }
+.rv-reg .who { display: grid; gap: 8px; align-content: center; }
+.rv-reg .who b { font: 700 30px/1 var(--font-display); font-stretch: var(--display-stretch); }
+.rv-reg .who small { font: 500 21px/1 var(--font-mono); color: var(--muted); }
+.rv-reg .bonds { display: flex; align-items: center; gap: 14px; }
+.rv-reg .bonds .n { flex: none; width: 50px; text-align: right; font: 600 40px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.pips { display: flex; flex-wrap: wrap; gap: 5px; }
+.pip { display: block; width: 19px; height: 30px; box-sizing: border-box; background: var(--ink-2); transition: background-color 0.4s, opacity 0.4s; }
+.pip.esc { background: transparent; border: 3px solid var(--amber); }
+.pip.burn { background: transparent; border: 2px dashed var(--muted); opacity: 0.55; }
+.pip.new { animation: pipin 0.5s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes pipin { from { opacity: 0; transform: scale(0.3); } }
+.cell { position: relative; display: grid; justify-items: end; align-content: center; padding: 6px 10px; }
+.th { display: inline-block; width: 0.28em; }
+.cell b { font: 600 40px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+.cell b.nil { color: var(--muted); }
+.cell.cut b { color: var(--cut); }
+.cell.owe.paid b { color: var(--ok); }
+.cell small { position: absolute; right: 10px; top: calc(50% + 28px); font: 600 18px/1 var(--font-mono); padding: 4px 8px; }
+.cell small.sv { color: var(--blum); border: 2px solid var(--blum); }
+.cell small.in { background: var(--ok); color: #000; font-size: 22px; }
+.fl-cut { animation: flcut 1.3s ease-out; } @keyframes flcut { from { background: rgba(255, 176, 32, 0.5); } }
+.fl-blum { animation: flblum 1.3s ease-out; } @keyframes flblum { from { background: rgba(74, 174, 255, 0.5); } }
+.fl-ok { animation: flok 1.3s ease-out; } @keyframes flok { from { background: rgba(143, 214, 108, 0.5); } }
+.fl-out { animation: flout 1.3s ease-out; } @keyframes flout { from { background: rgba(255, 106, 85, 0.55); } }
+.rv-log .lw { position: relative; overflow: hidden; min-height: 0; }
+.rv-log ol { list-style: none; margin: 0; padding: 0; transition: transform 0.45s cubic-bezier(.2, .7, .2, 1); }
+.rv-log li { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; gap: 12px; align-items: center; height: 44px; box-sizing: border-box; padding: 0 16px; border-bottom: 1px solid var(--grid); opacity: 0.32; transition: opacity 0.3s, background-color 0.3s; }
+.rv-log li .d { font: 500 19px/1 var(--font-mono); color: var(--muted); }
+.rv-log li .x { font: 400 23px/1 var(--font-body); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-log li .c { font: 500 17px/1 var(--font-mono); background: var(--chip); color: var(--chip-ink); padding: 5px 8px; text-decoration: none; }
+.rv-log li .c::after, .ap .c::after { content: " \2197"; color: var(--blum); }
+.rv-log li.cut .d, .rv-log li.cut .x { color: var(--cut); }
+.rv-log li.aud .x { color: var(--ok); }
+.rv-log li.past { opacity: 0.6; }
+.rv-log li.cur { opacity: 1; background: var(--blum-soft); box-shadow: inset 5px 0 0 var(--blum); }
+.rv-log li.cur.cut { background: var(--cut-soft); box-shadow: inset 5px 0 0 var(--cut); }
+.rv-reg .rr { transition: opacity 0.4s; }
+.rv-reg .rr.dim { opacity: 0.35; }
+.rv-reg .mk { outline: 4px solid var(--blum); outline-offset: -2px; animation: mkp 1.6s ease-in-out infinite; }
+@keyframes mkp { 50% { outline-color: rgba(74, 174, 255, 0.35); } }
+.xp { display: none; position: relative; width: 26px; height: 26px; margin-left: 12px; vertical-align: -6px; border: 2px solid var(--blum); box-sizing: border-box; }
+.xp::before { content: ""; position: absolute; left: 6px; top: 3px; width: 8px; height: 8px; border-right: 3px solid var(--blum); border-bottom: 3px solid var(--blum); transform: rotate(45deg); }
+.rv.aud .xp { display: inline-block; }
+.rv.aud .rv-reg .rr { cursor: pointer; }
+.rv-reg .rr.open .xp::before { top: 8px; transform: rotate(-135deg); }
+.rv-reg .apw { display: none; }
+.rv-reg.open { grid-template-rows: 44px 58px calc((100% - 102px) / 3) minmax(0, 1fr); }
+.rv-reg.open .apw { display: block; padding: 4px 20px 0; border-top: 1px solid var(--grid); }
+.rv-reg .rr[hidden] { display: none; }
+.ap .h4 { margin: 0 0 8px; font: 600 18px/1.1 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); }
+.ap table { width: 100%; border-collapse: collapse; font: 500 20px/1.1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.ap th { white-space: nowrap; padding: 0 6px 4px; text-align: right; vertical-align: bottom; font: 600 15px/1.05 var(--font-mono); text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--grid); }
+.ap td { padding: 1px 5px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); color: var(--ink); }
+.ap td.mvs { text-align: left; }
+.ap th:nth-child(3) { text-align: left; }
+.ap th:first-child, .ap td:first-child { text-align: left; padding-left: 0; font-family: var(--font-body); }
+.ap td.f { color: var(--ink-2); }
+.ap td.m { color: var(--ok); }
+.ap tr.tot td { border-bottom: 0; font-weight: 700; }
+.ap .c { font: 500 16px/1 var(--font-mono); background: var(--chip); color: var(--chip-ink); padding: 3px 6px; text-decoration: none; }
+.ap .mv { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 9px 12px; align-items: center; font: 500 21px/1.1 var(--font-mono); }
+.ap .mv .d { color: var(--muted); font-size: 18px; }
+.ap .mv span:not(.d) { font: 400 20px/1.1 var(--font-body); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap .fx { margin: 6px 0 0; font: 400 19px/1.2 var(--font-body); color: var(--ink-2); white-space: nowrap; }
+.ap .ok { color: var(--ok); }
+.ap .bad { color: var(--out); }
+.fly { position: absolute; z-index: 4; font: 700 30px/1 var(--font-mono); padding: 6px 12px; pointer-events: none; background: var(--ok); color: #000; }
+
+/* Результаты: масштаб крупно, проверки мельче */
+.hero3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 56px; }
+.hero3 div { display: grid; align-content: start; gap: 18px; padding-top: 30px; border-top: 4px solid var(--ok); }
+.hero3 em { font: 700 150px/1 var(--font-mono); font-style: normal; color: var(--ok); }
+.hero3 span { font: 400 34px/1.25 var(--font-body); color: var(--ink); }
+.minor3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 56px; margin-top: 72px; }
+.minor3 div { display: grid; gap: 10px; }
+.minor3 b { font: 600 44px/1 var(--font-mono); color: var(--ink); white-space: nowrap; }
+.minor3 span { font: 400 28px/1.3 var(--font-body); color: var(--ink-2); }
+
+/* Три зависимости: зависимость, как устранена, результат */
+.deps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto 1fr auto; column-gap: 56px; }
+.dep { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 22px; padding: 30px 0 0; border-top: 4px solid var(--blum); }
+.dep b { font: 700 46px/1.05 var(--font-display); white-space: nowrap; font-stretch: var(--display-stretch); }
+.dep span { font: 400 35px/1.3 var(--font-body); color: var(--ink-2); }
+.dep em { font: 600 34px/1.25 var(--font-body); font-style: normal; color: var(--ok); padding-top: 16px; border-top: 1px solid var(--grid); }
+
+#nav { display: none; }
+.sc .chp { position: absolute; right: 80px; top: 62px; margin: 0; font: 600 22px/1 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); z-index: 2; }
+.sc.run .chp { top: 54px; }
+/* Содержание */
+.toc { display: grid; max-width: 1640px; }
+.toc a { display: grid; grid-template-columns: 110px minmax(0, 1fr) 220px; gap: 24px; align-items: baseline; padding: 26px 0; border-top: 1px solid var(--grid); text-decoration: none; color: var(--ink-2); cursor: pointer; }
+.toc a b { font: 700 54px/1 var(--font-mono); color: var(--amber); }
+.toc a span { display: grid; gap: 10px; font: 400 30px/1.3 var(--font-body); }
+.toc a i { font: 700 42px/1.1 var(--font-display); font-style: normal; font-stretch: var(--display-stretch); color: var(--ink); }
+.toc a small { font: 500 24px/1 var(--font-mono); color: var(--muted); text-align: right; }
+.toc a:hover i { color: var(--blum); }
+/* Глава 1 и 3: две колонки фактов */
+.why2, .mz2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 72px; align-items: start; }
+.mz2 { margin-top: 44px; }
+.why2 .h4, .mz2 .h4 { margin: 0 0 18px; font: 600 24px/1.1 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.dated { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 18px 28px; align-items: baseline; }
+.dated span { font: 600 24px/1.2 var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+.dated b { font: 500 30px/1.3 var(--font-body); color: var(--ink); }
+.sc .src { margin-top: 20px; font: 400 20px/1.35 var(--font-body); color: var(--muted); }
+.breaks { display: grid; gap: 22px; }
+.breaks p { margin: 0; font: 400 30px/1.35 var(--font-body); color: var(--ink); }
+.breaks p.cost { padding: 18px 22px; background: var(--out-soft); }
+.breaks em { font-style: normal; font-weight: 700; color: var(--out); }
+.mzf .bx b { font-size: 34px; }
+/* Глава 3 и 4: таймлайн проб и путь привлечения */
+.rm.probe em { font: 400 24px/1.3 var(--font-body); font-style: normal; color: var(--amber); }
+.rm.probe span { font-size: 26px; }
+.rm.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rm.four::after { width: calc(25% - 30px); }
+.fx3.one { grid-template-columns: minmax(0, 1fr); }
+.deps.four { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 40px; }
+.deps.four .dep b { font-size: 38px; white-space: normal; }
+.deps.four .dep span { font-size: 28px; }
+/* 31.10: схема оплаты, каналы к инвесторам, два трека, числа рынка */
+.cover .th3 b.sm { font-size: 84px; }
+.ah { position: relative; display: grid; place-items: center; height: 100%; min-height: 56px; }
+.ah::before { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 3px; background: var(--muted); }
+.ah::after { content: ""; position: absolute; right: 2px; top: calc(50% - 8px); border-left: 12px solid var(--muted); border-block: 9px solid transparent; }
+.ah.l::after { right: auto; left: 2px; border-left: 0; border-right: 12px solid var(--muted); }
+.ah span { position: relative; transform: translateY(-24px); padding: 0 6px; font: 500 22px/1.1 var(--font-body); color: var(--muted); text-align: center; }
+.pl { font: 600 20px/1 var(--font-mono); font-style: normal; color: var(--amber); letter-spacing: 0.04em; text-transform: uppercase; }
+.money, .chn { display: grid; grid-template-rows: repeat(3, auto); row-gap: 20px; align-items: center; }
+.money { grid-template-columns: 440px minmax(0, 1fr) 400px minmax(0, 1fr) 440px; }
+.chn { grid-template-columns: 300px 140px minmax(0, 1fr) 100px 420px 90px 260px; }
+.money .bx, .chn .bx { display: grid; gap: 6px; padding: 16px 20px; border: 2px solid var(--border); background: var(--surface); }
+.money .bx b, .chn .bx b { font: 700 32px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.money .bx span, .chn .bx span { font: 400 24px/1.3 var(--font-body); color: var(--ink-2); }
+.money .r1, .chn .r1 { grid-row: 1; } .money .r2, .chn .r2 { grid-row: 2; } .money .r3, .chn .r3 { grid-row: 3; }
+.money .ra, .chn .ra { grid-row: 1 / 4; }
+.money .c1, .chn .c1 { grid-column: 1; } .money .c2, .chn .c2 { grid-column: 2; } .money .c4, .chn .c4 { grid-column: 4; }
+.money .c5, .chn .c5 { grid-column: 5; } .chn .c6 { grid-column: 6; } .chn .c7 { grid-column: 7; }
+.money .core { grid-column: 3; grid-row: 1 / 4; align-self: stretch; display: grid; align-content: center; gap: 14px; padding: 24px; border: 3px solid var(--blum); background: var(--surface); }
+.money .core > b { font: 700 48px/1 var(--font-display); font-stretch: var(--display-stretch); color: var(--blum); }
+.money .core span { font: 400 26px/1.3 var(--font-body); color: var(--ink-2); }
+.chn .sol { grid-column: 3; grid-row: 1 / 4; display: grid; gap: 12px; padding: 18px 20px 20px; border: 3px solid var(--sol); background: rgba(153, 69, 255, 0.07); }
+.chn .sol > b { font: 700 34px/1.1 var(--font-display); font-stretch: var(--display-stretch); color: var(--sol); }
+.chn .sol div { padding: 10px 14px; border: 1px solid var(--border); font: 500 24px/1.25 var(--font-body); color: var(--ink-2); }
+.chn .sol div.blum { border: 3px solid var(--blum); color: var(--ink); }
+.chn .sol div.aud { border: 3px solid var(--ok); color: var(--ink); }
+.chn .sol div b { display: block; font: 700 28px/1.1 var(--font-display); font-stretch: var(--display-stretch); }
+.chn .sol div.blum b { color: var(--blum); } .chn .sol div.aud b { color: var(--ok); }
+.chn.yield { grid-template-columns: 300px 110px 350px 100px 340px 130px minmax(0, 1fr); grid-template-rows: auto; }
+.chn.yield .sol { grid-column: auto; grid-row: auto; }
+.chn.yield .bx { min-height: 210px; align-content: center; }
+.chn.yield .ah span { font-size: 19px; }
+.chn.yield .pl { line-height: 1.3; }
+.qa.mk div { padding: 12px 0; }
+.qa.mk span { font-size: 30px; }
+.tracks { display: grid; grid-template-columns: 230px minmax(0, 1fr); column-gap: 40px; row-gap: 48px; align-items: start; }
+.tracks > b { font: 600 26px/1.25 var(--font-mono); color: var(--blum); letter-spacing: 0.04em; text-transform: uppercase; }
+.tracks .rm { margin-bottom: 0; }
+.tracks .rm b { font-size: 36px; }
+.tracks .rm span { font-size: 26px; }
+.big3 { display: grid; }
+.big3 div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 28px; align-items: baseline; padding: 34px 0; border-top: 2px solid var(--grid); }
+.big3 b { font: 600 30px/1 var(--font-mono); color: var(--blum); }
+.big3 span { font: 700 56px/1.15 var(--font-display); font-stretch: var(--display-stretch); color: var(--ink); }
+.deps.four .dep em { font-size: 27px; }
+.deps.four .dep.buyer { border-top-color: var(--ok); }
+.deps.four .dep.buyer b { color: var(--ok); }
+.sc .pg { position: absolute; right: 80px; bottom: 8px; margin: 0; font: 500 24px/1 var(--font-mono); color: var(--muted); z-index: 4; }
+/* Полоса навигации внизу каждого слайда: начало, главы, ответы на вопросы; клик открывает раздел */
+.sc .navbar { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; box-sizing: border-box; padding: 0 80px; margin: 0; display: flex; align-items: center; gap: 36px; background: rgba(255, 255, 255, 0.06); font: 500 19px/1 var(--font-mono); color: var(--muted); z-index: 3; }
+.sc .navbar a { cursor: pointer; white-space: nowrap; color: var(--muted); }
+.sc .navbar a:hover { color: var(--ink); }
+.sc .navbar b { font-weight: 700; margin-right: 10px; }
+/* Бизнесовая часть: роли участников, повторные выпуски и два направления денег. */
+.money.business .ah span { font-size: 20px; }
+.fx3.business-funding { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; }
+.yield-cycle { display: grid; gap: 58px; }
+.yield-cycle .chn.yield .bx { min-height: 170px; }
+.yield-cycle .capital .bx { min-height: 110px; }
+.tracks .pl { line-height: 1.3; }
+</style>
+</head>
+<body>
+<div id="stage"><div class="sc" id="sc"></div></div>
+<div id="nav"></div>
+<script>
+const NB = ' ';
+const KTRI = '<span class="ktri" aria-label="KASE"><i class="a"></i><i class="b"></i><i class="c"></i></span>';
+
+// ---------- Corporate action «купон»: тест на devnet 23.10.2026, продавец BH#1, покупатель BH#3 ----------
+const TL = ['Отсечка', 'Сделка', 'Выплата купона'];
+function timeline(pt) {
+  return `<div class="tl"><div class="track"></div><div class="fill" style="width:${pt * 33.3 + 0.6}%"></div><div class="pts">${TL.map((p, i) => `<div class="p ${i < pt ? 'past' : i === pt ? 'now' : ''}"><i></i>${p}</div>`).join('')}</div></div>`;
+}
+function card(k, h, v, l, cls) {
+  return `<div class="card ${cls}" data-k="${k}"><span class="t">${h}<small>первый купон</small></span><span class="v">${v}</span><span class="l">${l}</span></div>`;
+}
+function coupon(f) {
+  const cols = [['Право на купон', f.cards.filter(c => c[0] === 0), ''], ['Выплата', f.cards.filter(c => c[0] === 1), 'pay']];
+  const board = `<div class="board">${cols.map(([n, cs, k], i) => `<div class="col ${k} ${i === 0 || cs.length ? 'on' : ''}"><div class="h">${n}</div><div class="cards">${cs.map(c => card(...c.slice(1))).join('')}</div></div>`).join('')}</div>`;
+  const bal = `<div class="bal"><p>Облигаций сейчас</p>${f.bal.map(([h, a, b]) => `<div><b>${h}</b><span class="q">${a === b ? b : `<i>${a} →</i> <em>${b}</em>`}</span></div>`).join('')}</div>`;
+  const tree = `<ul class="tree">${f.tree.map(([d, p, w, ours]) => `<li class="node ${ours ? 'ours' : /Solana|Token/.test(p) ? 'sol' : ''}" style="--d:${d}"><b>${p}</b> <span>${w}</span></li>`).join('')}</ul>`;
+  const rows = f.rows ? `<div class="lab">${f.rowsLab}</div><div class="rows">${f.rows.map(([a, b, hot]) => `<div class="row ${hot === 'ok' ? 'ok' : hot ? 'hot' : ''}"><span>${a}</span><b>${b}</b></div>`).join('')}</div>` : '';
+  const prog = `<div class="prog"><div class="bar"><i></i><i></i><i></i><span>Blum · программа на Solana</span></div><div class="in"><div class="lab">${f.treeLab}</div>${tree}${rows}</div></div>`;
+  return `${timeline(f.pt)}<div class="two"><div class="left">${board}${bal}</div>${prog}</div>`;
+}
+
+// Транзакция выплаты первого купона: 623T3tPo…, slot 514 213 959, 23.10.2026 10:19:39 UTC.
+// Строки снимка Tokens: счёт купона −375, продавец (BH#1) +250, второй держатель (BH#2) +125.
+const POP = `<div class="pop" id="pop"><div class="pb"><i></i><i></i><i></i><span>Выплата первого купона · транзакция в Solana devnet</span></div>
+  <div class="facts"><div><small>Время</small><b>23.10.2026, 15:19:39</b></div><div><small>Статус</small><b class="ok">Success, Finalized</b></div><div><small>Комиссия</small><b>0,000005 SOL</b></div></div>
+  <div class="shot"><img src="assets/explorer-c0-tokens.png" alt="explorer.solana.com, раздел Tokens">
+    <span class="tag out" style="top:22%">счёт купона: −375</span><span class="tag" style="top:49%">продавец: +250</span><span class="tag" style="top:75%">второй держатель: +125</span></div>
+  <p class="pn">Бюджет купона: 15 облигаций на отсечку × 25 = 375. Снимок explorer.solana.com, часы теста ускорены: день облигации длится одну секунду.</p></div>`;
+
+// Приложение: вопрос, короткий ответ, факты
+const qa = rows => `<div class="qa">${rows.map(([a, b]) => `<div><b>${a}</b><span>${b}</span></div>`).join('')}</div>`;
+const AX = n => `Приложение · ответы на вопросы · ${n} / 10`;
+
+// ---------- Экран теста на devnet 23.10.2026: реестр держателей, счёт выплаты и ledger ----------
+// LEDGER (colosseum/slides/data/ledger_rows.py): строки по порядку: 32 транзакции теста (ops/out/devnet-demo.json), 4 отсечки по времени облигации,
+// аудит. Строка: [дата, текст, подпись транзакции, действие, день облигации от выпуска]. MEASURED: выплаты из
+// событий теста; экран сверяет с ними свою арифметику и останавливается с ошибкой при расхождении.
+const LEDGER = [["03.03.26", "Выпуск облигации создан", "3r9zLVLc6jGzoCxdPbuTFDARAAqkkuh15ZSUZpn9TfkhYLBnHqszZPN65aUfmXW6xb25aF1RYr5q74282R4suQAW", {}, 0.0], ["05.03.26", "Размещение: BH#1 10, BH#2 5", "3dPUz3BZcpNWGZNYgDniJq6T5Tv4bcNTiJytNiAE4JFCMwrMHRL6QvNyvHpHBYVpNhfKwSfuSWjr39nQ5MqiJ52B", {"place": [10, 5, 0]}, 2.0], ["08.06.26", "09:00 · отсечка 1", "", {"cut": 0}, 96.875], ["12.06.26", "DvP: сделка BH#1 → BH#3", "4RcqP1tKZWpkfmFp9ArgmrDJhiGHs8dLMhAEZyGkiqoz4M291UFDwcuuYmX1gBjUkwXhtYYBmMnnUVdsK7zEeVZe", {}, 101.0], ["13.06.26", "DvP: продавец кладёт 3 в escrow", "DFpg3H5DUJbjRaVKs5qA2YM9us4UqQBgghjv4MBLFMfuhJJpMNXKvsKearicgjp8h29ty3GkmeuA5jP74PHkjT2", {"esc": [0, 3]}, 102.0], ["14.06.26", "Банк: деньги на счёт покупателя", "5SiBANsFzmeJZeQ6BHGLCde3iEbNBmm6TVN9kfwAZpMjy2Ysp87SpTd5HnZN7mSJVoDsWWhoMQNdTMPYhjbbt5tB", {}, 103.0], ["15.06.26", "DvP: покупатель кладёт оплату", "5jcHFikR5pcraCEg7cs4XYF2tT3zwPybj2VJTVh49aCYCdNgkRnYhXn21EPwXVDFXf95jnK2s5GeCxDHL53ovxdy", {}, 104.0], ["16.06.26", "DvP: расчёт, 3 облигации у BH#3", "2bE3cFkqZEvawGBvq1t7JEGhe4HJSX4a2pxbvDb18E7m7R7btHkipDAvH4BaTHq5Sb3gVY78fbpifGsQfoyPfw8E", {"settle": [0, 2, 3]}, 105.0], ["20.06.26", "Купон 1: бюджет 15 × 25 = 375", "5mi5GHp9DkPLpVhNAHt44uVCFaBC3YpcLbK92wQxVG6KR8XWX59PHuqwXnZZ8Zzb9m83PNRekJ7uUVtWYjLDvXJ9", {"open": 0}, 109.0], ["23.06.26", "Эмитент вносит 375", "5zew5yuGKUBBGGoAnH3JDcCjTejeA3EMgJMMTGeR19HikV7KWB6sk6yMNZNS1mVBVRLQQ6Ua1Qs2EDbcPMf1Bt3T", {"fund": 0}, 112.0], ["24.06.26", "Бюджет внесён полностью", "4sFP1yS9tngtNqs8tsU66oGgKvnESKwJPPw4CorVfg6YgZvohRAregsuRBej2DinKtLU15U2fppT6imxE5R6Cceq", {"conf": 0}, 113.0], ["26.06.26", "Выплата купона 1: 250 и 125", "623T3tPos11a6rmMZZ55Zvn8Vp9jghcBdUbWum4JNw1qqyDTep5qScBdUeunZYbJNRP3HtfdoYA9rHXRoGT9XACS", {"pay": 0}, 115.0], ["07.09.26", "09:00 · отсечка 2", "", {"cut": 1}, 187.875], ["13.09.26", "DvP: сделка BH#2 → BH#1", "3uBSqEtZdiGgKWTz6Q63n8fjq4izHqBupET4DF2CfqCH7h5MV5H4xATnArQKEUbouCpMJV7tetRpvocECTB1TWxq", {}, 194.0], ["14.09.26", "DvP: продавец кладёт 2 в escrow", "4kyAzXJDrEcEAtQNUpqf1ctxGMcA3Pw2PVkNjRTh6Xi5x6a3nVdM1s8AkNcj1NHxHcrUfcigLLmUEPzERBCKBAWi", {"esc": [1, 2]}, 195.0], ["15.09.26", "DvP: покупатель кладёт оплату", "345126xa76EgvbaL5QHm9RjkZYdwPH43bpQ1WBvwfQSmCXseUhxj9KeDJrC2djQTB54VQWKoT2da1edFztSKkYXo", {}, 196.0], ["16.09.26", "DvP: расчёт, 2 облигации у BH#1", "45567KWoM33sZeaVqNnzbHKiDKvyX3P18WA8LHxttXuPaV5XzuTH3QBwktk1oXf3soY8jdsHiVeqwTWM6xwyGGqw", {"settle": [1, 0, 2]}, 197.0], ["07.12.26", "09:00 · отсечка 3", "", {"cut": 2}, 278.875], ["10.12.26", "Перевод: 1 облигация BH#3 → BH#2", "D1u5yPSvuxUt5p9RUrM8pFhmCr8BYZp71fKupXa23nFmAdXoW59QQb4fiERxCjYMv5E9JRSQRVeTk8CNdXhAGN6", {"xfer": [2, 1, 1]}, 282.0], ["09.03.27", "09:00 · отсечка 4, последняя", "", {"cut": 3}, 370.875], ["13.03.27", "Купон 2: бюджет 15 × 25 = 375", "5Q3ZbEjhEVrXyADyvAzf6D2t54uUzmPCXPwaDiecDuamXU3SZshNXsVQfqw2fiQnh5UmnPPsPjdH2R4MCbn5rLQV", {"open": 1}, 375.0], ["14.03.27", "Эмитент вносит 375", "5uNsLYfeiQnfKh72mkX5qp88VpuzGMXweqiu7zNMDsv8Z3yd9rnSdKbUk893SDdWZofdCM66SGgckrPc2EZsmr7F", {"fund": 1}, 376.0], ["15.03.27", "Бюджет внесён полностью", "4ygfZnbUSFCixnvzp6xj2ynKdHffE7Zn3ncYzgaJMbnqTJc1VKDEALhK4ja4tUw3aAM3tAjgVnw85o8kvZKYkeR1", {"conf": 1}, 377.0], ["16.03.27", "Выплата купона 2: 175, 125, 75", "4neEZEiDX5bppL3HxRGuH5Gycy7UP3itjc7frm8Na6uuwGGAfGMN1TXBYx4yEBddvHy2FwPjWxw9YBFSDCyFn1VC", {"pay": 1}, 378.0], ["18.03.27", "Купон 3: бюджет 15 × 25 = 375", "3WWTWchhLTHnobsTD9B2mqs8GTchadQh7BbiyEEXWwsRJzgLhdRMBq9hzbsucenNhB1qz16U38J7ot5t53g3ZSC5", {"open": 2}, 380.0], ["19.03.27", "Эмитент вносит 375", "3nSpLrTSSmzTxX6rr8JwXkd6BiXNPxqYZ3ZhqjdmtoZsAPmsVvY4ejj1ftimUAEb8rotruUs8dBjQ8QPNpNe338b", {"fund": 2}, 381.0], ["20.03.27", "Бюджет внесён полностью", "3B9XCtwPHspDp3LpLoxdgJYzrQYccuaoZA8oB4G7qRGRsCk8hfzx7GDsRHCcLubmMuuNbzWYxAFy14hQzPCqEJSB", {"conf": 2}, 382.0], ["21.03.27", "Выплата купона 3: 225, 75, 75", "xXwFiuK5QowHjagDrQYkVUy9kLoBY4rXWM7RpSMrmPDsbeiNrqBNip2RVE3VF94AyaTXXHEf396Nt5TzajRZCEF", {"pay": 2}, 383.0], ["25.03.27", "Купон 4: бюджет 15 × 25 = 375", "3Y616WsBkyXTowdfP4TrBkUrb6TEiVv2AHZ2Tw6y2CmPPwqu3eGLKUh3TyiTA21FWuA25JR1zrnPcs2Q7aJ6Vnzu", {"open": 3}, 387.0], ["28.03.27", "Эмитент вносит 375", "4vyTduVqoK8Ck4gkFRNx3bDFDytPtz87ppsfAFwQJtDsAZeJEtMH7itZV8eKAWu2GxoTyMabXbkdgkXBh6RXxBNd", {"fund": 3}, 390.0], ["29.03.27", "Бюджет внесён полностью", "4SvycFFXZQh9ynan384RY6n29bcpeKWCC7Nj4FqFvifCVaKWxhxzzFYktDAqRbT7VzrFvpjQCDK6jqLk9dPY27Fe", {"conf": 3}, 391.0], ["31.03.27", "Выплата купона 4: 225, 100, 50", "3WnbAVBx8eWEBbitRoS9ViCq3F6gLaTTVLNgFNjwgKkgSfmyR3m5LECB6MNPbfMii4iHuKiUHHym4qV3hyyJR9cm", {"pay": 3}, 393.0], ["01.04.27", "Погашение: бюджет 15 × 1 000", "3kezBj2XV7X4rnPNHuEPsqbsDjEp4SonKRJgkVBeJ9DBW9XJn5DTZ8KRQQWVmDc22y9kobPYa4JiucqEVRsgNEKg", {"open": 4}, 394.0], ["04.04.27", "Эмитент вносит 15 000", "4ivXxjHDU1FzPtzC3c7WBkUdH7GREsAX6uaUSP4fhuZv3egA3Eczop6b1C1vw8FDWo8uacKgEK4Sp9vRtVZtPjm3", {"fund": 4}, 397.0], ["08.04.27", "Бюджет внесён полностью", "5i28KDzHd2kNad2JkjMmdBhFinoikupdMkdLGoeNmxGa8uDGXdXgsJ8WwcjRQyNHhUnYiqaB8m5Lgbav3Vi6oY3T", {"conf": 4}, 401.0], ["13.04.27", "Погашение: 15 облигаций сожжены", "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", {"redeem": 4}, 406.0], ["после", "Ончейн аудит: 23 из 23 проверок", "", {"audit": 1}, 406.0]];
+const MEASURED = {"pay": [[250, 125, 0], [175, 125, 75], [225, 75, 75], [225, 100, 50]], "redeem": [9000, 4000, 2000]};
+
+// AUDIT: расчёт и измерения ончейн аудита по держателям (colosseum/slides/data/audit_rows.py, запускает tools/audit/audit.py).
+const AUDIT = {"checks": [{"id": "M1", "label": "bond: sum of all account balances = supply", "ok": true}, {"id": "M1", "label": "cash: sum of all account balances = supply", "ok": true}, {"id": "M2", "label": "every transaction: balance changes = minted - burned", "ok": true}, {"id": "M3", "label": "history sums = current balances (both channels agree)", "ok": true}, {"id": "M4", "label": "the bond's vaults = cash accounts owned by the bond token's mint authority (H3kkQ3fe...)", "ok": true}, {"id": "M4", "label": "cash enters the vaults only from the bank's mints", "ok": true}, {"id": "M4", "label": "cash leaves the vaults only to scenario wallets", "ok": true}, {"id": "M4", "label": "no account outside the scenario wallets moved bonds, except Solana DvP trade escrows (2 escrows)", "ok": true}, {"id": "M4", "label": "bonds leave a DvP escrow only to scenario wallets", "ok": true}, {"id": "C1", "label": "BH#1: coupon arrivals from the vault", "ok": true}, {"id": "C2", "label": "BH#1: bond movements", "ok": true}, {"id": "C3", "label": "BH#1: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated", "ok": true}, {"id": "C1", "label": "BH#2: coupon arrivals from the vault", "ok": true}, {"id": "C2", "label": "BH#2: bond movements", "ok": true}, {"id": "C3", "label": "BH#2: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated", "ok": true}, {"id": "C1", "label": "BH#3: coupon arrivals from the vault", "ok": true}, {"id": "C2", "label": "BH#3: bond movements", "ok": true}, {"id": "C3", "label": "BH#3: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated", "ok": true}, {"id": "C4", "label": "vaults: inflow = outflow + final balance; outflow = calculated payments; final = calculated leftover", "ok": true}, {"id": "C7", "label": "BH#1: cash from this bond and bonds held now = calculated", "ok": true}, {"id": "C7", "label": "BH#2: cash from this bond and bonds held now = calculated", "ok": true}, {"id": "C7", "label": "BH#3: cash from this bond and bonds held now = calculated", "ok": true}, {"id": "C5", "label": "every coupon paid after its record moment and before the next one; coupons after 0 after the final record moment (declared operator failure) (compressed time: 1 bond day = 1 s, so the 8-hour 09:00-17:00 window is 0.3 s and is not checked)", "ok": true}], "face": 1000, "rateBps": 1000, "perYear": 4, "recordDates": ["08.06.26", "07.09.26", "07.12.26", "09.03.27"], "holders": {"BH#1": {"events": [{"kind": "coupon", "k": 0, "pos": 10, "perBond": 25, "expected": 250, "measured": 250, "sig": "623T3tPos11a6rmMZZ55Zvn8Vp9jghcBdUbWum4JNw1qqyDTep5qScBdUeunZYbJNRP3HtfdoYA9rHXRoGT9XACS", "day": "26.06.26"}, {"kind": "coupon", "k": 1, "pos": 7, "perBond": 25, "expected": 175, "measured": 175, "sig": "4neEZEiDX5bppL3HxRGuH5Gycy7UP3itjc7frm8Na6uuwGGAfGMN1TXBYx4yEBddvHy2FwPjWxw9YBFSDCyFn1VC", "day": "16.03.27"}, {"kind": "coupon", "k": 2, "pos": 9, "perBond": 25, "expected": 225, "measured": 225, "sig": "xXwFiuK5QowHjagDrQYkVUy9kLoBY4rXWM7RpSMrmPDsbeiNrqBNip2RVE3VF94AyaTXXHEf396Nt5TzajRZCEF", "day": "21.03.27"}, {"kind": "coupon", "k": 3, "pos": 9, "perBond": 25, "expected": 225, "measured": 225, "sig": "3WnbAVBx8eWEBbitRoS9ViCq3F6gLaTTVLNgFNjwgKkgSfmyR3m5LECB6MNPbfMii4iHuKiUHHym4qV3hyyJR9cm", "day": "31.03.27"}, {"kind": "redemption", "pos": 9, "perBond": 1000, "expected": 9000, "measured": 9000, "sig": "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", "day": "13.04.27", "burned": 9}], "moves": [{"q": 10, "sig": "3dPUz3BZcpNWGZNYgDniJq6T5Tv4bcNTiJytNiAE4JFCMwrMHRL6QvNyvHpHBYVpNhfKwSfuSWjr39nQ5MqiJ52B", "day": "05.03.26", "kind": "размещение"}, {"q": -3, "sig": "DFpg3H5DUJbjRaVKs5qA2YM9us4UqQBgghjv4MBLFMfuhJJpMNXKvsKearicgjp8h29ty3GkmeuA5jP74PHkjT2", "day": "13.06.26", "kind": "в escrow DvP"}, {"q": 2, "sig": "45567KWoM33sZeaVqNnzbHKiDKvyX3P18WA8LHxttXuPaV5XzuTH3QBwktk1oXf3soY8jdsHiVeqwTWM6xwyGGqw", "day": "16.09.26", "kind": "расчёт DvP"}, {"q": -9, "sig": "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", "day": "13.04.27", "kind": "погашение, сожжены"}], "expected": 9875, "measured": 9875, "checks": [{"id": "C1", "label": "BH#1: coupon arrivals from the vault", "ok": true}, {"id": "C2", "label": "BH#1: bond movements", "ok": true}, {"id": "C3", "label": "BH#1: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated", "ok": true}, {"id": "C7", "label": "BH#1: cash from this bond and bonds held now = calculated", "ok": true}]}, "BH#2": {"events": [{"kind": "coupon", "k": 0, "pos": 5, "perBond": 25, "expected": 125, "measured": 125, "sig": "623T3tPos11a6rmMZZ55Zvn8Vp9jghcBdUbWum4JNw1qqyDTep5qScBdUeunZYbJNRP3HtfdoYA9rHXRoGT9XACS", "day": "26.06.26"}, {"kind": "coupon", "k": 1, "pos": 5, "perBond": 25, "expected": 125, "measured": 125, "sig": "4neEZEiDX5bppL3HxRGuH5Gycy7UP3itjc7frm8Na6uuwGGAfGMN1TXBYx4yEBddvHy2FwPjWxw9YBFSDCyFn1VC", "day": "16.03.27"}, {"kind": "coupon", "k": 2, "pos": 3, "perBond": 25, "expected": 75, "measured": 75, "sig": "xXwFiuK5QowHjagDrQYkVUy9kLoBY4rXWM7RpSMrmPDsbeiNrqBNip2RVE3VF94AyaTXXHEf396Nt5TzajRZCEF", "day": "21.03.27"}, {"kind": "coupon", "k": 3, "pos": 4, "perBond": 25, "expected": 100, "measured": 100, "sig": "3WnbAVBx8eWEBbitRoS9ViCq3F6gLaTTVLNgFNjwgKkgSfmyR3m5LECB6MNPbfMii4iHuKiUHHym4qV3hyyJR9cm", "day": "31.03.27"}, {"kind": "redemption", "pos": 4, "perBond": 1000, "expected": 4000, "measured": 4000, "sig": "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", "day": "13.04.27", "burned": 4}], "moves": [{"q": 5, "sig": "3dPUz3BZcpNWGZNYgDniJq6T5Tv4bcNTiJytNiAE4JFCMwrMHRL6QvNyvHpHBYVpNhfKwSfuSWjr39nQ5MqiJ52B", "day": "05.03.26", "kind": "размещение"}, {"q": -2, "sig": "4kyAzXJDrEcEAtQNUpqf1ctxGMcA3Pw2PVkNjRTh6Xi5x6a3nVdM1s8AkNcj1NHxHcrUfcigLLmUEPzERBCKBAWi", "day": "14.09.26", "kind": "в escrow DvP"}, {"q": 1, "sig": "D1u5yPSvuxUt5p9RUrM8pFhmCr8BYZp71fKupXa23nFmAdXoW59QQb4fiERxCjYMv5E9JRSQRVeTk8CNdXhAGN6", "day": "10.12.26", "kind": "перевод"}, {"q": -4, "sig": "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", "day": "13.04.27", "kind": "погашение, сожжены"}], "expected": 4425, "measured": 4425, "checks": [{"id": "C1", "label": "BH#2: coupon arrivals from the vault", "ok": true}, {"id": "C2", "label": "BH#2: bond movements", "ok": true}, {"id": "C3", "label": "BH#2: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated", "ok": true}, {"id": "C7", "label": "BH#2: cash from this bond and bonds held now = calculated", "ok": true}]}, "BH#3": {"events": [{"kind": "coupon", "k": 0, "pos": 0, "perBond": null, "expected": 0}, {"kind": "coupon", "k": 1, "pos": 3, "perBond": 25, "expected": 75, "measured": 75, "sig": "4neEZEiDX5bppL3HxRGuH5Gycy7UP3itjc7frm8Na6uuwGGAfGMN1TXBYx4yEBddvHy2FwPjWxw9YBFSDCyFn1VC", "day": "16.03.27"}, {"kind": "coupon", "k": 2, "pos": 3, "perBond": 25, "expected": 75, "measured": 75, "sig": "xXwFiuK5QowHjagDrQYkVUy9kLoBY4rXWM7RpSMrmPDsbeiNrqBNip2RVE3VF94AyaTXXHEf396Nt5TzajRZCEF", "day": "21.03.27"}, {"kind": "coupon", "k": 3, "pos": 2, "perBond": 25, "expected": 50, "measured": 50, "sig": "3WnbAVBx8eWEBbitRoS9ViCq3F6gLaTTVLNgFNjwgKkgSfmyR3m5LECB6MNPbfMii4iHuKiUHHym4qV3hyyJR9cm", "day": "31.03.27"}, {"kind": "redemption", "pos": 2, "perBond": 1000, "expected": 2000, "measured": 2000, "sig": "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", "day": "13.04.27", "burned": 2}], "moves": [{"q": 3, "sig": "2bE3cFkqZEvawGBvq1t7JEGhe4HJSX4a2pxbvDb18E7m7R7btHkipDAvH4BaTHq5Sb3gVY78fbpifGsQfoyPfw8E", "day": "16.06.26", "kind": "расчёт DvP"}, {"q": -1, "sig": "D1u5yPSvuxUt5p9RUrM8pFhmCr8BYZp71fKupXa23nFmAdXoW59QQb4fiERxCjYMv5E9JRSQRVeTk8CNdXhAGN6", "day": "10.12.26", "kind": "перевод"}, {"q": -2, "sig": "3AkTpXHootW47w3wffC1kuZBjo1MoQejssPSQ9C4oDQipFk8sWvLgtJx7Jh9j8bjrTk73rhmmMNSk8pscBck1LN9", "day": "13.04.27", "kind": "погашение, сожжены"}], "expected": 2200, "measured": 2200, "checks": [{"id": "C1", "label": "BH#3: coupon arrivals from the vault", "ok": true}, {"id": "C2", "label": "BH#3: bond movements", "ok": true}, {"id": "C3", "label": "BH#3: bonds retired against cash in one transaction (buyback, tender, redemption) = calculated", "ok": true}, {"id": "C7", "label": "BH#3: cash from this bond and bonds held now = calculated", "ok": true}]}}};
+// PAYSPEED: скорость выплат в тесте с 1 000 держателей (colosseum/slides/data/pay_speed.py, docs/demo/data/devnet-crowd-1000.json).
+const PAYSPEED = [{"coupon": 1, "holders": 1000, "txs": 167, "seconds": 252, "noDeals": 593, "maxPerTx": 6, "points": [[0, 0], [0, 6], [1, 12], [5, 18], [7, 24], [8, 30], [9, 36], [11, 42], [12, 48], [13, 54], [14, 60], [15, 66], [16, 72], [17, 78], [21, 84], [22, 90], [23, 96], [24, 102], [25, 108], [28, 114], [29, 120], [30, 126], [31, 132], [33, 138], [34, 144], [35, 150], [36, 156], [37, 162], [41, 168], [42, 174], [44, 180], [45, 186], [46, 192], [47, 198], [51, 204], [52, 210], [54, 216], [55, 222], [56, 228], [57, 234], [58, 240], [60, 246], [61, 252], [63, 258], [64, 264], [65, 270], [66, 276], [68, 282], [70, 288], [71, 294], [72, 300], [74, 306], [75, 312], [76, 318], [77, 324], [80, 330], [81, 336], [82, 342], [84, 348], [85, 354], [86, 360], [87, 366], [89, 372], [90, 378], [91, 384], [92, 390], [93, 396], [98, 402], [99, 408], [103, 414], [105, 420], [106, 426], [107, 432], [108, 438], [109, 444], [110, 450], [112, 456], [113, 462], [114, 468], [115, 474], [116, 480], [120, 486], [121, 492], [122, 498], [124, 504], [125, 510], [126, 516], [127, 522], [129, 528], [130, 534], [132, 540], [136, 546], [137, 552], [139, 558], [140, 564], [141, 570], [142, 576], [143, 582], [145, 588], [146, 594], [147, 600], [148, 606], [152, 612], [153, 618], [154, 624], [156, 630], [157, 636], [158, 642], [159, 648], [161, 654], [162, 660], [163, 666], [165, 672], [166, 678], [168, 684], [169, 690], [170, 696], [171, 702], [174, 708], [175, 714], [180, 720], [181, 726], [182, 732], [184, 738], [185, 744], [186, 750], [188, 756], [189, 762], [190, 768], [194, 774], [195, 780], [196, 786], [198, 792], [199, 798], [200, 804], [202, 810], [203, 816], [204, 822], [205, 828], [207, 834], [208, 840], [209, 846], [212, 852], [214, 858], [218, 864], [219, 870], [221, 876], [222, 882], [223, 888], [226, 894], [228, 900], [229, 906], [230, 912], [231, 918], [232, 924], [234, 930], [235, 936], [236, 942], [237, 948], [241, 954], [242, 960], [245, 966], [247, 972], [248, 978], [249, 984], [250, 990], [251, 996], [252, 1000]]}, {"coupon": 2, "holders": 963, "txs": 161, "seconds": 235, "noDeals": 387, "maxPerTx": 6, "points": [[0, 0], [0, 6], [1, 12], [2, 18], [5, 24], [6, 30], [8, 36], [9, 42], [10, 48], [11, 54], [13, 60], [14, 66], [15, 72], [17, 78], [18, 84], [19, 90], [21, 96], [22, 102], [25, 108], [26, 114], [27, 120], [29, 126], [30, 132], [31, 138], [32, 144], [33, 150], [34, 156], [36, 162], [37, 168], [38, 174], [39, 180], [41, 186], [42, 192], [46, 198], [47, 204], [48, 210], [49, 216], [51, 222], [52, 228], [53, 234], [54, 240], [56, 246], [57, 252], [58, 258], [60, 264], [61, 270], [62, 276], [63, 282], [65, 288], [66, 294], [71, 300], [73, 306], [74, 312], [75, 318], [76, 324], [77, 330], [78, 336], [80, 342], [81, 348], [84, 354], [85, 360], [87, 366], [88, 372], [89, 378], [92, 384], [93, 390], [94, 396], [96, 402], [97, 408], [98, 414], [101, 420], [102, 426], [103, 432], [104, 438], [106, 444], [107, 450], [108, 456], [109, 462], [110, 468], [114, 474], [115, 480], [116, 486], [118, 492], [119, 498], [120, 504], [121, 510], [125, 516], [126, 522], [127, 528], [128, 534], [129, 540], [130, 546], [133, 552], [134, 558], [136, 564], [137, 570], [138, 576], [140, 582], [141, 588], [144, 594], [145, 600], [147, 606], [148, 612], [149, 618], [150, 624], [152, 630], [153, 636], [155, 642], [156, 648], [157, 654], [158, 660], [159, 666], [161, 672], [162, 678], [163, 684], [164, 690], [166, 696], [167, 702], [168, 708], [169, 714], [171, 720], [174, 726], [177, 732], [178, 738], [179, 744], [180, 750], [181, 756], [183, 762], [184, 768], [185, 774], [186, 780], [188, 786], [189, 792], [190, 798], [191, 804], [193, 810], [197, 816], [198, 822], [199, 828], [200, 834], [202, 840], [203, 846], [205, 852], [207, 858], [208, 864], [209, 870], [210, 876], [211, 882], [212, 888], [213, 894], [215, 900], [216, 906], [217, 912], [218, 918], [219, 924], [223, 930], [227, 936], [228, 942], [229, 948], [233, 954], [234, 960], [235, 963]]}, {"coupon": 3, "holders": 944, "txs": 158, "seconds": 236, "noDeals": 255, "maxPerTx": 6, "points": [[0, 0], [0, 6], [1, 12], [3, 18], [5, 24], [11, 30], [13, 36], [14, 42], [15, 48], [16, 54], [17, 60], [19, 66], [20, 72], [23, 78], [24, 84], [26, 90], [27, 96], [28, 102], [29, 108], [30, 114], [31, 120], [33, 126], [34, 132], [35, 138], [37, 144], [38, 150], [39, 156], [42, 162], [43, 168], [44, 174], [45, 180], [47, 186], [48, 192], [49, 198], [50, 204], [54, 210], [55, 216], [56, 222], [57, 228], [61, 234], [62, 240], [63, 246], [65, 252], [66, 258], [67, 264], [69, 270], [70, 276], [71, 282], [75, 288], [76, 294], [77, 300], [78, 306], [80, 312], [81, 318], [82, 324], [83, 330], [84, 336], [85, 342], [87, 348], [89, 354], [90, 360], [94, 366], [95, 372], [96, 378], [97, 384], [98, 390], [99, 396], [100, 402], [101, 408], [103, 414], [104, 420], [105, 426], [108, 432], [109, 438], [110, 444], [112, 450], [113, 456], [114, 462], [116, 468], [117, 474], [118, 480], [121, 486], [122, 492], [123, 498], [125, 504], [126, 510], [127, 516], [129, 522], [130, 528], [133, 534], [134, 540], [136, 546], [137, 552], [138, 558], [139, 564], [140, 570], [142, 576], [143, 582], [144, 588], [145, 594], [146, 600], [151, 606], [152, 612], [153, 618], [154, 624], [156, 630], [157, 636], [158, 642], [161, 648], [162, 654], [163, 660], [164, 666], [165, 672], [167, 678], [170, 684], [172, 690], [173, 696], [174, 702], [175, 708], [176, 714], [177, 720], [182, 726], [183, 732], [186, 738], [187, 744], [189, 750], [190, 756], [191, 762], [192, 768], [194, 774], [195, 780], [196, 786], [197, 792], [198, 798], [202, 804], [203, 810], [204, 816], [205, 822], [206, 828], [208, 834], [211, 840], [212, 846], [213, 852], [215, 858], [217, 864], [218, 870], [219, 876], [220, 882], [221, 888], [222, 894], [226, 900], [227, 906], [228, 912], [230, 918], [231, 924], [232, 930], [233, 936], [234, 942], [236, 944]]}, {"coupon": 4, "holders": 918, "txs": 153, "seconds": 241, "noDeals": 219, "maxPerTx": 6, "points": [[0, 0], [0, 6], [3, 12], [4, 18], [6, 24], [6, 30], [8, 36], [9, 42], [10, 48], [12, 54], [13, 60], [14, 66], [16, 72], [17, 78], [18, 84], [20, 90], [22, 96], [23, 102], [24, 108], [26, 114], [27, 120], [28, 126], [29, 132], [34, 138], [35, 144], [36, 150], [37, 156], [39, 162], [40, 168], [41, 174], [42, 180], [43, 186], [44, 192], [45, 198], [47, 204], [48, 210], [49, 216], [53, 222], [56, 228], [59, 234], [60, 240], [61, 246], [63, 252], [64, 258], [65, 264], [66, 270], [70, 276], [71, 282], [72, 288], [74, 294], [75, 300], [76, 306], [80, 312], [81, 318], [82, 324], [83, 330], [84, 336], [85, 342], [87, 348], [88, 354], [89, 360], [93, 366], [94, 372], [95, 378], [96, 384], [98, 390], [99, 396], [100, 402], [102, 408], [103, 414], [104, 420], [105, 426], [106, 432], [110, 438], [111, 444], [112, 450], [113, 456], [115, 462], [118, 468], [122, 474], [123, 480], [127, 486], [128, 492], [129, 498], [131, 504], [132, 510], [133, 516], [134, 522], [136, 528], [137, 534], [139, 540], [140, 546], [144, 552], [146, 558], [147, 564], [148, 570], [150, 576], [151, 582], [152, 588], [155, 594], [156, 600], [160, 606], [162, 612], [163, 618], [164, 624], [165, 630], [166, 636], [167, 642], [170, 648], [171, 654], [172, 660], [173, 666], [177, 672], [178, 678], [179, 684], [181, 690], [182, 696], [183, 702], [184, 708], [185, 714], [187, 720], [188, 726], [189, 732], [193, 738], [194, 744], [195, 750], [196, 756], [198, 762], [199, 768], [203, 774], [206, 780], [210, 786], [211, 792], [212, 798], [214, 804], [215, 810], [216, 816], [218, 822], [219, 828], [220, 834], [221, 840], [223, 846], [226, 852], [228, 858], [229, 864], [230, 870], [231, 876], [232, 882], [235, 888], [236, 894], [237, 900], [239, 906], [240, 912], [241, 918]]}];
+// Оценка для 100 000 держателей. По очереди: время теста растёт линейно с числом держателей. Параллельно: каждая
+// выплата пишет в счёт купона; около 24 000 compute units на держателя (замер) и предел Solana 12 млн units на один
+// записываемый счёт за блок (docs/technical-overview.md, Throughput); блок 0,4 с.
+const EST = (() => {
+  const n = 100000, cuPerHolder = 24000, cuPerAccountPerBlock = 12e6, blockSec = 0.4, c1 = PAYSPEED[0];
+  const perBlock = cuPerAccountPerBlock / cuPerHolder, blocks = Math.ceil(n / perBlock);
+  return { n, hours: Math.round(c1.seconds * n / c1.holders / 3600), perBlock, blocks, seconds: Math.round(blocks * blockSec) };
+})();
+// График скорости выплат: сколько держателей получили купон за секунды с первой транзакции выплаты (Plotly).
+function drawPaySpeed(id) {
+  const el = document.getElementById(id);
+  if (typeof Plotly === 'undefined') { el.textContent = 'plotly.js не загрузился: нет связи с cdnjs.cloudflare.com'; return; }
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const line = (p, color, width) => ({ x: p.points.map(q => q[0]), y: p.points.map(q => q[1]), mode: 'lines', line: { color, width, shape: 'hv' }, hoverinfo: 'skip' });
+  const c1 = PAYSPEED[0], rest = PAYSPEED.slice(1);
+  const axis = title => ({ title: { text: title, font: { size: 20, color: css('--ink-2') } }, gridcolor: css('--grid'), linecolor: css('--border'), zeroline: false, tickfont: { size: 18, color: css('--muted') } });
+  Plotly.newPlot(el, [...rest.map(p => line(p, css('--muted'), 2)), line(c1, css('--ok'), 5)], {
+    paper_bgcolor: css('--surface'), plot_bgcolor: css('--surface'), font: { family: css('--font-mono') }, showlegend: false,
+    margin: { l: 96, r: 28, t: 24, b: 78 },
+    xaxis: Object.assign(axis('секунды с первой выплаты'), { range: [0, Math.max(...PAYSPEED.map(p => p.seconds)) + 10] }),
+    yaxis: Object.assign(axis('держателей получили купон'), { range: [0, c1.holders * 1.08] }),
+    annotations: [
+      { x: 6, y: c1.holders, xanchor: 'left', yanchor: 'top', text: `купон 1: ${c1.holders} держателей<br>за ${c1.seconds} с, ${c1.txs} транзакций`, showarrow: false, font: { size: 21, color: css('--ok') }, align: 'left' },
+      { x: Math.max(...PAYSPEED.map(p => p.seconds)), y: c1.holders * 0.12, xanchor: 'right', yanchor: 'bottom', text: `серые линии: купоны ${rest.map(p => p.coupon).join(', ')}`, showarrow: false, font: { size: 18, color: css('--muted') } }],
+  }, { staticPlot: true, displayModeBar: false });
+}
+// TENDER: tender на тесте с 1 000 держателей (colosseum/slides/data/tender.py: сценарий и сожжённые облигации).
+const TENDER = {"tenders": 132, "holders": 132, "tendered": 441, "max": 410, "bought": 410, "price": 1000};
+const ru = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+// График tender: заявлено держателями и выкуплено, линия максимума предложения (Plotly).
+function drawTender(id) {
+  const el = document.getElementById(id);
+  if (typeof Plotly === 'undefined') { el.textContent = 'plotly.js не загрузился: нет связи с cdnjs.cloudflare.com'; return; }
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  Plotly.newPlot(el, [{ type: 'bar', orientation: 'h', y: ['выкуплено', 'заявлено'], x: [TENDER.bought, TENDER.tendered],
+    marker: { color: [css('--ok'), css('--muted')] }, text: [`${TENDER.bought}`, `${TENDER.tendered}`], textposition: 'outside', cliponaxis: false,
+    textfont: { size: 26, color: css('--ink'), family: css('--font-mono') }, hoverinfo: 'skip', width: 0.62 }], {
+    paper_bgcolor: css('--surface'), plot_bgcolor: css('--surface'), font: { family: css('--font-mono') }, showlegend: false,
+    margin: { l: 150, r: 80, t: 40, b: 14 }, bargap: 0.25,
+    xaxis: { range: [0, TENDER.tendered * 1.08], showgrid: false, zeroline: false, showticklabels: false },
+    yaxis: { tickfont: { size: 22, color: css('--ink-2') } },
+    shapes: [{ type: 'line', x0: TENDER.max, x1: TENDER.max, y0: -0.5, y1: 1.5, line: { color: css('--blum'), width: 3, dash: 'dash' } }],
+    annotations: [{ x: TENDER.max, y: 1.5, yanchor: 'bottom', xanchor: 'right', text: `максимум предложения ${TENDER.max}`, showarrow: false, font: { size: 20, color: css('--blum') } }],
+  }, { staticPlot: true, displayModeBar: false });
+}
+// [роль, код, кому (дательный), кто получил]
+// Главы бизнесового питча 31.10: проблема, ценность, монетизация, рынок.
+// Организаторы оценили технику заранее; на сцене оценивают бизнесовую историю.
+const CHAPTERS = [
+  // Проблемы подтверждены источниками: Elliptic, Allium; Broadridge; Allium, Unlock BC, ASX TIWG, АРРФР №78;
+  // UK Finance и Oliver Wyman, Celent (ссылки в pitch-slides-explained.md, раздел разделителей глав).
+  { n: 1, name: 'Проблема и актуальность', theses: [
+    'Кто держатель на момент отсечки, если переводы идут 24/7',
+    'Ошибки в корпоративных действиях обходятся участникам рынка дорого',
+    'Выплаты на блокчейне сверяют с учётом, инструменты только появляются',
+    'Обслуживание токенизированных активов'] },
+  { n: 2, name: 'Ценность решения', points: [['0', 'остановок торгов на отсечку'], ['23/23', 'проверок ончейн аудита', 'ok'], [`1${NB}000`, 'держателей получили купоны точно по позициям на отсечку']] },
+  { n: 3, name: 'Монетизация и устойчивость', theses: [
+    'Оператор ЦФА платит за обслуживание выпусков своей площадки',
+    'Эмитент платит за обслуживание своего долга',
+    'DeFi-протокол платит за подключение выпусков к vault',
+    'Продажа токена Blum финансирует развитие'] },
+  { n: 4, name: 'Рынок и привлечение', theses: [
+    'На Solana уже $3,7 млрд токенизированных реальных активов у 313 тыс. держателей',
+    'Владелец стейблкоинов получает доступ к доходу эмитента',
+    'Blum начинает с регулярных выпусков с фиксированным купоном'] }];
+const chRange = n => { const ix = S.map((s, j) => s.ch === n ? j + 1 : 0).filter(Boolean); if (!ix.length) throw new Error('глава ' + n + ' пуста'); return [ix[0], ix[ix.length - 1]]; };
+const RUNH = [['Продавец', 'BH#1', 'продавцу', 'продавец'], ['Держатель', 'BH#2', 'держателю', 'держатель'], ['Покупатель', 'BH#3', 'покупателю', 'покупатель']];
+const NBONDS = 15, CPN = 25, FACE = 1000, LASTDAY = LEDGER[LEDGER.length - 1][4];
+// Разряды в моноширинном шрифте: узкий отступ вместо пробела шириной в целую цифру.
+const fmt = v => String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '<i class="th"></i>');
+const sameList = (a, b) => a.length === b.length && a.every((x, j) => x === b[j]);
+
+// Состояние экрана после каждой строки ledger. Позиции считаются как в программе (PositionHistory): позиция на
+// отсечку e записана, если e < live_from, иначе равна текущему количеству (остаток плюс облигации в escrow).
+const RUNST = (() => {
+  const own = Array(NBONDS).fill(-2), esc = Array(NBONDS).fill(false), burn = Array(NBONDS).fill(false);
+  const live = [0, 0, 0], at = [[], [], []], stored = [];
+  let cuts = 0, focus = -1, kind = '', ev = -1, owed = null, paidEv = false, budget = 0, vault = 0, paid = 0, got = [0, 0, 0];
+  const pos = h => own.reduce((n, o, b) => n + (o === h && !burn[b] ? 1 : 0), 0);
+  const save = h => { let fresh = false; for (let e = live[h]; e < cuts; e++) { at[h][e] = pos(h); (stored[e] = stored[e] || new Set()).add(h); fresh = true; } live[h] = cuts; return fresh; };
+  const atCut = (h, e) => e < live[h] ? at[h][e] : pos(h);
+  const ids = (h, pred) => own.map((o, b) => b).filter(b => own[b] === h && !burn[b] && pred(b));
+  return LEDGER.map(([d, x, sig, op], r) => {
+    const fx = { saved: [], cut: false, open: false, fund: false, pay: null, out: 0, keep: false };
+    if (op.audit) { const last = LEDGER.slice(0, r).map((l, j) => j).reverse().find(j => LEDGER[j][3].pay !== undefined || LEDGER[j][3].redeem !== undefined);
+      if (last !== r - 1) throw new Error('строка аудита должна идти сразу за последней выплатой'); }
+    if (op.place) { let b = 0; op.place.forEach((q, h) => { for (let k = 0; k < q; k++) own[b++] = h; }); }
+    if (op.cut !== undefined) { cuts = op.cut + 1; focus = op.cut; owed = null; paidEv = false; fx.cut = true; }
+    if (op.esc) { const [h, n] = op.esc; if (save(h)) fx.saved.push(h); ids(h, b => !esc[b]).slice(-n).forEach(b => { esc[b] = true; }); }
+    if (op.settle) {
+      const [f, t, n] = op.settle; [f, t].forEach(h => { if (save(h)) fx.saved.push(h); });
+      const m = ids(f, b => esc[b]); if (m.length !== n) throw new Error(`строка ${r}: в escrow ${m.length}, по сделке ${n}`);
+      m.forEach(b => { own[b] = t; esc[b] = false; });
+    }
+    if (op.xfer) { const [f, t, n] = op.xfer; [f, t].forEach(h => { if (save(h)) fx.saved.push(h); }); ids(f, b => !esc[b]).slice(-n).forEach(b => { own[b] = t; }); }
+    if (op.open !== undefined) {
+      ev = op.open; kind = ev < 4 ? 'c' : 'r'; focus = kind === 'c' ? ev : 3;
+      owed = [0, 1, 2].map(h => atCut(h, focus) * (kind === 'c' ? CPN : FACE)); budget = owed.reduce((s, v) => s + v, 0);
+      paidEv = false; vault = 0; fx.open = true;
+    }
+    if (op.fund !== undefined) { vault = budget; fx.fund = true; }
+    if (op.pay !== undefined || op.redeem !== undefined) {
+      if (op.redeem !== undefined) [0, 1, 2].forEach(h => { if (save(h)) fx.saved.push(h); });
+      const want = op.redeem !== undefined ? MEASURED.redeem : MEASURED.pay[op.pay];
+      if (!sameList(owed, want)) throw new Error(`строка ${r}: экран ${owed}, тест ${want}`);
+      got = got.map((g, h) => g + owed[h]); paid += budget; vault = 0; paidEv = true; fx.pay = owed.slice(); fx.out = budget;
+      if (op.redeem !== undefined) own.forEach((o, b) => { if (o >= 0) burn[b] = true; });
+    }
+    return { own: own.slice(), esc: esc.slice(), burn: burn.slice(), pos: [0, 1, 2].map(pos), focus, kind, ev, budget, vault, paid, paidEv,
+      cutv: focus < 0 ? null : [0, 1, 2].map(h => atCut(h, focus)), tags: [0, 1, 2].map(h => focus >= 0 && !!stored[focus] && stored[focus].has(h)),
+      owed: owed && owed.slice(), got: got.slice(), supply: own.filter((o, b) => o >= 0 && !burn[b]).length, fx };
+  }).map((st, r, all) => LEDGER[r][3].audit ? { ...st, fx: { ...all[r - 1].fx, saved: [], keep: true } } : st);
+})();
+
+// Панель ончейн аудита для держателя: сколько ему причитается по условиям выпуска и сделкам и сколько он получил в
+// транзакциях Solana. Облигаций на отсечку: расчёт аудита по сделкам, у каждого изменения ссылка на транзакцию с облигациями.
+function auditPanel(hi) {
+  const h = RUNH[hi][1], who = RUNH[hi][2], A = AUDIT.holders[h], cpn = AUDIT.face * AUDIT.rateBps / 10000 / AUDIT.perYear;
+  const tx = sig => `<a class="c" href="https://explorer.solana.com/tx/${sig}?cluster=devnet" target="_blank" rel="noopener" onclick="event.stopPropagation()">${sig.slice(0, 4)}…</a>`;
+  const day = d => { const [dd, mm, yy] = d.split('.'); return +(yy + mm + dd); };
+  const cuts = AUDIT.recordDates.map(day);
+  A.moves.forEach(m => { if (cuts.includes(day(m.day))) throw new Error(`${h}: облигации двигались в день отсечки ${m.day}`); });
+  let prev = 0;
+  const rows = A.events.map(e => {
+    if (e.kind === 'coupon' && e.perBond !== null && e.perBond !== cpn) throw new Error(`${h}: купон на облигацию ${e.perBond}, по условиям ${cpn}`);
+    let at = `${e.pos}`, chips = '';
+    if (e.kind === 'coupon') {
+      const from = e.k ? cuts[e.k - 1] : 0, to = cuts[e.k];
+      const ms = A.moves.filter(m => day(m.day) > from && day(m.day) < to);
+      const sum = ms.reduce((t, m) => t + m.q, 0);
+      if (prev + sum !== e.pos) throw new Error(`${h}: на отсечку ${e.k + 1} по сделкам ${e.pos}, по Solana ${prev + sum}`);
+      if (e.k && sum) at = `${prev} ${sum > 0 ? '+' : '−'} ${Math.abs(sum)} = ${e.pos}`;
+      chips = ms.map(m => tx(m.sig)).join(' ');
+      prev = e.pos;
+    }
+    const name = e.kind === 'coupon' ? `Купон ${e.k + 1} · ${AUDIT.recordDates[e.k]}` : `Погашение${e.burned ? `, сожжены ${e.burned}` : ''}`;
+    const per = e.kind === 'coupon' ? cpn : AUDIT.face;
+    return `<tr><td>${name}</td><td>${at}</td><td class="mvs">${chips}</td><td class="f">${e.pos} × ${fmt(per)} = ${fmt(e.expected)}</td><td class="m">${fmt(e.measured || 0)}</td><td>${e.sig ? tx(e.sig) : '·'}</td></tr>`;
+  }).join('');
+  const same = A.expected === A.measured, passed = A.checks.filter(c => c.ok).length;
+  return `<div class="ap">
+    <table><tr><th>Событие</th><th>Облигаций<br>на отсечку</th><th>Транзакции<br>с облигациями</th><th>Причитается ${who}<br>по условиям</th><th>Получил ${RUNH[hi][3]}<br>в Solana</th><th>Транзакция<br>выплаты</th></tr>${rows}
+      <tr class="tot"><td>Итого</td><td></td><td></td><td>${fmt(A.expected)}</td><td class="m">${fmt(A.measured)}</td><td class="${same ? 'ok' : 'bad'}">${same ? 'совпало' : 'расхождение'}</td></tr></table>
+    <p class="fx">Купон на облигацию: ${fmt(AUDIT.face)} × ${AUDIT.rateBps / 100}${NB}% / ${AUDIT.perYear} = ${cpn} · <b class="${passed === A.checks.length ? 'ok' : 'bad'}">${passed} из ${A.checks.length}</b> проверок аудита по ${who} ${h} пройдены</p>
+  </div>`;
+}
+// Остановка на строке аудита: у строк реестра кнопка «развернуть». Раскрытая строка стоит на своём месте и выглядит
+// как на прошлом слайде, остальные строки убраны, вместо них расчёт аудита. open = раскрытая строка (-1: ни одной).
+function rvAudit(on, open) {
+  const rv = document.getElementById('rv'), reg = sc.querySelector('.rv-reg'), box = reg.querySelector('.apw');
+  rv.classList.toggle('aud', !!on);
+  RV.open = on ? open : -1;
+  reg.classList.toggle('open', RV.open >= 0);
+  RV.rows.forEach((r, h) => { r.classList.toggle('open', h === RV.open); r.hidden = RV.open >= 0 && h !== RV.open; });
+  box.innerHTML = RV.open >= 0 ? auditPanel(RV.open) : '';
+}
+
+function runScreen() {
+  const cuts = LEDGER.filter(l => l[3].cut !== undefined);
+  return `<div class="rv" id="rv">
+    <div class="rv-clock">
+      <div><span class="k">Время облигации</span><span class="t" id="rv-t"></span><span class="s">день облигации = 1 секунда devnet</span></div>
+      <div><span class="k">В обращении</span><span class="t" id="rv-sup"></span><span class="s">облигаций</span></div>
+      <div class="vault"><span class="k" id="rv-vk"></span><span class="t" id="rv-v"></span><span class="s" id="rv-vs"></span></div>
+      <div><span class="k">Выплачено держателям</span><span class="t" id="rv-pd"></span><span class="s">купоны и номинал</span></div>
+    </div>
+    <div class="rv-track"><div class="bar"></div><div class="fill" id="rv-fill"></div><div class="knob" id="rv-knob"></div>
+      ${cuts.map(l => `<span class="tk" data-d="${l[4]}" style="left:${l[4] / LASTDAY * 100}%"><i></i>отсечка ${l[3].cut + 1}</span>`).join('')}</div>
+    <div class="rv-main">
+      <div class="rv-reg win"><div class="bar"><i></i><i></i><i></i><span>Реестр держателей · записи программы Blum</span></div>
+        <div class="hd"><span>Держатель</span><span>Облигаций сейчас</span><span class="r c" id="rv-hc"></span><span class="r" id="rv-ho"></span><span class="r">Получено</span></div>
+        ${RUNH.map(([role, bh], h) => `<div class="rr" data-h="${h}"><span class="who"><b>${role}</b><small>${bh}<i class="xp" title="развернуть"></i></small></span><span class="bonds"><span class="n"></span><span class="pips"></span></span><span class="cell cut"></span><span class="cell owe"></span><span class="cell got"></span></div>`).join('')}
+        <div class="apw"></div>
+      </div>
+      <div class="rv-log win"><div class="bar"><i></i><i></i><i></i><span>Ledger · Solana devnet</span><em>32 транзакции</em></div>
+        <div class="lw"><ol id="rv-log">${LEDGER.map(([d, x, sig, op]) => `<li class="${op.cut !== undefined ? 'cut' : op.audit ? 'aud' : ''}"><span class="d">${d}</span><span class="x">${x}</span>${sig ? `<a class="c" href="https://explorer.solana.com/tx/${sig}?cluster=devnet" target="_blank" rel="noopener" onclick="event.stopPropagation()">${sig.slice(0, 4)}…</a>` : '<span></span>'}</li>`).join('')}</ol></div></div>
+    </div></div>`;
+}
+
+let RV = null, rvGen = 0;
+function rvInit() {
+  RV = { rows: [...sc.querySelectorAll('.rv-reg .rr')], log: [...sc.querySelectorAll('#rv-log li')], pips: {}, at: -1, open: -1 };
+  // На остановке аудита клик по строке реестра раскрывает или сворачивает её расчёт и не листает слайд.
+  RV.rows.forEach((r, h) => r.addEventListener('click', e => {
+    if (!document.getElementById('rv').classList.contains('aud')) return;
+    e.stopPropagation(); rvAudit(true, RV.open === h ? -1 : h);
+  }));
+}
+function flash(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+function clockText(r) {
+  let j = r; while (LEDGER[j][0] === 'после') j--;
+  const [dd, mm, yy] = LEDGER[j][0].split('.');
+  return `${dd}.${mm}.20${yy}${LEDGER[j][3].cut !== undefined ? ' 09:00' : ''}`;
+}
+// mode: 'set' сразу, 'step' быстрый проход по строке, 'stop' строка, на которой стоит слайд
+function rvSet(r, mode) {
+  const st = RUNST[r], g = rvGen, anim = mode !== 'set', k = scale(), q = id => document.getElementById(id);
+  // облигации: квадраты переходят между строками реестра (FLIP)
+  const before = {};
+  if (anim) for (const b in RV.pips) before[b] = RV.pips[b].getBoundingClientRect();
+  st.own.forEach((o, b) => {
+    let el = RV.pips[b];
+    if (o < 0) { if (el) { el.remove(); delete RV.pips[b]; } return; }
+    if (!el) { el = RV.pips[b] = document.createElement('i'); el.className = 'pip' + (anim ? ' new' : ''); el.dataset.b = b; el.addEventListener('animationend', () => el.classList.remove('new'), { once: true }); }
+    const box = RV.rows[o].querySelector('.pips');
+    if (el.parentNode !== box) box.insertBefore(el, [...box.children].find(c => +c.dataset.b > b) || null);
+    el.classList.toggle('esc', st.esc[b]); el.classList.toggle('burn', st.burn[b]);
+  });
+  if (anim) for (const b in RV.pips) {
+    const p = before[b]; if (!p) continue;
+    const a = RV.pips[b].getBoundingClientRect(), dx = (p.left - a.left) / k, dy = (p.top - a.top) / k;
+    if (Math.abs(dx) + Math.abs(dy) > 1) RV.pips[b].animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: mode === 'stop' ? 1100 : 380, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  }
+  // заголовки столбцов и счёт выплаты
+  q('rv-hc').innerHTML = st.focus < 0 ? 'Облигаций<br>на отсечку' : `Облигаций<br>на отсечку ${st.focus + 1}`;
+  q('rv-ho').textContent = st.kind === 'r' ? 'Номинал' : st.owed ? `Купон ${st.ev + 1}` : 'Купон';
+  q('rv-vk').textContent = st.kind === 'r' ? 'Счёт погашения' : st.ev >= 0 ? `Счёт купона ${st.ev + 1}` : 'Счёт купона';
+  q('rv-vs').innerHTML = !st.owed ? 'бюджет: облигаций на отсечку × 25'
+    : `бюджет: <b>${st.budget / (st.kind === 'r' ? FACE : CPN)} на отсечку</b> × ${st.kind === 'r' ? fmt(FACE) : CPN}`;
+  q('rv-t').textContent = clockText(r); q('rv-sup').textContent = st.supply;
+  const money = () => {
+    q('rv-v').innerHTML = `<span>${fmt(st.vault)}</span>${st.fx.out ? `<span class="badge out">−${fmt(st.fx.out)}</span>` : ''}`;
+    q('rv-pd').innerHTML = `<span>${fmt(st.paid)}</span>`;
+    RV.rows.forEach((row, h) => { row.querySelector('.cell.got').innerHTML = `<b>${fmt(st.got[h])}</b>${st.fx.pay && st.fx.pay[h] ? `<small class="in">+${fmt(st.fx.pay[h])}</small>` : ''}`; });
+  };
+  RV.rows.forEach((row, h) => {
+    row.querySelector('.n').textContent = st.pos[h];
+    const cut = row.querySelector('.cell.cut'), owe = row.querySelector('.cell.owe');
+    cut.innerHTML = st.cutv ? `<b>${st.cutv[h]}</b>${st.tags[h] ? '<small class="sv">записано</small>' : ''}` : '<b class="nil">·</b>';
+    owe.innerHTML = st.owed ? `<b>${fmt(st.owed[h])}</b>` : '<b class="nil">·</b>';
+    owe.classList.toggle('paid', st.paidEv);
+    if (!anim) return;
+    if (st.fx.saved.includes(h)) flash(cut, 'fl-blum');
+    if (st.fx.open) flash(owe, 'fl-blum');
+    if (st.fx.pay && !st.fx.keep) flash(owe, 'fl-ok');
+  });
+  if (anim && st.fx.fund) flash(q('rv-v').parentNode, 'fl-blum');
+  // выплата на остановке: суммы летят со счёта к держателям, потом меняются значения
+  if (mode === 'stop' && st.fx.pay && !st.fx.keep) {
+    q('rv-v').innerHTML = `<span>${fmt(st.vault)}</span><span class="badge out">−${fmt(st.fx.out)}</span>`; flash(q('rv-v').parentNode, 'fl-out');
+    const scr = sc.getBoundingClientRect(), from = q('rv-v').getBoundingClientRect();
+    st.fx.pay.forEach((v, h) => {
+      if (!v) return;
+      const to = RV.rows[h].querySelector('.cell.got').getBoundingClientRect(), chip = document.createElement('span');
+      chip.className = 'fly'; chip.innerHTML = '+' + fmt(v);
+      chip.style.left = (from.left - scr.left) / k + 'px'; chip.style.top = (from.top - scr.top) / k + 'px'; sc.appendChild(chip);
+      const dx = (to.right - from.left) / k - chip.offsetWidth - 10, dy = (to.top - from.top) / k + 10;
+      chip.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${dx}px, ${dy}px)`, opacity: 1 }], { duration: 950, delay: 200 + h * 120, easing: 'cubic-bezier(.4,.1,.2,1)', fill: 'forwards' }).onfinish = () => chip.remove();
+    });
+    setTimeout(() => { if (g !== rvGen) return; money(); RV.rows.forEach((row, h) => { if (st.fx.pay[h]) flash(row.querySelector('.cell.got'), 'fl-ok'); }); }, 1300);
+  } else {
+    money();
+    if (anim && st.fx.pay && !st.fx.keep) RV.rows.forEach((row, h) => { if (st.fx.pay[h]) flash(row.querySelector('.cell.got'), 'fl-ok'); });
+  }
+  // ledger: все строки, текущая по центру окна, остальные затемнены
+  RV.log.forEach((li, j) => { li.classList.toggle('cur', j === r); li.classList.toggle('past', j < r); });
+  const lw = sc.querySelector('.rv-log .lw'), ol = q('rv-log'), H = RV.log[0].offsetHeight;
+  const y = Math.max(0, Math.min(LEDGER.length * H - lw.clientHeight, r * H - (lw.clientHeight - H) / 2));
+  ol.style.transition = anim ? '' : 'none'; ol.style.transform = `translateY(${-y}px)`;
+  // обводка ячеек, о которых говорит подпись слайда (на остановке)
+  sc.querySelectorAll('.rv-reg .mk').forEach(e => e.classList.remove('mk'));
+  const marked = mode === 'step' ? [] : (RV.marks || []).map(m => +m.split('.')[0]);
+  RV.rows.forEach((row, h) => row.classList.toggle('dim', marked.length > 0 && !marked.includes(h)));
+  if (mode !== 'step') (RV.marks || []).forEach(m => {
+    const [h, c] = m.split('.'), el = RV.rows[+h].querySelector(c === 'bonds' ? '.bonds' : '.cell.' + c);
+    if (!el) throw new Error('mark ' + m); el.classList.add('mk');
+  });
+  // ползунок времени
+  const pct = LEDGER[r][4] / LASTDAY * 100;
+  q('rv-fill').style.width = pct + '%'; q('rv-knob').style.left = pct + '%';
+  sc.querySelectorAll('.rv-track .tk').forEach(t => t.classList.toggle('past', +t.dataset.d <= LEDGER[r][4]));
+}
+// Переход к строке: вперёд по одной строке (менее важные проходят быстро), назад сразу.
+function rvGo(target, forward, delay) {
+  const g = ++rvGen, from = RV.at;
+  if (!forward || from < 0 || from >= target) { rvSet(target, 'set'); RV.at = target; return; }
+  const n = target - from, dt = Math.max(110, Math.min(480, 1700 / n));
+  for (let j = 1; j <= n; j++) setTimeout(() => {
+    if (g !== rvGen) return;
+    rvSet(from + j, from + j === target ? 'stop' : 'step'); RV.at = from + j;
+  }, (delay || 0) + (j - 1) * dt + (j === n && n > 1 ? 200 : 0));
+}
+
+const S = [
+  { cover: true },
+
+  // Содержание в стиле обложки; клик по главе открывает её разделитель.
+  { toc: true },
+
+  { ch: 1, div: 1 },
+
+  { ch: 2, div: 2 },
+
+  { ch: 2, run: 2, ey: 'Corporate action: купон', h: 'Идентификация холдеров <span class="c-cut">в момент отсечки</span> независимо от торгов',
+    p: `Номинал 1${NB}000, 10${NB}% годовых, купон раз в квартал. В 09:00 отсечка, торги продолжаются.` },
+
+  { ch: 2, run: 3, ey: 'Corporate action: купон', h: 'Сделка через Solana DvP <span class="c-cut">сразу после отсечки</span>',
+    p: 'Сделка создана в Solana DvP: продавец продаёт покупателю 3 облигации. Облигации пока у продавца, программе нечего записывать.',
+    mark: ['0.bonds', '2.bonds'] },
+
+  // Верх прежнего слайда «Как работает программа», внизу тот же экран теста.
+  { ch: 2, run: 4, ey: 'Corporate action: купон · как работает программа', h: 'Позицию <span class="c-cut">на момент отсечки</span> сохраняет первая транзакция после неё',
+    p: 'Позиция: сколько облигаций у держателя в момент отсечки. Транзакция продавца сначала записала её в реестр Blum: 10. Программа пропускает транзакцию только после этой записи.',
+    mark: ['0.cut'] },
+
+  { ch: 2, run: 7, ey: 'Corporate action: купон', h: 'Облигации у покупателя, <span class="c-cut">право на купон у продавца</span>',
+    p: 'Расчёт DvP: у продавца 7, у покупателя 3. В строку покупателя программа тоже записала на отсечку 0: облигации пришли к нему после отсечки. Позиция второго держателя остаётся прежней.',
+    mark: ['0.cut', '2.cut'] },
+
+  { ch: 2, run: 10, ey: 'Corporate action: купон', h: 'Бюджет купона: <span class="c-cut">15 облигаций на отсечку</span> × 25 = 375',
+    p: `25 = 1${NB}000 × 10${NB}% / 4 квартала. Эмитент вносит 375 на счёт купона. Выплаты начинаются только после полного фондирования.` },
+
+  { ch: 2, run: 11, popup: true, ey: 'Corporate action: купон', h: 'Облигации проданы. <span class="c-ok">Купон получил продавец</span>',
+    p: 'Счёт купона: −375. Продавец получил 250 за 10 облигаций на отсечку, второй держатель 125. Покупатель получит купон со следующей отсечки.' },
+
+  { ch: 2, run: 35, ey: 'Corporate action: погашение', h: 'Погашение: облигации <span class="c-ok">сжигаются в той же транзакции</span>, что и выплата номинала',
+    p: 'Купоны 2, 3 и 4 выплачены по позициям на свои отсечки. Номинал получили держатели на момент последней отсечки.' },
+
+  { ch: 2, run: 36, audit: true, open: 0, ey: 'Ончейн аудит', h: 'Ончейн аудит проверил каждую выплату: <span class="c-ok">23 из 23 проверок</span>',
+    p: 'Аудит сам считает, сколько держателю причитается по условиям выпуска и сделкам. Затем сравнивает с суммами, которые держатель получил в транзакциях Solana. Ниже расчёт для продавца.' },
+
+  { ch: 2, ey: 'Corporate actions: погашение, выкуп, tender', tone: 'blum', h: 'Погашение, выкуп и tender проходят по той же схеме',
+    p: 'Каждое корпоративное действие проходит четыре шага.',
+    vis: () => `<div class="steps"><div>Кто имеет право</div><div>Сколько причитается</div><div>Исполнение</div><div>Запись в блокчейне</div></div>
+      <div class="acts">
+        <div class="act"><b>Купон</b><span>Право по позиции на момент отсечки. Выплаты начинаются только после полного фондирования, повторную выплату программа отклоняет.</span></div>
+        <div class="act"><b>Погашение</b><span>Облигации сжигаются в той же транзакции, что и выплата номинала.</span></div>
+        <div class="act"><b>Выкуп и tender</b><span>Программа блокирует заявленные облигации у держателя, купон по ним держатель получает.</span></div>
+      </div>
+      <div class="tnd"><div><b>Tender в тесте с 1${NB}000 держателей</b><span>${TENDER.tenders} ${ru(TENDER.tenders, 'заявка', 'заявки', 'заявок')}: заявлено ${TENDER.tendered} ${ru(TENDER.tendered, 'облигация', 'облигации', 'облигаций')} при максимуме ${TENDER.max}. Программа выкупила и сожгла ровно ${TENDER.bought}. Купон по заявленным облигациям получили все ${TENDER.holders} ${ru(TENDER.holders, 'держатель', 'держателя', 'держателей')}.</span></div><div class="chart sm" id="tender"></div></div>`,
+    chart: () => drawTender('tender') },
+
+  { ch: 2, ey: 'Ончейн аудит', tone: 'ok', h: 'У <span class="c-blum">Blum</span> есть <span class="c-ok">ончейн аудит</span> всех корпоративных действий, независимый от программы',
+    p: 'Аудит читает только открытые данные, и любой может его повторить. Эмитент или площадка может опубликовать результат как раскрытие информации.',
+    vis: () => `<div class="flow">
+      <div class="stack"><div class="bx"><b>Условия выпуска и сделки</b><span>сколько причитается каждому держателю</span></div><div class="bx sol"><b>Транзакции в Solana</b><span>сколько получил каждый держатель</span></div></div>
+      <i class="ar"></i>
+      <div class="bx aud"><b>Ончейн аудит</b><span>сравнивает каждую выплату до последней единицы</span></div>
+      <i class="ar"></i>
+      <div class="bx ok"><b>Раскрытие информации</b><span>результат для инвесторов и регулятора</span></div>
+    </div><p class="note">Аудит читает только транзакции Solana и условия выпуска.</p>` },
+
+  { ch: 2, glow: true, ey: 'Ценность для рынка', tone: 'blum', h: '<span class="c-blum">Blum</span> - устойчивая инфраструктура',
+    p: '',
+    vis: () => `<div class="big3">
+      <div><b>01</b><span>Программа контролирует выплаты независимо от оператора</span></div>
+      <div><b>02</b><span>Инвестор видит все планируемые выплаты по инструменту</span></div>
+      <div><b>03</b><span>Эмитент может регулярно привлекать финансирование в любом размере</span></div>
+    </div>` },
+
+  { ch: 3, div: 3 },
+
+  // Бизнесовая история: stakeholders-values-ledger.md, blum-token.md,
+  // pitch-slides-explained.md. Коммерческая модель и интеграции описывают целевой путь.
+  { ch: 3, ey: 'Монетизация · модель', tone: 'blum', h: 'Каждый выпуск приносит Blum<br><span class="c-blum">ежегодную оплату за обслуживание</span>',
+    p: 'Заказчик отдельно оплачивает подключение.',
+    vis: () => `<div class="money business">
+      <div class="bx r1 c1"><b>Оператор ЦФА</b><span>заказывает сервис для площадки</span></div>
+      <div class="ah r1 c2"><span>платит</span></div>
+      <div class="bx r2 c1"><b>Эмитент</b><span>заказывает обслуживание долга</span></div>
+      <div class="ah r2 c2"><span>платит</span></div>
+      <div class="bx r3 c1"><b>DeFi-протокол</b><span>подключает выпуски для vault</span><em class="pl">planned</em></div>
+      <div class="ah r3 c2"><span>платит</span></div>
+      <div class="core"><b>Blum</b><span>обслуживает долг весь срок выпуска</span></div>
+      <div class="ah l r1 c4"><span>привлекают</span></div>
+      <div class="bx r1 c5"><b>Брокеры и кошельки</b><span>предлагают облигации клиентам</span><em class="pl">API planned</em></div>
+      <div class="ah l r3 c4"><span>финансируют</span></div>
+      <div class="bx r3 c5"><b>Покупатели токена</b><span>финансируют развитие Blum</span><em class="pl">токен planned</em></div>
+    </div>` },
+
+  { ch: 3, ey: 'Устойчивость · план развития', tone: 'blum', h: 'Заказчика подключает Blum.<br><span class="c-blum">Заказчик добавляет следующие выпуски</span>',
+    p: 'Готовая интеграция обслуживает новые выпуски с поддерживаемыми условиями.',
+    vis: () => `<div class="rm four probe">
+      <div><small>01</small><b>Заказчик</b><span>согласует первый выпуск и оплачивает подключение</span></div>
+      <div><small>02</small><b>Blum</b><span>подключает учёт, выплаты и канал инвесторов</span></div>
+      <div><small>03</small><b>Заказчик</b><span>запускает следующие выпуски через готовое подключение</span></div>
+      <div><small>04</small><b>Blum</b><span>получает оплату за каждый обслуживаемый выпуск</span></div>
+    </div>
+    <div class="fx3 business-funding">
+      <div class="ask"><b>Токен Blum финансирует запуск</b><span>Продажа токена оплачивает аудит безопасности и интеграции: planned.</span></div>
+      <div><b>Заказчики оплачивают сопровождение</b><span>Сервисные платежи поддерживают обслуживание выпусков весь срок долга.</span></div>
+    </div>` },
+
+  { ch: 4, div: 4 },
+
+  { ch: 4, glow: true, ey: 'Рынок · спрос и размещения', tone: 'blum', h: 'Инвесторы финансируют эмитентов<br><span class="c-blum">через долговые токены</span>',
+    p: 'Blum выбирает небольшие выпуски, которым нужны обслуживание и выход к инвесторам.',
+    vis: () => `<div class="qa mk">
+      <div><b>Держатели получают доход</b><span>Ondo, Centrifuge и Maple предлагают владельцам стейблкоинов доходность долговых инструментов.</span></div>
+      <div><b>Эмитент привлёк $5,2 млн</b><span>Mikro Kapital разместил токенизированные облигации ALT2611 с купонами в USDt.</span></div>
+      <div><b>Компания разместила долг на Solana</b><span>Galaxy выпустила commercial paper при участии J.P. Morgan. Coinbase и Franklin Templeton купили выпуск.</span></div>
+    </div>
+    <p class="src">Источники: Ondo, Centrifuge, Maple; Bitfinex Securities / FinTelegram (ALT2611, 2023); J.P. Morgan (Galaxy, 2025).</p>` },
+
+  { ch: 4, ey: 'Инфраструктура · целевая схема', tone: 'sol', h: 'Один выпуск через <span class="c-blum">Blum</span> доходит до инвестора по любому каналу',
+    p: 'Эмитент вносит деньги на выплаты, Blum обслуживает выпуск на Solana. Инвесторы приходят через биржу, брокеров, кошельки и DeFi.',
+    vis: () => `<div class="chn">
+      <div class="bx ra c1"><b>Эмитент</b><span>вносит деньги на выплаты</span></div>
+      <div class="ah ra c2"><span>деньги</span></div>
+      <div class="sol"><b>Solana</b><div>облигация Token-2022</div><div>расчёты DvP, поставка T+0</div><div class="blum"><b>Blum</b>корпоративные действия</div><div class="aud"><b>Ончейн аудит</b>проверка выплат</div></div>
+      <div class="ah r1 c4"></div><div class="ah r2 c4"><span>выплаты</span></div><div class="ah r3 c4"></div>
+      <div class="bx r1 c5"><b>${KTRI}Площадка оЦФА</b><span>KASE: торги 24/7, учёт ЦД, хранение у кастодиана</span></div>
+      <div class="bx r2 c5"><b>Брокеры и кошельки</b><span>облигации в приложении клиента</span><em class="pl">API planned</em></div>
+      <div class="bx r3 c5"><b>DeFi-vault</b><span>USDC получает доход эмитента</span><em class="pl">planned</em></div>
+      <div class="ah r1 c6"></div><div class="ah r2 c6"></div><div class="ah r3 c6"></div>
+      <div class="bx ra c7"><b>Инвесторы</b><span>купон по позиции на отсечку</span></div>
+    </div>` },
+
+  { ch: 4, ey: 'Привлечение · целевой путь', tone: 'blum', h: 'Blum для <span class="c-blum">TradFi и DeFi</span>',
+    p: 'Операторам ЦФА Blum продаёт обслуживание выпусков их площадки. На DeFi рынке Blum работает с эмитентами напрямую, инвесторы приходят через брокеров, кошельки и DeFi.',
+    vis: () => `<div class="tracks">
+      <b>Операторы ЦФА</b>
+      <div class="rm four">
+        <div class="now"><small>01 · контакт</small><b>KASE</b><span>переговоры с ответственным за обслуживание выпусков</span></div>
+        <div><small>02 · договор</small><b>Заказчик</b><span>согласует условия и оплату обслуживания</span></div>
+        <div><small>03 · запуск</small><b>Площадка</b><span>предлагает выпуск своим инвесторам</span></div>
+        <div><small>04 · рост</small><b>Оператор</b><span>подключает следующих эмитентов</span></div>
+      </div>
+      <b>DeFi рынок</b>
+      <div class="rm four">
+        <div class="now"><small>01 · контакт</small><b>Эмитент</b><span>приносит условия фиксированного долга</span></div>
+        <div><small>02 · выпуск</small><b>Blum</b><span>выпускает облигацию и ведёт выплаты весь срок</span></div>
+        <div><small>03 · доступ</small><b>Брокер или vault</b><span>предлагает выпуск своим клиентам</span><em class="pl">API и vault planned</em></div>
+        <div><small>04 · рост</small><b>Новые эмитенты</b><span>привлекают капитал через готовый канал</span></div>
+      </div>
+    </div>`,
+    foot: true },
+
+  // ---------- Приложение: ответы на вопросы из зала ----------
+  { appx: true, idx: true, ey: 'Приложение', h: 'Ответы на вопросы', p: 'Клик по вопросу открывает ответ.',
+    vis: () => `<div class="qidx"><a onclick="event.stopPropagation();show(i+1)"><b>01</b>Пассивный держатель</a><a onclick="event.stopPropagation();show(i+2)"><b>02</b>Полнота учёта держателей</a><a onclick="event.stopPropagation();show(i+3)"><b>03</b>Тысячи сделок на отсечке</a><a onclick="event.stopPropagation();show(i+4)"><b>04</b>Торги перед погашением</a><a onclick="event.stopPropagation();show(i+5)"><b>05</b>Фондирование и исполнитель</a><a onclick="event.stopPropagation();show(i+6)"><b>06</b>Связь с реестром ЦД</a><a onclick="event.stopPropagation();show(i+7)"><b>07</b>Безопасность</a><a onclick="event.stopPropagation();show(i+8)"><b>08</b>Реализовано и смоделировано</a><a onclick="event.stopPropagation();show(i+9)"><b>09</b>Поддерживаемые облигации</a><a onclick="event.stopPropagation();show(i+10)"><b>10</b>Как проверить самому</a></div>` },
+
+  { appx: true, ey: AX(1), h: 'Держатель получает купон,<br>пока просто хранит облигацию',
+    p: 'Исполнитель отправляет выплату. Программа рассчитывает её по позиции держателя на отсечку.',
+    vis: () => `<div class="ax2">${qa([
+      ['Держатель хранит', 'Его текущее количество определяет позицию на прошедшие отсечки до следующего изменения.'],
+      ['Исполнитель платит', 'Он открывает купон, подтверждает фондирование и отправляет выплаты.'],
+      ['Программа рассчитывает', 'Она определяет сумму по условиям выпуска и позиции на соответствующую отсечку.'],
+      ['Тест показывает', 'Первый купон получили 1 000 держателей за 252 секунды. Среди них 593 держателя только хранили облигации.'] ])}
+      <div><div class="chart" id="payspeed"></div><p class="chart-cap">Исполнитель отправил 167 транзакций по очереди, до 6 держателей в каждой. Solana devnet.</p></div></div>`,
+    chart: () => drawPaySpeed('payspeed') },
+
+  { appx: true, ey: AX(2), h: 'Программа учитывает<br>каждое изменение владения',
+    p: 'Token-2022 вызывает Blum при переводе облигаций.',
+    vis: () => qa([
+      ['Token-2022 вызывает hook', 'Программа сохраняет позиции участников в той же транзакции, что и перевод.'],
+      ['Программа размещает', 'Она выпускает облигации до первой отсечки в пределах объёма выпуска.'],
+      ['Программа сжигает', 'Она сжигает облигации при погашении и выкупе.'],
+      ['Регистратор допускает', 'Он регистрирует кошельки, которые могут получать облигации.'] ]) },
+
+  { appx: true, ey: AX(3), h: 'Тест проверил выплаты<br>после <span class="c-cut">600 переводов у отсечек</span>',
+    p: 'В тесте участвовали 1 000 держателей. Они совершили по 200 переводов после трёх купонных отсечек.',
+    vis: () => qa([
+      ['Сделка обновляет', 'Она сохраняет записи своих участников.'],
+      ['Держатель получает', 'Программа определяет купон по его позиции на соответствующую отсечку.'],
+      ['Аудит проверяет', 'Полученные суммы совпали с условиями выпуска у всех 1 000 держателей.'],
+      ['Команда планирует', 'Она измерит длительную нагрузку отдельным испытанием: planned.'] ]) },
+
+  { appx: true, ey: AX(4), h: 'Программа фиксирует держателей<br>для выплаты номинала',
+    p: 'Купонные отсечки сохраняют переводы. Последняя отсечка закрывает переводы для погашения.',
+    vis: () => qa([
+      ['Держатели торгуют', 'Они переводят облигации во время купонных отсечек.'],
+      ['Программа фиксирует', 'Она закрывает переводы на последней отсечке.'],
+      ['Держатель получает номинал', 'Программа перечисляет деньги и сжигает облигации в одной транзакции.'] ]) },
+
+  { appx: true, ey: AX(5), h: 'Эмитент финансирует выплату.<br>Любой исполнитель отправляет её',
+    p: 'Программа определяет сумму и получателя. Исполнитель оплачивает отправку транзакции.',
+    vis: () => qa([
+      ['Эмитент вносит бюджет', 'Программа начинает выплаты после полного фондирования счёта купона.'],
+      ['Держатель сохраняет право', 'Открытый купон ждёт денег эмитента и транзакции исполнителя.'],
+      ['Другой кошелёк продолжает', 'В тесте 23.10 первый исполнитель остановился после купона 1. Другой кошелёк отправил оставшиеся купоны и погашение.'],
+      ['Программа контролирует повтор', 'Она отклоняет повторную выплату уже оплаченного купона.'] ]) },
+
+  { appx: true, ey: AX(6), h: 'Оператор сверяет позиции Blum<br>с реестром ЦД: <span class="c-cut">planned</span>',
+    p: 'Blum учитывает зарегистрированные кошельки. В казахстанской схеме записи ЦД имеют приоритет.',
+    vis: () => qa([
+      ['Оператор передаёт сведения', 'Он передаёт данные в ЦД минимум раз в день.'],
+      ['Оператор и ЦД сверяют', 'Они устраняют расхождения за рабочий день.'],
+      ['Команда подключает учёт', 'Следующий этап охватывает сверку позиций, кастодианов и номинальных держателей: planned.'] ]) },
+
+  { appx: true, ey: AX(7), h: 'Программа отклонила<br><span class="c-ok">35 попыток обойти правила</span>',
+    p: 'Команда проверила атаки на сданной devnet-программе 11.10.2026.',
+    vis: () => qa([
+      ['Программа защищает выплаты', 'Испытания проверили повторные выплаты, подмену получателя, обход отсечки и другие сценарии.'],
+      ['Команда проверила DvP', 'Обновлённую программу проверяют 46 тестов, включая сделки через DvP.'],
+      ['Один кошелёк управляет upgrade', 'Команда выбирает мультиподпись до промышленного запуска: planned.'],
+      ['Команда заказывает аудит', 'Независимый аудит безопасности кода составляет следующий этап: planned.'] ]) },
+
+  { appx: true, ey: AX(8), h: 'Blum исполнил корпоративные действия<br>транзакциями на devnet',
+    p: 'Тест использует денежный токен с шестью знаками и ускоренное время.',
+    vis: () => qa([
+      ['Программа исполнила', 'Она выполнила купоны, погашение, выкуп и tender. Сделки прошли через Solana DvP. Аудит проверил выплаты.'],
+      ['Тест моделирует деньги', 'Он использует SPL-токен, устроенный как USDC.'],
+      ['Регистратор допускает кошельки', 'Промышленное подключение добавляет KYC: planned.'],
+      ['Тест ускоряет часы', 'День облигации длится от 1 до 20 секунд в разных прогонах.'],
+      ['Партнёры подключают DeFi', 'Схема на слайде 21 показывает DeFi-vault как канал к инвесторам: planned.'] ]) },
+
+  { appx: true, ey: AX(9), h: 'Blum обслуживает регулярные облигации<br>с фиксированным купоном',
+    p: 'Эмитент задаёт ставку, календарь и моменты отсечек в условиях выпуска.',
+    vis: () => qa([
+      ['Программа рассчитывает купон', 'Она поддерживает ставку выше нуля, FixedPerPeriod и 30/360: Bond Basis, European, USA.'],
+      ['Эмитент задаёт график', 'Он выбирает регулярный график до 40 купонных периодов.'],
+      ['Эмитент задаёт календарь', 'Он указывает часовой пояс, выходные, праздники и время отсечки.'],
+      ['Тест проверяет даты', 'Он воспроизвёл опубликованные KASE даты выплат MUM108_0015.'] ]) },
+
+  { appx: true, ey: AX(10), h: 'Зритель проверяет выплаты<br>по транзакциям Solana',
+    p: 'Explorer показывает движение облигаций и денег. Сайт раскрывает этапы и результаты испытаний.',
+    vis: () => qa([
+      ['Explorer показывает транзакции', '<code>explorer.solana.com</code> · сеть devnet. Ссылки открываются из ledger демонстрации.'],
+      ['Сайт показывает исполнение', '<code>blum.caiborg.ai</code> раскрывает этапы и поток транзакций.'],
+      ['Репозиторий содержит проект', '<code>github.com/weArecAIborg/blum-solana-kase</code>'],
+      ['Аудит сравнивает результат', 'Он сопоставляет условия выпуска с движением денег и облигаций в ledger.'] ]) },
+
+];
+
+// Разделитель главы и содержание: оформление обложки, крупно и без линий.
+function divider(n) {
+  const c = CHAPTERS.find(x => x.n === n);
+  return `<p class="ey">Глава ${n} из ${CHAPTERS.length}</p>
+    <div class="mid wide"><div class="name" aria-label="Глава ${n}"><span class="box">0${n}</span></div><h1>${c.name}</h1>
+    ${c.theses ? `<ul class="plist">${c.theses.map(t => `<li>${t}</li>`).join('')}</ul>`
+      : `<div class="th3">${c.points.map(([b, t, cls]) => `<div><b class="${cls || ''}">${b}</b><span>${t}</span></div>`).join('')}</div>`}</div>`;
+}
+function tocSlide() {
+  return `<p class="ey">Superteam Kazakhstan${KTRI}KASE · Demo Day · 27.10.2026</p>
+    <div class="mid wide">
+    <div class="th3 four">${CHAPTERS.map(c => `<a onclick="event.stopPropagation();show(${chRange(c.n)[0] - 1})"><b>0${c.n}</b><span>${c.name}</span></a>`).join('')}</div></div>`;
+}
+function cover() {
+  const layers = Array.from({ length: 18 }, (_, k) => k === 0
+    ? '<i class="top" style="transform:translateZ(0)"></i>'
+    : `<i style="transform:translateZ(${-k * 4}px);filter:brightness(${(0.55 - k * 0.022).toFixed(3)});opacity:${(0.9 - k * 0.03).toFixed(2)}"></i>`).reverse().join('');
+  return `<div class="sol3d" aria-hidden="true"><div class="g">${layers}</div></div>
+    <p class="ey">Superteam Kazakhstan${KTRI}KASE · Demo Day · 27.10.2026</p>
+    <div class="mid"><div class="name" aria-label="Blum"><span class="box">Bl</span>um</div><h1>Решение для операторов ЦФА на <span class="c-sol">Solana</span></h1>
+    <div class="th3"><div><b>24/7</b><span>торги продолжаются в момент отсечки</span></div><div><b>T+0</b><span>поставка в целевой схеме</span></div><div><b class="sol">DvP</b><span>расчёты через Solana</span></div></div></div>
+    <p class="foot"><span>blum.caiborg.ai</span><span>github.com/weArecAIborg/blum-solana-kase</span></p>`;
+}
+
+// Полоса навигации: начало, разделители глав, оглавление приложения.
+const NAVBAR = [['Начало', 0], ...CHAPTERS.map(c => [`<b>0${c.n}</b>${c.name}`, chRange(c.n)[0] - 1]), ['Ответы на вопросы', S.findIndex(s => s.idx)]]
+  .map(([t, n]) => `<a onclick="event.stopPropagation();show(${n})">${t}</a>`).join('');
+
+// ---------- показ ----------
+let i = 0, cur = -1, popOn = false, timers = [];
+const sc = document.getElementById('sc'), nav = document.getElementById('nav');
+const scale = () => Math.min(innerWidth / 1920, innerHeight / 1080);
+// Новая мысль с новой строки: каждое предложение подзаголовка начинается с новой строки.
+const lines = p => p.replace(/([.!?])\s+(?=[А-ЯЁA-Z])/g, '$1<br>');
+const capHtml = s => `<p class="ey">${s.ey}</p><h1>${s.h}</h1><p class="lead">${lines(s.p)}</p>`;
+function render(n) {
+  const s = S[n], prev = S[cur];
+  if (s.run !== undefined && prev && prev.run !== undefined && RV) {
+    // Тот же экран: меняется подпись сверху, внизу меняются значения.
+    const cap = sc.querySelector('.cap'); cap.innerHTML = capHtml(s); flash(cap, 'in');
+    const old = document.getElementById('pop'); if (old) old.remove();
+    if (s.popup) sc.insertAdjacentHTML('beforeend', POP);
+    RV.marks = s.mark; rvGo(s.run, n > cur); rvAudit(s.audit, s.open);
+  } else {
+    rvGen++; RV = null;
+    const before = {};
+    sc.querySelectorAll('[data-k]').forEach(e => { before[e.dataset.k] = e.getBoundingClientRect(); });
+    sc.className = 'sc' + (s.cover || s.div || s.toc ? ' cover' : '') + (s.div ? ' dv' : '') + (s.toc ? ' tocs' : '') + (s.run === undefined ? ' glow' : '') + (s.appx ? ' appx' : '') + (s.idx ? ' idx' : '') + (s.chart ? ' has-chart' : '') + (s.run !== undefined ? ' run' : '');
+    if (s.run !== undefined) {
+      sc.innerHTML = `<div class="cap in">${capHtml(s)}</div>${runScreen()}${s.popup ? POP : ''}`;
+      rvInit(); RV.marks = s.mark;
+      // Вход на экран вперёд: экран въезжает снизу и проходит строки ledger до нужной; иначе сразу нужная строка.
+      let back = -1; for (let j = n - 1; j > 0 && back < 0; j--) if (S[j].run !== undefined) back = S[j].run;
+      if (cur >= 0 && n > cur && back >= 0) { rvSet(back, 'set'); RV.at = back; rvGo(s.run, true, 300); }
+      else if (cur >= 0 && n > cur) { rvSet(0, 'set'); RV.at = 0; document.getElementById('rv').classList.add('intro'); rvGo(s.run, true, 700); }
+      else { rvSet(s.run, 'set'); RV.at = s.run; }
+      rvAudit(s.audit, s.open);
+    } else {
+      sc.innerHTML = s.cover ? cover() : s.div ? divider(s.div) : s.toc ? tocSlide() : `<p class="ey">${s.ey}</p><h1>${s.h}</h1><p class="lead">${lines(s.p)}</p><div class="vis">${s.vis()}</div>
+    ${s.foot ? '<p class="foot"><span>blum.caiborg.ai</span><span>github.com/weArecAIborg/blum-solana-kase</span></p>' : ''}${s.popup ? POP : ''}`;
+      const k = scale();
+      sc.querySelectorAll('[data-k]').forEach(e => {
+        const b = before[e.dataset.k], a = e.getBoundingClientRect();
+        if (!b) return;
+        const dx = (b.left - a.left) / k, dy = (b.top - a.top) / k;
+        if (Math.abs(dx) + Math.abs(dy) > 1) e.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 800, easing: 'cubic-bezier(.2,.7,.2,1)' });
+      });
+      if (s.chart) s.chart();
+    }
+  }
+  cur = n;
+  nav.textContent = `${n + 1} / ${S.length}`;
+  let pg = sc.querySelector('.pg');
+  if (!pg) { pg = document.createElement('p'); pg.className = 'pg'; sc.appendChild(pg); }
+  pg.textContent = `${n + 1} / ${S.length}`;
+  let chp = sc.querySelector('.chp');
+  if (!chp) { chp = document.createElement('p'); chp.className = 'chp'; sc.appendChild(chp); }
+  const c = CHAPTERS.find(x => x.n === s.ch);
+  chp.textContent = c && !s.div ? `Глава ${c.n} · ${c.name}` : '';
+  if (!sc.querySelector('.navbar')) sc.insertAdjacentHTML('beforeend', `<nav class="navbar">${NAVBAR}</nav>`);
+  history.replaceState(null, '', '#s' + (n + 1));
+}
+function togglePop(on) { const p = document.getElementById('pop'); if (!p) return; popOn = on === undefined ? !popOn : on; p.classList.toggle('on', popOn); }
+function show(n) {
+  timers.forEach(clearTimeout); timers = [];
+  i = Math.max(0, Math.min(S.length - 1, n)); popOn = false; render(i);
+  if (S[i].popup) timers.push(setTimeout(() => togglePop(true), 2600), setTimeout(() => togglePop(false), 8600));
+}
+function fit() { sc.style.transform = `scale(${scale()})`; }
+addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') show(i + 1);
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(i - 1);
+  if (e.key === 'p' || e.key === 'P') togglePop();
+  if (e.key === 'Escape') togglePop(false);
+});
+addEventListener('click', () => show(i + 1));
+addEventListener('resize', fit); fit();
+const h = parseInt((location.hash || '#s1').slice(2)); show(isNaN(h) ? 0 : h - 1);
+</script>
+</body>
+</html>
